@@ -1,0 +1,79 @@
+{
+  "name": "@hfrancisla/pi-session-viewer",
+  "version": "0.1.0",
+  "description": "Local, read-only Pi session and system-prompt inspector",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "session-viewer",
+    "observability",
+    "system-prompt"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hfrancisla/pi-session-viewer.git"
+  },
+  "homepage": "https://github.com/hfrancisla/pi-session-viewer",
+  "bugs": {
+    "url": "https://github.com/hfrancisla/pi-session-viewer/issues"
+  },
+  "author": "hfrancisla",
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/extension/index.js"
+    ],
+    "image": "https://raw.githubusercontent.com/hfrancisla/pi-session-viewer/main/assets/gallery-preview.webp"
+  },
+  "scripts": {
+    "dev": "npm run dev:web",
+    "dev:web": "tsx server/dev-server.ts",
+    "dev:extension": "node scripts/build-extension.mjs --watch",
+    "build": "npm run clean && npm run build:web && npm run build:extension && npm run build:standalone",
+    "build:web": "tsc --noEmit && vite build --outDir dist/web",
+    "build:extension": "node scripts/build-extension.mjs",
+    "build:standalone": "node scripts/build-server.mjs",
+    "start": "node dist/standalone/index.js",
+    "test": "vitest run",
+    "test:ui": "playwright test",
+    "test:package": "node scripts/test-package.mjs",
+    "verify": "npm run test && npm run build && npm run test:package",
+    "clean": "node scripts/clean.mjs",
+    "prepack": "npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.85.1",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@playwright/test": "^1.63.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.13.4",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^6.1.1",
+    "esbuild": "^0.28.2",
+    "express": "^5.2.1",
+    "lucide-react": "^1.46.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  }
+}
