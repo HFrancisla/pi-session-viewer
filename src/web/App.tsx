@@ -6,6 +6,7 @@ import { SessionSidebar } from './components/SessionSidebar'
 import { Timeline } from './components/Timeline'
 import { allEventKinds } from '../core/event-kinds'
 import { formatDateTime, formatDuration } from '../core/format'
+import { createSessionCatalog } from '../core/session-catalog'
 import { buildSessionView, getSessionTitle, parseSessionJsonl } from '../core/session-parser'
 import { browserAccessToken, browserInitialCwd } from './session-auth'
 import type { EventKind, ParsedSession, SessionListItem, TimelineEvent } from '../core/types'
@@ -52,6 +53,8 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+
+  const catalog = useMemo(() => createSessionCatalog(sessions, currentCwd), [sessions, currentCwd])
 
   const applyContent = useCallback((content: string, sourceName: string, metadata: SessionListItem | null) => {
     const parsed = parseSessionJsonl(content, sourceName)
@@ -106,13 +109,9 @@ function App() {
     let cancelled = false
     reloadSessions().then((payload) => {
       if (cancelled || !payload || !payload.sessions.length) return
-      const list = payload.sessions
       const targetCwd = payload.currentCwd ?? currentCwd ?? browserInitialCwd()
-      const normalize = (val?: string | null) => (val ? val.replace(/\\/g, '/').replace(/\/+$/, '') : '')
-      const currentProjectSession = targetCwd
-        ? list.find((s) => normalize(s.cwd) === normalize(targetCwd))
-        : undefined
-      void openServerSession(currentProjectSession ?? list[0])
+      const initialSession = createSessionCatalog(payload.sessions, targetCwd).findInitialSession(targetCwd)
+      if (initialSession) void openServerSession(initialSession)
     })
     return () => { cancelled = true }
   }, [currentCwd, openServerSession, reloadSessions])
@@ -179,11 +178,8 @@ function App() {
     const payload = await listPromise
     if (payload && payload.sessions.length > 0) {
       const targetCwd = payload.currentCwd ?? currentCwd ?? browserInitialCwd()
-      const normalize = (val?: string | null) => (val ? val.replace(/\\/g, '/').replace(/\/+$/, '') : '')
-      const currentProjectSession = targetCwd
-        ? payload.sessions.find((s) => normalize(s.cwd) === normalize(targetCwd))
-        : undefined
-      void openServerSession(currentProjectSession ?? payload.sessions[0])
+      const initialSession = createSessionCatalog(payload.sessions, targetCwd).findInitialSession(targetCwd)
+      if (initialSession) void openServerSession(initialSession)
     }
   }
 
@@ -259,7 +255,7 @@ function App() {
       <div className="workspace">
         <div className={`sidebar-layer${sidebarOpen ? ' is-open' : ''}`}>
           <SessionSidebar
-            sessions={sessions}
+            catalog={catalog}
             selectedToken={selectedToken}
             root={sessionRoot}
             loading={listLoading}

@@ -1,17 +1,14 @@
 import { FileJson2, FolderOpen, LoaderCircle, MessageSquareText } from 'lucide-react'
 import { useMemo } from 'react'
+import type { SessionCatalog, ProjectSummary } from '../../core/session-catalog'
+import { normalizePath } from '../../core/session-catalog'
 import type { SessionListItem } from '../../core/types'
 import { formatDateTime } from '../../core/format'
 
-export interface ProjectSummary {
-  cwd: string
-  name: string
-  count: number
-  latestModifiedAt: string
-}
+export type { ProjectSummary }
 
 interface SessionSidebarProps {
-  sessions: SessionListItem[]
+  catalog: SessionCatalog
   selectedToken: string | null
   root: string
   loading: boolean
@@ -25,102 +22,8 @@ interface SessionSidebarProps {
   onImport: () => void
 }
 
-export function normalizePath(cwd?: string | null): string {
-  if (!cwd) return ''
-  return cwd.replace(/\\/g, '/').replace(/\/+$/, '')
-}
-
-export function projectName(cwd: string): string {
-  if (!cwd || cwd === '未知工作目录') return '未知项目'
-  const parts = cwd.split(/[\\/]/).filter(Boolean)
-  return parts.at(-1) ?? cwd
-}
-
-export function sessionItemTitle(session: SessionListItem, root?: string): string {
-  const fileName = session.relativePath.split(/[\\/]/).filter(Boolean).at(-1) ?? session.relativePath
-  const lines: string[] = []
-  if (fileName) {
-    lines.push(`文件：${fileName}`)
-  }
-  if (session.cwd) {
-    lines.push(`工作目录：${session.cwd}`)
-  }
-  if (root && session.relativePath) {
-    const sep = root.endsWith('/') || root.endsWith('\\') ? '' : '/'
-    lines.push(`完整路径：${root}${sep}${session.relativePath}`)
-  }
-  return lines.join('\n')
-}
-
-/**
- * Disambiguates duplicate project directory basenames by prepending the minimum
- * number of parent directory segments required to make each label unique.
- * e.g. ['/a/work/server', '/b/work/server', '/c/client']
- *   -> Map { '/a/work/server' => 'a/work/server', '/b/work/server' => 'b/work/server', '/c/client' => 'client' }
- */
-export function disambiguateProjectNames(cwds: string[]): Map<string, string> {
-  const result = new Map<string, string>()
-  const parsed = cwds.map((cwd) => {
-    const norm = normalizePath(cwd)
-    const segments = norm.split('/').filter(Boolean)
-    return { cwd, norm, segments }
-  })
-
-  for (const item of parsed) {
-    if (!item.norm || item.norm === '未知工作目录') {
-      result.set(item.norm, '未知项目')
-      continue
-    }
-    let depth = 1
-    while (depth <= item.segments.length) {
-      const candidate = item.segments.slice(-depth).join('/')
-      const collision = parsed.some((other) => {
-        if (other.norm === item.norm) return false
-        const otherCandidate = other.segments.slice(-depth).join('/')
-        return otherCandidate === candidate
-      })
-      if (!collision || depth === item.segments.length) {
-        result.set(item.norm, candidate)
-        break
-      }
-      depth++
-    }
-  }
-  return result
-}
-
-export function groupProjects(sessions: SessionListItem[]): ProjectSummary[] {
-  const map = new Map<string, { cwd: string; count: number; latestModifiedAt: string }>()
-  for (const session of sessions) {
-    const key = normalizePath(session.cwd) || '未知工作目录'
-    const existing = map.get(key)
-    if (!existing) {
-      map.set(key, {
-        cwd: session.cwd,
-        count: 1,
-        latestModifiedAt: session.modifiedAt,
-      })
-    } else {
-      existing.count += 1
-      if (session.modifiedAt.localeCompare(existing.latestModifiedAt) > 0) {
-        existing.latestModifiedAt = session.modifiedAt
-      }
-    }
-  }
-
-  const distinctCwds = Array.from(map.values()).map((item) => item.cwd)
-  const disambiguatedNames = disambiguateProjectNames(distinctCwds)
-
-  return Array.from(map.values())
-    .map((item) => ({
-      ...item,
-      name: disambiguatedNames.get(normalizePath(item.cwd)) ?? projectName(item.cwd),
-    }))
-    .sort((a, b) => b.latestModifiedAt.localeCompare(a.latestModifiedAt))
-}
-
 export function SessionSidebar({
-  sessions,
+  catalog,
   selectedToken,
   root,
   loading,
@@ -133,12 +36,8 @@ export function SessionSidebar({
   onSelect,
   onImport,
 }: SessionSidebarProps) {
-  const projects = useMemo(() => groupProjects(sessions), [sessions])
-
-  const projectDisplayNames = useMemo(
-    () => disambiguateProjectNames(projects.map((p) => p.cwd)),
-    [projects],
-  )
+  const projects = catalog.projects
+  const sessions = catalog.allSessions
 
   const effectiveCurrentCwd = useMemo(() => {
     if (currentCwd) return currentCwd
@@ -155,13 +54,13 @@ export function SessionSidebar({
   const filteredSessions = useMemo(() => {
     if (scopeMode === 'current') {
       if (!effectiveCurrentCwd) return sessions
-      return sessions.filter((s) => normalizePath(s.cwd) === normalizePath(effectiveCurrentCwd))
+      return catalog.getSessionsForProject(effectiveCurrentCwd)
     }
     if (selectedProjectCwd) {
-      return sessions.filter((s) => normalizePath(s.cwd) === normalizePath(selectedProjectCwd))
+      return catalog.getSessionsForProject(selectedProjectCwd)
     }
     return sessions
-  }, [sessions, scopeMode, effectiveCurrentCwd, selectedProjectCwd])
+  }, [catalog, sessions, scopeMode, effectiveCurrentCwd, selectedProjectCwd])
 
   return (
     <aside className="session-sidebar" aria-label="会话列表">
@@ -235,14 +134,14 @@ export function SessionSidebar({
             type="button"
             onClick={() => onSelect(session)}
             aria-current={selectedToken === session.token ? 'page' : undefined}
-            title={sessionItemTitle(session, root)}
+            title={catalog.formatSessionTooltip(session, root)}
           >
             <MessageSquareText size={17} aria-hidden="true" />
             <span className="session-item-copy">
               <strong>{session.title}</strong>
               <span>
                 {formatDateTime(session.timestamp ?? session.modifiedAt)}
-                {scopeMode === 'all' ? ` · ${projectDisplayNames.get(normalizePath(session.cwd)) ?? projectName(session.cwd)}` : ''}
+                {scopeMode === 'all' ? ` · ${catalog.getProjectName(session.cwd)}` : ''}
               </span>
             </span>
           </button>
