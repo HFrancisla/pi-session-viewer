@@ -4,16 +4,17 @@ import { buildCausalLayout, causalLaneX, type CausalEventLayout } from '../../co
 import { allEventKinds } from '../../core/event-kinds'
 import { formatClock, formatDuration } from '../../core/format'
 import type { EventKind, ParsedSession, TimelineEvent, TimelineTurn } from '../../core/types'
+import { useI18n } from '../i18n'
 
-const kindMeta: Record<EventKind, { label: string; icon: ComponentType<{ size?: number; className?: string }>; color: string }> = {
-  'system-prompt': { label: '系统提示词', icon: ScrollText, color: '#8a4f68' },
-  'tool-definitions': { label: '工具定义', icon: Boxes, color: '#2f6f8f' },
-  user: { label: '用户', icon: CircleUserRound, color: '#485c66' },
-  assistant: { label: 'Pi 回复', icon: Bot, color: '#246b83' },
-  thinking: { label: 'Thinking', icon: Brain, color: '#765a9a' },
-  'tool-call': { label: '工具调用', icon: Wrench, color: '#a66a18' },
-  'tool-result': { label: '工具结果', icon: CheckCircle2, color: '#2f7d57' },
-  system: { label: '系统', icon: Cog, color: '#66716d' },
+const kindMeta: Record<EventKind, { icon: ComponentType<{ size?: number; className?: string }>; color: string }> = {
+  'system-prompt': { icon: ScrollText, color: '#8a4f68' },
+  'tool-definitions': { icon: Boxes, color: '#2f6f8f' },
+  user: { icon: CircleUserRound, color: '#485c66' },
+  assistant: { icon: Bot, color: '#246b83' },
+  thinking: { icon: Brain, color: '#765a9a' },
+  'tool-call': { icon: Wrench, color: '#a66a18' },
+  'tool-result': { icon: CheckCircle2, color: '#2f7d57' },
+  system: { icon: Cog, color: '#66716d' },
 }
 
 interface TimelineProps {
@@ -66,6 +67,7 @@ function EventRow({ event, selected, causal, maxLanes, highlightedCallId, onSele
   highlightedCallId?: string
   onSelect: () => void
 }) {
+  const { t, localizeTitle } = useI18n()
   const meta = kindMeta[event.kind]
   const Icon = event.kind === 'tool-result' && event.isError ? XCircle : meta.icon
   const isPairRelated = Boolean(highlightedCallId && event.toolCallId === highlightedCallId)
@@ -96,13 +98,15 @@ function EventRow({ event, selected, causal, maxLanes, highlightedCallId, onSele
       </span>
       <span className="event-copy">
         <span className="event-title-line">
-          <strong>{event.title}</strong>
+          <strong>{localizeTitle(event.title)}</strong>
           {causal.eventLane != null && <span className="lane-label">#{causal.eventLane + 1}</span>}
           {event.kind === 'tool-result' && (
-            <span className={`event-status ${event.isError ? 'is-error' : 'is-success'}`}>{event.isError ? '失败' : '成功'}</span>
+            <span className={`event-status ${event.isError ? 'is-error' : 'is-success'}`}>
+              {event.isError ? t.common.failed : t.common.success}
+            </span>
           )}
           {charCount != null && event.kind !== 'system' && (
-            <span className="event-char-count">{charCount.toLocaleString('zh-CN')} 字符</span>
+            <span className="event-char-count">{t.common.chars(charCount)}</span>
           )}
         </span>
         <span className="event-summary">{event.summary}</span>
@@ -123,6 +127,7 @@ export function Timeline({
   onToggleKind,
   onToggleAllKinds,
 }: TimelineProps) {
+  const { t, localizeTitle } = useI18n()
   const causalLayout = buildCausalLayout(allEvents)
   const selectedEvent = allEvents.find((event) => event.id === selectedEventId)
   const highlightedCallId = selectedEvent?.toolCallId
@@ -136,9 +141,9 @@ export function Timeline({
   const allSelected = allEventKinds.length > 0 && allEventKinds.every((kind) => enabledKinds.has(kind))
 
   return (
-    <section className="timeline-panel" aria-label="会话时间轴">
+    <section className="timeline-panel" aria-label={t.timeline.ariaLabel}>
       <div className="filter-bar">
-        <span className="filter-label">显示事件</span>
+        <span className="filter-label">{t.timeline.filterLabel}</span>
         <div className="filter-options">
           {allEventKinds.map((kind) => {
             const FilterIcon = kindMeta[kind].icon
@@ -146,7 +151,7 @@ export function Timeline({
               <label key={kind} style={{ '--filter-color': kindMeta[kind].color } as React.CSSProperties}>
                 <input type="checkbox" checked={enabledKinds.has(kind)} onChange={() => onToggleKind(kind)} />
                 <FilterIcon className="filter-kind-icon" size={13} />
-                {kindMeta[kind].label}
+                {t.timeline.kinds[kind]}
               </label>
             )
           })}
@@ -155,26 +160,26 @@ export function Timeline({
           type="button"
           className={`filter-select-all${allSelected ? ' is-all-selected' : ''}`}
           onClick={onToggleAllKinds}
-          title={allSelected ? '取消全选所有事件类型' : '全选所有事件类型'}
+          title={allSelected ? t.timeline.deselectAllTitle : t.timeline.selectAllTitle}
         >
           {allSelected ? <Square size={13} /> : <CheckCheck size={13} />}
-          {allSelected ? '全不选' : '全\u3000选'}
+          {allSelected ? t.timeline.deselectAll : t.timeline.selectAll}
         </button>
       </div>
 
       <div className="branch-bar">
-        <label htmlFor="branch-select">会话分支</label>
+        <label htmlFor="branch-select">{t.timeline.branchLabel}</label>
         <select id="branch-select" value={selectedLeafId ?? ''} onChange={(event) => onSelectBranch(event.target.value)}>
           {session.branches.map((branch) => (
-            <option key={branch.leafId} value={branch.leafId}>{branch.label}</option>
+            <option key={branch.leafId} value={branch.leafId}>{localizeTitle(branch.label)}</option>
           ))}
         </select>
-        <span>{visibleEventCount} 个可见事件</span>
+        <span>{t.timeline.visibleEvents(visibleEventCount)}</span>
       </div>
 
       {session.warnings.length > 0 && (
         <details className="warning-strip">
-          <summary><AlertTriangle size={16} />{session.warnings.length} 条解析警告<ChevronDown size={15} /></summary>
+          <summary><AlertTriangle size={16} />{t.timeline.warningsSummary(session.warnings.length)}<ChevronDown size={15} /></summary>
           <ul>
             {session.warnings.map((warning, index) => <li key={`${warning.code}-${warning.line ?? index}`}>{warning.message}</li>)}
           </ul>
@@ -185,13 +190,13 @@ export function Timeline({
         {turns.length === 0 ? (
           <div className="timeline-empty">
             <Cog size={25} />
-            <p>{enabledKinds.size === 0 ? '至少选择一种事件类型。' : '当前分支没有可显示的事件。'}</p>
+            <p>{enabledKinds.size === 0 ? t.timeline.emptyNoKinds : t.timeline.emptyNoEvents}</p>
           </div>
         ) : turns.map((turn) => (
           <section className="turn-group" key={turn.id}>
             <header>
-              <span>{turn.label}</span>
-              <span>{turn.events.length} 个事件</span>
+              <span>{localizeTitle(turn.label)}</span>
+              <span>{t.timeline.turnEvents(turn.events.length)}</span>
             </header>
             <div className="turn-events">
               {groupLlmOutputEvents(turn.events, llmBlockCounts).map((group) => {
@@ -208,7 +213,7 @@ export function Timeline({
                 ))
                 if (!group.isLlmOutput) return rows
                 return (
-                  <section className="llm-output-group" key={group.id} aria-label="一轮回复输出">
+                  <section className="llm-output-group" key={group.id} aria-label={t.timeline.llmOutputGroup}>
                     {rows}
                   </section>
                 )

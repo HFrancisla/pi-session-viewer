@@ -1,5 +1,7 @@
 # Pi Session Viewer
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 A local, read-only web inspector for [Pi](https://github.com/earendil-works/pi) coding-agent sessions. Visualizes multi-turn timelines, tool-call causality, and captured system prompt compositions.
 
 ## Install

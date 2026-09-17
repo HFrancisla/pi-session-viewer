@@ -87,7 +87,7 @@ async function sessionMetadata(root: string, filePath: string): Promise<SessionL
       token: encodeSessionToken(relativePath),
       id: typeof header.id === 'string' ? header.id : relativePath,
       title: getSessionTitle(parsed),
-      cwd: typeof header.cwd === 'string' ? header.cwd : '未知工作目录',
+      cwd: typeof header.cwd === 'string' ? header.cwd : 'Unknown working directory',
       timestamp: typeof header.timestamp === 'string' ? header.timestamp : undefined,
       modifiedAt: stat.mtime.toISOString(),
       relativePath,
@@ -109,7 +109,7 @@ export async function listSessions(root: string, currentCwd?: string): Promise<S
         try {
           return await sessionMetadata(rootRealPath, filePath)
         } catch {
-          warnings.push(`无法读取 ${path.relative(rootRealPath, filePath)}`)
+          warnings.push(`Failed to read ${path.relative(rootRealPath, filePath)}`)
           return null
         }
       }))
@@ -119,7 +119,7 @@ export async function listSessions(root: string, currentCwd?: string): Promise<S
     return { root: rootRealPath, currentCwd, sessions, warnings }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return { root, currentCwd, sessions: [], warnings: [`无法扫描 Pi 会话目录：${message}`] }
+    return { root, currentCwd, sessions: [], warnings: [`Failed to scan Pi session directory: ${message}`] }
   }
 }
 
@@ -127,19 +127,19 @@ export async function resolveAllowedSessionFile(root: string, token: string): Pr
   const rootRealPath = await fs.realpath(root)
   const relative = decodeSessionToken(token)
   if (!relative || !relative.endsWith('.jsonl') || path.isAbsolute(relative)) {
-    throw new Error('无效的会话文件标识。')
+    throw new Error('Invalid session file identifier.')
   }
   const candidate = path.resolve(rootRealPath, relative)
   const absolute = await fs.realpath(candidate)
   if (absolute !== rootRealPath && !absolute.startsWith(`${rootRealPath}${path.sep}`)) {
-    throw new Error('请求的文件不在允许目录内。')
+    throw new Error('Requested file is outside allowed directory.')
   }
   const name = path.basename(absolute)
   if (name === 'events.jsonl' || name.endsWith('_transcript.jsonl') || absolute.split(path.sep).includes('subagent-artifacts')) {
-    throw new Error('不允许读取该会话文件。')
+    throw new Error('Reading this session file is not permitted.')
   }
   const stat = await fs.stat(absolute)
-  if (!stat.isFile()) throw new Error('请求的会话文件无效。')
+  if (!stat.isFile()) throw new Error('Requested session file is invalid.')
   return { absolute, relative: path.relative(rootRealPath, absolute) }
 }
 

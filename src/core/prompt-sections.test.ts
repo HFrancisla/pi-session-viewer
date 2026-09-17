@@ -69,38 +69,38 @@ Current working directory: /work/demo`
     const sections = parseSystemPromptSections(prompt, composition)
 
     expect(sections.baseTemplate.content).toContain('You are an expert coding assistant')
-    expect(sections.baseTemplate.meta).toBe(`默认模板, ${sections.baseTemplate.charCount.toLocaleString('zh-CN')} 字符`)
+    expect(sections.baseTemplate.meta).toBe(`Default Template, ${sections.baseTemplate.charCount.toLocaleString('en-US')} chars`)
     expect(sections.baseTemplate.charCount).toBeGreaterThan(0)
     expect(sections.baseTemplate.estimatedTokens).toBeGreaterThan(0)
     expect(sections.baseTemplate.isEmpty).toBe(false)
 
     expect(sections.availableTools.content).toContain('Available tools:\n- read: Read file contents')
-    expect(sections.availableTools.meta).toBe(`4 个工具, ${sections.availableTools.charCount.toLocaleString('zh-CN')} 字符`)
+    expect(sections.availableTools.meta).toBe(`4 tools, ${sections.availableTools.charCount.toLocaleString('en-US')} chars`)
     expect(sections.availableTools.isEmpty).toBe(false)
 
     expect(sections.guidelines.content).toContain('Guidelines:\n- Be concise')
-    expect(sections.guidelines.meta).toBe(`2 条规则, ${sections.guidelines.charCount.toLocaleString('zh-CN')} 字符`)
+    expect(sections.guidelines.meta).toBe(`2 rules, ${sections.guidelines.charCount.toLocaleString('en-US')} chars`)
     expect(sections.guidelines.isEmpty).toBe(false)
 
     expect(sections.documentation.content).toContain('Pi documentation (read only')
-    expect(sections.documentation.meta).toBe(`内置文档, ${sections.documentation.charCount.toLocaleString('zh-CN')} 字符`)
+    expect(sections.documentation.meta).toBe(`Built-in Docs, ${sections.documentation.charCount.toLocaleString('en-US')} chars`)
     expect(sections.documentation.isEmpty).toBe(false)
 
     expect(sections.appendPrompt.content).toBe('Keep evidence concise.')
-    expect(sections.appendPrompt.meta).toBe(`有内容, ${sections.appendPrompt.charCount.toLocaleString('zh-CN')} 字符`)
+    expect(sections.appendPrompt.meta).toBe(`Present, ${sections.appendPrompt.charCount.toLocaleString('en-US')} chars`)
     expect(sections.appendPrompt.isEmpty).toBe(false)
 
     expect(sections.projectContext.content).toContain('<project_context>')
     expect(sections.projectContext.content).toContain('Use tests first.')
-    expect(sections.projectContext.meta).toBe(`1 个文件, ${sections.projectContext.charCount.toLocaleString('zh-CN')} 字符`)
+    expect(sections.projectContext.meta).toBe(`1 file, ${sections.projectContext.charCount.toLocaleString('en-US')} chars`)
     expect(sections.projectContext.isEmpty).toBe(false)
 
     expect(sections.skills.content).toContain('<available_skills>')
-    expect(sections.skills.meta).toBe(`1 个 skills, ${sections.skills.charCount.toLocaleString('zh-CN')} 字符`)
+    expect(sections.skills.meta).toBe(`1 skills, ${sections.skills.charCount.toLocaleString('en-US')} chars`)
     expect(sections.skills.isEmpty).toBe(false)
 
     expect(sections.cwd.content).toBe('Current working directory: /work/demo')
-    expect(sections.cwd.meta).toBe(`${sections.cwd.charCount.toLocaleString('zh-CN')} 字符`)
+    expect(sections.cwd.meta).toBe(`${sections.cwd.charCount.toLocaleString('en-US')} chars`)
     expect(sections.cwd.isEmpty).toBe(false)
   })
 
@@ -118,35 +118,35 @@ Current working directory: /work/demo`
     const sections = parseSystemPromptSections(demoPrompt, composition)
 
     expect(sections.baseTemplate.content).toBe('You are an expert coding assistant.')
-    expect(sections.baseTemplate.meta).toContain('默认模板, ')
-    expect(sections.baseTemplate.meta).toContain('字符')
+    expect(sections.baseTemplate.meta).toContain('Default Template, ')
+    expect(sections.baseTemplate.meta).toContain('chars')
 
     expect(sections.availableTools.content).toBe('Available tools:\n- bash: Execute commands')
-    expect(sections.availableTools.meta).toContain('1 个工具, ')
-    expect(sections.availableTools.meta).toContain('字符')
+    expect(sections.availableTools.meta).toContain('1 tool, ')
+    expect(sections.availableTools.meta).toContain('chars')
 
     expect(sections.guidelines.content).toBe('Guidelines:\n- Be concise')
-    expect(sections.guidelines.meta).toContain('1 条规则, ')
-    expect(sections.guidelines.meta).toContain('字符')
+    expect(sections.guidelines.meta).toContain('1 rule, ')
+    expect(sections.guidelines.meta).toContain('chars')
 
-    expect(sections.documentation.content).toBe('无')
-    expect(sections.documentation.meta).toBe('无')
+    expect(sections.documentation.content).toBe('None')
+    expect(sections.documentation.meta).toBe('None')
 
-    expect(sections.appendPrompt.content).toBe('无')
-    expect(sections.appendPrompt.meta).toBe('无')
+    expect(sections.appendPrompt.content).toBe('None')
+    expect(sections.appendPrompt.meta).toBe('None')
 
     expect(sections.projectContext.content).toContain('<project_context>')
-    expect(sections.projectContext.meta).toContain('1 个文件, ')
-    expect(sections.projectContext.meta).toContain('字符')
+    expect(sections.projectContext.meta).toContain('1 file, ')
+    expect(sections.projectContext.meta).toContain('chars')
 
-    expect(sections.skills.content).toBe('无')
-    expect(sections.skills.meta).toBe('无')
+    expect(sections.skills.content).toBe('None')
+    expect(sections.skills.meta).toBe('None')
 
     expect(sections.cwd.content).toBe('Current working directory: /work/demo')
-    expect(sections.cwd.meta).toBe(`${'Current working directory: /work/demo'.length} 字符`)
+    expect(sections.cwd.meta).toBe(`${'Current working directory: /work/demo'.length} chars`)
   })
 
-  it('handles customPrompt mode where tools and docs are empty and displays "无"', () => {
+  it('handles customPrompt mode where tools and docs are empty and displays "None"', () => {
     const prompt = `You are a custom assistant for a specific domain.
 
 Current working directory: /custom/path`
@@ -164,34 +164,34 @@ Current working directory: /custom/path`
     const sections = parseSystemPromptSections(prompt, composition)
 
     expect(sections.baseTemplate.content).toBe('You are a custom assistant for a specific domain.')
-    expect(sections.baseTemplate.meta).toBe(`自定义模板, ${sections.baseTemplate.charCount} 字符`)
+    expect(sections.baseTemplate.meta).toBe(`Custom Template, ${sections.baseTemplate.charCount} chars`)
 
-    expect(sections.availableTools.content).toBe('无')
-    expect(sections.availableTools.meta).toBe('无')
+    expect(sections.availableTools.content).toBe('None')
+    expect(sections.availableTools.meta).toBe('None')
     expect(sections.availableTools.isEmpty).toBe(true)
 
-    expect(sections.guidelines.content).toBe('无')
-    expect(sections.guidelines.meta).toBe('无')
+    expect(sections.guidelines.content).toBe('None')
+    expect(sections.guidelines.meta).toBe('None')
     expect(sections.guidelines.isEmpty).toBe(true)
 
-    expect(sections.documentation.content).toBe('无')
-    expect(sections.documentation.meta).toBe('无')
+    expect(sections.documentation.content).toBe('None')
+    expect(sections.documentation.meta).toBe('None')
     expect(sections.documentation.isEmpty).toBe(true)
 
-    expect(sections.appendPrompt.content).toBe('无')
-    expect(sections.appendPrompt.meta).toBe('无')
+    expect(sections.appendPrompt.content).toBe('None')
+    expect(sections.appendPrompt.meta).toBe('None')
     expect(sections.appendPrompt.isEmpty).toBe(true)
 
-    expect(sections.projectContext.content).toBe('无')
-    expect(sections.projectContext.meta).toBe('无')
+    expect(sections.projectContext.content).toBe('None')
+    expect(sections.projectContext.meta).toBe('None')
     expect(sections.projectContext.isEmpty).toBe(true)
 
-    expect(sections.skills.content).toBe('无')
-    expect(sections.skills.meta).toBe('无')
+    expect(sections.skills.content).toBe('None')
+    expect(sections.skills.meta).toBe('None')
     expect(sections.skills.isEmpty).toBe(true)
 
     expect(sections.cwd.content).toBe('Current working directory: /custom/path')
-    expect(sections.cwd.meta).toBe(`${'Current working directory: /custom/path'.length} 字符`)
+    expect(sections.cwd.meta).toBe(`${'Current working directory: /custom/path'.length} chars`)
   })
 
   it('falls back to composition.cwd with prefix when prompt does not contain cwd text', () => {
@@ -201,15 +201,15 @@ Current working directory: /custom/path`
     }
     const sections = parseSystemPromptSections(prompt, composition)
     expect(sections.cwd.content).toBe('Current working directory: /fallback/path')
-    expect(sections.cwd.meta).toBe(`${'Current working directory: /fallback/path'.length} 字符`)
+    expect(sections.cwd.meta).toBe(`${'Current working directory: /fallback/path'.length} chars`)
     expect(sections.cwd.isEmpty).toBe(false)
   })
 
   it('handles empty prompt gracefully', () => {
     const sections = parseSystemPromptSections('')
     for (const item of sections.items) {
-      expect(item.content).toBe('无')
-      expect(item.meta).toBe('无')
+      expect(item.content).toBe('None')
+      expect(item.meta).toBe('None')
       expect(item.isEmpty).toBe(true)
       expect(item.charCount).toBe(0)
       expect(item.estimatedTokens).toBe(0)

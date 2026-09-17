@@ -81,7 +81,7 @@ describe('production session HTTP server security', () => {
     const response = await fetch(`${server.url}/api/health`)
 
     expect(response.status).toBe(401)
-    expect(await response.json()).toEqual({ error: '需要有效的访问令牌。' })
+    expect(await response.json()).toEqual({ error: 'Valid access token required.' })
   })
 
   it('returns a fixed health payload after authenticating the instance token', async () => {
@@ -177,7 +177,7 @@ describe('production session HTTP server security', () => {
     const payload = await response.json() as { error: string }
 
     expect(response.status).toBe(404)
-    expect(payload.error).toBe('请求的文件不在允许目录内。')
+    expect(payload.error).toBe('Requested file is outside allowed directory.')
   })
 
   it('rejects a session symlink that escapes the configured root', async () => {
@@ -195,7 +195,7 @@ describe('production session HTTP server security', () => {
     const payload = await response.json() as { error: string }
 
     expect(response.status).toBe(404)
-    expect(payload.error).toBe('请求的文件不在允许目录内。')
+    expect(payload.error).toBe('Requested file is outside allowed directory.')
   })
 
   it('serves the prebuilt SPA entrypoint from the configured web root', async () => {

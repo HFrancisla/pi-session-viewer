@@ -35,7 +35,7 @@ describe('/session-viewer command', () => {
 
     await registrations.get('session-viewer')?.handler('on', commandContext(notifications))
 
-    expect(notifications).toEqual(['面板已启动：http://127.0.0.1:43210/#token=' + 'a'.repeat(64)])
+    expect(notifications).toEqual(['Viewer started at: http://127.0.0.1:43210/#token=' + 'a'.repeat(64)])
   })
 
   it('defaults to on when called without arguments', async () => {
@@ -60,8 +60,8 @@ describe('/session-viewer command', () => {
     await registrations.get('session-viewer')?.handler('   ', commandContext(notifications))
 
     expect(notifications).toEqual([
-      '面板已启动：http://127.0.0.1:43210/#token=' + 'a'.repeat(64),
-      '面板已启动：http://127.0.0.1:43210/#token=' + 'a'.repeat(64),
+      'Viewer started at: http://127.0.0.1:43210/#token=' + 'a'.repeat(64),
+      'Viewer started at: http://127.0.0.1:43210/#token=' + 'a'.repeat(64),
     ])
   })
 
@@ -81,7 +81,7 @@ describe('/session-viewer command', () => {
     await registrations.get('session-viewer')?.handler('off', commandContext(notifications))
 
     expect(stopCount).toBe(1)
-    expect(notifications).toEqual(['面板已关闭。'])
+    expect(notifications).toEqual(['Viewer stopped.'])
   })
 
   it('returns usage for an unknown argument without changing server state', async () => {
@@ -102,6 +102,6 @@ describe('/session-viewer command', () => {
 
     expect(starts).toBe(0)
     expect(stops).toBe(0)
-    expect(notifications).toEqual(['用法：/session-viewer on | off'])
+    expect(notifications).toEqual(['Usage: /session-viewer on | off'])
   })
 })

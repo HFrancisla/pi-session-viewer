@@ -46,25 +46,25 @@ async function handleRequest(
   setSecurityHeaders(response)
 
   if (!isAllowedHost(request.headers.host)) {
-    sendJson(response, 403, { error: '只允许通过本机地址访问。' })
+    sendJson(response, 403, { error: 'Only local loopback access is allowed.' })
     return
   }
 
   if (!isAllowedOrigin(request)) {
-    sendJson(response, 403, { error: '拒绝跨源访问。' })
+    sendJson(response, 403, { error: 'Cross-origin request rejected.' })
     return
   }
 
   const pathname = (request.url ?? '/').split('?', 1)[0] || '/'
 
   if (pathname.startsWith('/api/') && !hasValidBearerToken(request, options.token)) {
-    sendJson(response, 401, { error: '需要有效的访问令牌。' })
+    sendJson(response, 401, { error: 'Valid access token required.' })
     return
   }
 
   if (pathname.startsWith('/api/') && request.method !== 'GET') {
     response.setHeader('Allow', 'GET')
-    sendJson(response, 405, { error: '只支持只读 GET 请求。' })
+    sendJson(response, 405, { error: 'Only read-only GET requests are supported.' })
     return
   }
 
@@ -84,7 +84,7 @@ async function handleRequest(
     try {
       token = decodeURIComponent(pathname.slice(sessionPathPrefix.length))
     } catch {
-      sendJson(response, 400, { error: '无效的会话文件标识。' })
+      sendJson(response, 400, { error: 'Invalid session file identifier.' })
       return
     }
     try {
@@ -107,7 +107,7 @@ async function handleRequest(
     }
   }
 
-  sendJson(response, 404, { error: '未找到请求的资源。' })
+  sendJson(response, 404, { error: 'Requested resource not found.' })
 }
 
 function listen(server: Server, host: string, port: number): Promise<number> {

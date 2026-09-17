@@ -80,6 +80,38 @@ input:focus-visible { outline: 2px solid #246b83; outline-offset: 2px; }
 }
 .icon-button:hover { color: var(--blue); border-color: #9db4bc; background: #fff; }
 .icon-button:disabled { cursor: not-allowed; opacity: .45; }
+
+.lang-toggle-button {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #63706c;
+  background: #f8faf9;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+.lang-toggle-button:hover {
+  color: var(--ink);
+  border-color: #9db4bc;
+  background: #fff;
+}
+.lang-toggle-button span.active {
+  color: var(--blue);
+  font-weight: 700;
+}
+.lang-toggle-button .lang-separator {
+  color: var(--line);
+  font-size: 11px;
+}
+
 .mobile-only { display: none; }
 
 .workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: 272px minmax(480px, 1fr) 384px; }

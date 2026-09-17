@@ -10,6 +10,7 @@ import { createSessionCatalog } from '../core/session-catalog'
 import { buildSessionView, getSessionTitle, parseSessionJsonl } from '../core/session-parser'
 import { browserAccessToken, browserInitialCwd } from './session-auth'
 import type { EventKind, ParsedSession, SessionListItem, TimelineEvent } from '../core/types'
+import { useI18n } from './i18n'
 
 function PiGlyph({ size = 26 }: { size?: number }) {
   return (
@@ -32,6 +33,7 @@ function PiGlyph({ size = 26 }: { size?: number }) {
 }
 
 function App() {
+  const { t, locale, setLocale } = useI18n()
   const [accessToken] = useState<string | null>(() => browserAccessToken())
   const [currentCwd, setCurrentCwd] = useState<string | null>(() => browserInitialCwd())
   const [scopeMode, setScopeMode] = useState<'current' | 'all'>('current')
@@ -41,7 +43,7 @@ function App() {
   const [listWarnings, setListWarnings] = useState<string[]>([])
   const [listLoading, setListLoading] = useState(true)
   const [sessionLoading, setSessionLoading] = useState(false)
-  const [loadError, setLoadError] = useState(() => accessToken ? '' : '缺少面板访问令牌，请从 Pi 执行 /session-viewer on 后打开链接。')
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
   const [selectedMetadata, setSelectedMetadata] = useState<SessionListItem | null>(null)
   const [parsedSession, setParsedSession] = useState<ParsedSession | null>(null)
@@ -63,7 +65,7 @@ function App() {
     setSelectedLeafId(parsed.currentLeafId)
     setSelectedEventId(null)
     setLoadedAt(new Date().toISOString())
-    setLoadError('')
+    setLoadError(null)
   }, [])
 
   const openServerSession = useCallback(async (session: SessionListItem) => {
@@ -146,7 +148,7 @@ function App() {
       setSessionLoading(true)
       try {
         const [sessionPayload, payload] = await Promise.all([
-          accessToken ? fetchSession(selectedToken, accessToken) : Promise.reject(new Error('缺少访问令牌')),
+          accessToken ? fetchSession(selectedToken, accessToken) : Promise.reject(new Error(t.header.missingToken)),
           listPromise,
         ])
         const updatedMetadata = payload?.sessions.find((item) => item.token === selectedToken) ?? selectedMetadata
@@ -218,35 +220,47 @@ function App() {
     setInspectorOpen(true)
   }
 
-  const title = parsedSession ? getSessionTitle(parsedSession) : '选择一个会话'
+  const displayError = loadError ?? (!accessToken ? t.header.missingToken : null)
+  const title = parsedSession ? getSessionTitle(parsedSession) : t.header.selectSession
 
   return (
     <div className="app-shell">
       <header className="app-header">
-        <button className="icon-button mobile-only" type="button" onClick={() => { setInspectorOpen(false); setSidebarOpen(true) }} title="打开会话列表" aria-label="打开会话列表">
+        <button className="icon-button mobile-only" type="button" onClick={() => { setInspectorOpen(false); setSidebarOpen(true) }} title={t.header.openSidebar} aria-label={t.header.openSidebar}>
           <Menu size={19} />
         </button>
-        <div className="product-mark" aria-label="Pi 会话分析">
+        <div className="product-mark" aria-label={t.common.productName}>
           <span className="product-glyph"><PiGlyph size={18} /></span>
-          <strong>Pi 会话分析</strong>
+          <strong>{t.common.productName}</strong>
         </div>
         <div className="header-session">
           <strong>{title}</strong>
-          <span>{selectedMetadata?.cwd ?? parsedSession?.header?.cwd ?? '尚未加载记录'}</span>
+          <span>{selectedMetadata?.cwd ?? parsedSession?.header?.cwd ?? t.header.noSessionLoaded}</span>
         </div>
         <div className="header-actions">
-          {loadedAt && <span className="loaded-at"><Clock3 size={14} />{formatDateTime(loadedAt)} 已加载</span>}
+          {loadedAt && <span className="loaded-at"><Clock3 size={14} />{t.header.loadedAt(formatDateTime(loadedAt))}</span>}
+          <button
+            type="button"
+            className="lang-toggle-button"
+            onClick={() => setLocale(locale === 'en' ? 'zh-CN' : 'en')}
+            title={locale === 'en' ? '切换为简体中文' : 'Switch to English'}
+            aria-label="EN / 中"
+          >
+            <span className={locale === 'en' ? 'active' : ''}>EN</span>
+            <span className="lang-separator">/</span>
+            <span className={locale === 'zh-CN' ? 'active' : ''}>中</span>
+          </button>
           <button
             className="icon-button"
             type="button"
             onClick={() => void refreshCurrent()}
             disabled={sessionLoading || listLoading || (!accessToken && !importedFile)}
-            title="重新读取会话与列表"
-            aria-label="重新读取会话与列表"
+            title={t.header.reloadTitle}
+            aria-label={t.header.reloadTitle}
           >
             <RefreshCw className={sessionLoading || listLoading ? 'spin' : ''} size={18} />
           </button>
-          <button className="icon-button mobile-only" type="button" onClick={() => { setSidebarOpen(false); setInspectorOpen(true) }} title="打开详情" aria-label="打开详情">
+          <button className="icon-button mobile-only" type="button" onClick={() => { setSidebarOpen(false); setInspectorOpen(true) }} title={t.header.openInspector} aria-label={t.header.openInspector}>
             <PanelRightOpen size={19} />
           </button>
         </div>
@@ -271,19 +285,19 @@ function App() {
         </div>
 
         <main className="main-stage">
-          {loadError ? (
+          {displayError ? (
             <div className="load-state is-error" role="alert">
               <AlertCircle size={28} />
-              <h1>无法打开会话</h1>
-              <p>{loadError}</p>
+              <h1>{t.overview.failedToOpen}</h1>
+              <p>{displayError}</p>
             </div>
           ) : parsedSession && view ? (
             <>
-              <section className="session-summary" aria-label="会话概览">
-                <div><span>条目</span><strong>{parsedSession.stats.entryCount}</strong></div>
-                <div><span>轮次</span><strong>{parsedSession.stats.turnCount}</strong></div>
-                <div><span>总跨度</span><strong>{formatDuration(parsedSession.stats.elapsedMs)}</strong></div>
-                <div><span>开始</span><strong>{formatDateTime(parsedSession.stats.startedAt)}</strong></div>
+              <section className="session-summary" aria-label={t.overview.sessionSummary}>
+                <div><span>{t.overview.entries}</span><strong>{parsedSession.stats.entryCount}</strong></div>
+                <div><span>{t.overview.turns}</span><strong>{parsedSession.stats.turnCount}</strong></div>
+                <div><span>{t.overview.duration}</span><strong>{formatDuration(parsedSession.stats.elapsedMs)}</strong></div>
+                <div><span>{t.overview.started}</span><strong>{formatDateTime(parsedSession.stats.startedAt)}</strong></div>
               </section>
               <Timeline
                 session={parsedSession}
@@ -301,8 +315,8 @@ function App() {
           ) : (
             <div className="load-state">
               <Rows3 size={30} />
-              <h1>{sessionLoading ? '正在读取会话' : '打开一次 Pi 会话'}</h1>
-              <p>{sessionLoading ? '正在恢复条目树和调用关系。' : '从左侧选择本地记录，或打开一个 JSONL 文件。'}</p>
+              <h1>{sessionLoading ? t.overview.loadingTitle : t.overview.emptyTitle}</h1>
+              <p>{sessionLoading ? t.overview.loadingDesc : t.overview.emptyDesc}</p>
             </div>
           )}
         </main>
@@ -310,7 +324,7 @@ function App() {
         <Inspector event={selectedEvent} mobileOpen={inspectorOpen} onClose={() => setInspectorOpen(false)} />
       </div>
 
-      {(sidebarOpen || inspectorOpen) && <button className="mobile-backdrop" type="button" onClick={() => { setSidebarOpen(false); setInspectorOpen(false) }} aria-label="关闭浮层" />}
+      {(sidebarOpen || inspectorOpen) && <button className="mobile-backdrop" type="button" onClick={() => { setSidebarOpen(false); setInspectorOpen(false) }} aria-label={t.header.closeOverlay} />}
 
       <input
         ref={fileInput}

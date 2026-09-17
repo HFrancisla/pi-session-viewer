@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import packageManifest from '../../package.json'
 import { configuredSessionRootSync } from './session-discovery'
 import { startSessionHttpServer } from './http-server'
 
@@ -13,11 +14,11 @@ const server = await startSessionHttpServer({
   token,
   host,
   port,
-  version: '0.1.0',
+  version: typeof packageManifest.version === 'string' ? packageManifest.version : '0.2.0',
   currentCwd: process.cwd(),
 })
 
-process.stdout.write(`Pi 会话分析已启动：http://${server.host}:${server.port}\n`)
+process.stdout.write(`Pi session viewer started at: http://${server.host}:${server.port}\n`)
 
 let shuttingDown = false
 async function shutdown(): Promise<void> {

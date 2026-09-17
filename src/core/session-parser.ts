@@ -49,7 +49,7 @@ function contentText(content: unknown): string {
       if (!isObject(block)) return ''
       if (block.type === 'text') return stringValue(block.text) ?? ''
       if (block.type === 'thinking') return stringValue(block.thinking) ?? ''
-      if (block.type === 'image') return `[图片 ${stringValue(block.mimeType) ?? '未知格式'}]`
+      if (block.type === 'image') return `[Image ${stringValue(block.mimeType) ?? 'unknown format'}]`
       return ''
     })
     .filter(Boolean)
@@ -69,7 +69,7 @@ function getPath(entries: ParsedEntry[], leafId: string, warnings?: ParseWarning
   while (cursor) {
     if (seen.has(cursor.id)) {
       if (warnings && !warnings.some((warning) => warning.code === 'cycle' && warning.line === cursor?.line)) {
-        warnings.push({ code: 'cycle', line: cursor.line, message: `第 ${cursor.line} 行形成 parentId 循环，路径已在此处停止。` })
+        warnings.push({ code: 'cycle', line: cursor.line, message: `Cycle detected at line ${cursor.line} on parentId; path stopped here.` })
       }
       break
     }
@@ -111,7 +111,7 @@ function buildBranches(entries: ParsedEntry[], currentLeafId: string | null): Br
     }
     const isCurrent = leaf.id === currentLeafId
     let label = named
-    if (!label) label = isCurrent ? '当前分支' : `历史分支 ${index + (currentLeafId ? 0 : 1)}`
+    if (!label) label = isCurrent ? 'Current branch' : `Historical branch ${index + (currentLeafId ? 0 : 1)}`
     return {
       leafId: leaf.id,
       label,
@@ -121,7 +121,7 @@ function buildBranches(entries: ParsedEntry[], currentLeafId: string | null): Br
   })
 }
 
-export function parseSessionJsonl(content: string, sourceName = '本地文件'): ParsedSession {
+export function parseSessionJsonl(content: string, sourceName = 'Local file'): ParsedSession {
   const warnings: ParseWarning[] = []
   const entries: ParsedEntry[] = []
   const seenIds = new Set<string>()
@@ -136,12 +136,12 @@ export function parseSessionJsonl(content: string, sourceName = '本地文件'):
     try {
       raw = JSON.parse(line)
     } catch {
-      warnings.push({ code: 'invalid-json', line: lineNumber, message: `第 ${lineNumber} 行不是完整 JSON，已跳过。` })
+      warnings.push({ code: 'invalid-json', line: lineNumber, message: `Line ${lineNumber} is not valid JSON; skipped.` })
       continue
     }
 
     if (!isObject(raw)) {
-      warnings.push({ code: 'invalid-entry', line: lineNumber, message: `第 ${lineNumber} 行不是 JSON 对象，已跳过。` })
+      warnings.push({ code: 'invalid-entry', line: lineNumber, message: `Line ${lineNumber} is not a JSON object; skipped.` })
       continue
     }
 
@@ -153,16 +153,16 @@ export function parseSessionJsonl(content: string, sourceName = '本地文件'):
     const id = stringValue(raw.id)
     const type = stringValue(raw.type)
     if (!id || !type) {
-      warnings.push({ code: 'invalid-entry', line: lineNumber, message: `第 ${lineNumber} 行缺少 id 或 type，已跳过。` })
+      warnings.push({ code: 'invalid-entry', line: lineNumber, message: `Line ${lineNumber} is missing id or type; skipped.` })
       continue
     }
     if (seenIds.has(id)) {
-      warnings.push({ code: 'duplicate-id', line: lineNumber, message: `第 ${lineNumber} 行的 id “${id}” 重复，已跳过。` })
+      warnings.push({ code: 'duplicate-id', line: lineNumber, message: `Duplicate id "${id}" at line ${lineNumber}; skipped.` })
       continue
     }
     seenIds.add(id)
     if (!KNOWN_ENTRY_TYPES.has(type)) {
-      warnings.push({ code: 'unknown-type', line: lineNumber, message: `第 ${lineNumber} 行包含未知事件类型 “${type}”，仍会保留。` })
+      warnings.push({ code: 'unknown-type', line: lineNumber, message: `Unknown event type "${type}" at line ${lineNumber}; preserved.` })
     }
 
     entries.push({
@@ -176,7 +176,7 @@ export function parseSessionJsonl(content: string, sourceName = '本地文件'):
   }
 
   if (!header) {
-    warnings.unshift({ code: 'invalid-header', message: '没有找到 type 为 session 的文件头；已尝试解析其余条目。' })
+    warnings.unshift({ code: 'invalid-header', message: 'Missing session header entry; parsed remaining entries.' })
   }
 
   const ids = new Set(entries.map((entry) => entry.id))
@@ -185,7 +185,7 @@ export function parseSessionJsonl(content: string, sourceName = '本地文件'):
       warnings.push({
         code: 'missing-parent',
         line: entry.line,
-        message: `第 ${entry.line} 行引用了不存在的 parentId “${entry.parentId}”。`,
+        message: `Line ${entry.line} references non-existent parentId "${entry.parentId}".`,
       })
     }
   }
@@ -236,18 +236,18 @@ function messageEvents(entry: ParsedEntry): TimelineEvent[] {
   if (role === 'user') {
     const content = contentText(message.content)
     return [{
-      id: `${entry.id}:user`, entryId: entry.id, kind: 'user', title: '用户', summary: truncate(content),
+      id: `${entry.id}:user`, entryId: entry.id, kind: 'user', title: 'User', summary: truncate(content),
       content, timestamp, durationMs: durationValue(message), raw: entry.raw,
     }]
   }
 
   if (role === 'toolResult') {
     const content = contentText(message.content)
-    const toolName = stringValue(message.toolName) ?? '未知工具'
+    const toolName = stringValue(message.toolName) ?? 'Unknown tool'
     const isError = message.isError === true
     return [{
       id: `${entry.id}:result`, entryId: entry.id, kind: 'tool-result',
-      title: `${toolName} 返回${isError ? '失败' : '结果'}`, summary: truncate(content), content,
+      title: `${toolName} ${isError ? 'failed' : 'result'}`, summary: truncate(content), content,
       timestamp, durationMs: durationValue(message), toolCallId: stringValue(message.toolCallId), toolName,
       isError, raw: entry.raw,
     }]
@@ -256,7 +256,7 @@ function messageEvents(entry: ParsedEntry): TimelineEvent[] {
   if (role !== 'assistant') {
     const content = contentText(message.content)
     return [{
-      id: `${entry.id}:message`, entryId: entry.id, kind: 'system', title: `消息：${role}`,
+      id: `${entry.id}:message`, entryId: entry.id, kind: 'system', title: `Message: ${role}`,
       summary: truncate(content), content, timestamp, raw: entry.raw,
     }]
   }
@@ -275,7 +275,7 @@ function messageEvents(entry: ParsedEntry): TimelineEvent[] {
     if (!textBuffer.length) return
     const content = textBuffer.join('\n\n')
     events.push({
-      id: `${entry.id}:assistant:${textStartIndex}`, entryId: entry.id, kind: 'assistant', title: 'Pi 回复',
+      id: `${entry.id}:assistant:${textStartIndex}`, entryId: entry.id, kind: 'assistant', title: 'Pi Response',
       summary: truncate(content), content, timestamp, durationMs: durationValue(message), model, raw: entry.raw,
     })
     textBuffer = []
@@ -296,18 +296,18 @@ function messageEvents(entry: ParsedEntry): TimelineEvent[] {
         summary: truncate(content), content, timestamp, model, raw: entry.raw,
       })
     } else if (block.type === 'toolCall') {
-      const toolName = stringValue(block.name) ?? '未知工具'
+      const toolName = stringValue(block.name) ?? 'Unknown tool'
       const toolCallId = stringValue(block.id)
       const content = JSON.stringify(block.arguments ?? {}, null, 2)
       events.push({
-        id: `${entry.id}:tool:${index}`, entryId: entry.id, kind: 'tool-call', title: `调用 ${toolName}`,
+        id: `${entry.id}:tool:${index}`, entryId: entry.id, kind: 'tool-call', title: `Call ${toolName}`,
         summary: truncate(content), content, timestamp, durationMs: durationValue(block), toolCallId, toolName,
         model, raw: entry.raw,
       })
     } else if (block.type === 'image') {
       events.push({
-        id: `${entry.id}:image:${index}`, entryId: entry.id, kind: 'assistant', title: 'Pi 回复',
-        summary: `[图片 ${stringValue(block.mimeType) ?? '未知格式'}]`, content: '[首版不专门渲染图片内容]',
+        id: `${entry.id}:image:${index}`, entryId: entry.id, kind: 'assistant', title: 'Pi Response',
+        summary: `[Image ${stringValue(block.mimeType) ?? 'unknown format'}]`, content: '[Image rendering omitted]',
         timestamp, model, raw: entry.raw,
       })
     }
@@ -316,7 +316,7 @@ function messageEvents(entry: ParsedEntry): TimelineEvent[] {
 
   if (!events.length) {
     events.push({
-      id: `${entry.id}:assistant`, entryId: entry.id, kind: 'assistant', title: 'Pi 回复', summary: '无文本内容',
+      id: `${entry.id}:assistant`, entryId: entry.id, kind: 'assistant', title: 'Pi Response', summary: 'No text content',
       content: '', timestamp, durationMs: durationValue(message), model, raw: entry.raw,
     })
   }
@@ -340,13 +340,13 @@ function promptComposition(value: unknown): SystemPromptComposition | undefined 
   if (!isObject(value)) return undefined
   const contextFiles = Array.isArray(value.contextFiles)
     ? value.contextFiles.filter(isObject).map((file) => ({
-        path: stringValue(file.path) ?? '未知路径',
+        path: stringValue(file.path) ?? 'Unknown path',
         content: stringValue(file.content) ?? '',
       }))
     : []
   const skills = Array.isArray(value.skills)
     ? value.skills.filter(isObject).map((skill) => ({
-        name: stringValue(skill.name) ?? '未命名 skill',
+        name: stringValue(skill.name) ?? 'Unnamed skill',
         description: stringValue(skill.description) ?? '',
         filePath: stringValue(skill.filePath) ?? '',
         baseDir: stringValue(skill.baseDir),
@@ -356,7 +356,7 @@ function promptComposition(value: unknown): SystemPromptComposition | undefined 
   const toolDefinitions: CapturedToolDefinition[] = Array.isArray(value.toolDefinitions)
     ? value.toolDefinitions.filter(isObject).map((tool) => ({
         ...tool,
-        name: stringValue(tool.name) ?? '未命名工具',
+        name: stringValue(tool.name) ?? 'Unnamed tool',
         description: stringValue(tool.description),
         parameters: tool.parameters,
         promptGuidelines: stringArray(tool.promptGuidelines),
@@ -398,18 +398,18 @@ function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, Pr
   const recordType = data.recordType === 'reference' ? 'reference' : 'snapshot'
   const captureStage = data.captureStage === 'provider_request_update' ? 'provider_request_update' : 'agent_start'
   const summaryParts: string[] = []
-  if (composition?.selectedTools.length) summaryParts.push(`${composition.selectedTools.length} 个工具`)
-  if (composition?.contextFiles.length) summaryParts.push(`${composition.contextFiles.length} 个上下文文件`)
-  if (composition?.skills.length) summaryParts.push(`${composition.skills.length} 个 skills`)
-  const defaultSummary = recordType === 'snapshot' ? '完整快照' : recordType === 'reference' ? '快照引用' : '系统提示词'
+  if (composition?.selectedTools.length) summaryParts.push(`${composition.selectedTools.length} tools`)
+  if (composition?.contextFiles.length) summaryParts.push(`${composition.contextFiles.length} context files`)
+  if (composition?.skills.length) summaryParts.push(`${composition.skills.length} skills`)
+  const defaultSummary = recordType === 'snapshot' ? 'Full snapshot' : recordType === 'reference' ? 'Snapshot reference' : 'System prompt'
 
   return {
     id: `${entry.id}:system-prompt`,
     entryId: entry.id,
     kind: 'system-prompt',
-    title: prompt ? (captureStage === 'provider_request_update' ? '系统提示词更新' : '系统提示词') : '系统提示词快照缺失',
-    summary: prompt ? (summaryParts.length ? summaryParts.join(' · ') : defaultSummary) : `无法解析哈希 ${hash ?? '未知'} 的提示词快照`,
-    content: prompt ?? '该引用对应的完整系统提示词快照不在当前会话文件中。',
+    title: prompt ? (captureStage === 'provider_request_update' ? 'System prompt update' : 'System prompt') : 'System prompt missing',
+    summary: prompt ? (summaryParts.length ? summaryParts.join(' · ') : defaultSummary) : `Unable to resolve prompt snapshot for hash ${hash ?? 'unknown'}`,
+    content: prompt ?? 'The complete system prompt snapshot for this reference is not in the current session file.',
     timestamp: entry.timestamp,
     targetEntryId: stringValue(data.targetUserEntryId),
     systemPrompt: {
@@ -441,8 +441,8 @@ function buildToolDefinitionsEvent(promptEvent: TimelineEvent): TimelineEvent | 
     id: `${promptEvent.entryId}:tool-definitions`,
     entryId: promptEvent.entryId,
     kind: 'tool-definitions',
-    title: '工具定义',
-    summary: `已挂载 ${tools.length} 个 API 工具`,
+    title: 'Tool Definitions',
+    summary: `Mounted ${tools.length} API tools`,
     content: jsonContent,
     timestamp: promptEvent.timestamp,
     targetEntryId: promptEvent.targetEntryId,
@@ -468,19 +468,19 @@ function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotD
 
   const raw = entry.raw
   const labels: Record<string, string> = {
-    model_change: '模型切换',
-    thinking_level_change: 'Thinking 等级切换',
-    compaction: '上下文压缩',
-    branch_summary: '分支摘要',
-    custom: `自定义事件：${stringValue(raw.customType) ?? '未命名'}`,
-    custom_message: `自定义消息：${stringValue(raw.customType) ?? '未命名'}`,
-    label: '分支标签',
-    session_info: '会话信息',
+    model_change: 'Model Switch',
+    thinking_level_change: 'Thinking Level Switch',
+    compaction: 'Context Compaction',
+    branch_summary: 'Branch Summary',
+    custom: `Custom event: ${stringValue(raw.customType) ?? 'unnamed'}`,
+    custom_message: `Custom message: ${stringValue(raw.customType) ?? 'unnamed'}`,
+    label: 'Branch label',
+    session_info: 'Session info',
   }
   let content = ''
   let model: { provider?: string; id?: string } | undefined
   if (entry.type === 'model_change') {
-    content = `${stringValue(raw.provider) ?? '未知提供方'} / ${stringValue(raw.modelId) ?? '未知模型'}`
+    content = `${stringValue(raw.provider) ?? 'Unknown provider'} / ${stringValue(raw.modelId) ?? 'Unknown model'}`
     model = { provider: stringValue(raw.provider), id: stringValue(raw.modelId) }
   }
   else if (entry.type === 'thinking_level_change') content = stringValue(raw.thinkingLevel) ?? ''
@@ -491,7 +491,7 @@ function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotD
   else content = JSON.stringify(raw.data ?? raw, null, 2)
 
   return [{
-    id: `${entry.id}:system`, entryId: entry.id, kind: 'system', title: labels[entry.type] ?? `未知事件：${entry.type}`,
+    id: `${entry.id}:system`, entryId: entry.id, kind: 'system', title: labels[entry.type] ?? `Unknown event: ${entry.type}`,
     summary: truncate(content), content, timestamp: entry.timestamp, durationMs: durationValue(raw), model, raw,
   }]
 }
@@ -524,9 +524,9 @@ function missingSystemPromptEvent(user: TimelineEvent): TimelineEvent {
     id: `missing-system-prompt:${user.entryId}`,
     entryId: `missing-system-prompt:${user.entryId}`,
     kind: 'system-prompt',
-    title: '系统提示词未记录',
-    summary: '该轮发生在捕获扩展启用之前，无法准确恢复。',
-    content: '这个 session JSONL 没有保存该轮实际使用的系统提示词。为保证准确性，面板不会根据当前文件和配置推测历史内容。',
+    title: 'System prompt unrecorded',
+    summary: 'This turn occurred before the capture extension was loaded and cannot be restored.',
+    content: 'This session JSONL does not contain the system prompt for this turn. To maintain accuracy, historical prompts are never guessed from current configuration.',
     timestamp: user.timestamp,
     targetEntryId: user.entryId,
     systemPrompt: { recordType: 'missing' },
@@ -587,8 +587,8 @@ function placeSystemPromptsBeforeUsers(events: TimelineEvent[]): TimelineEvent[]
             changedPrompts.forEach((prompt, index) => {
               prompt.timestamp = event.timestamp
               prompt.gapMs = index === 0 ? event.gapMs : 0
-              if (prompt.title === '系统提示词') {
-                prompt.title = '系统提示词更新'
+              if (prompt.title === 'System prompt') {
+                prompt.title = 'System prompt update'
               }
               if (prompt.systemPrompt?.promptHash) {
                 activePromptHash = prompt.systemPrompt.promptHash
@@ -624,11 +624,11 @@ function groupTurns(events: TimelineEvent[]): TimelineTurn[] {
     }
     if (event.kind === 'user') {
       turnIndex += 1
-      current = { id: `turn-${turnIndex}`, index: turnIndex, label: `第 ${turnIndex} 轮`, events: [], startedAt: event.timestamp }
+      current = { id: `turn-${turnIndex}`, index: turnIndex, label: `Turn ${turnIndex}`, events: [], startedAt: event.timestamp }
       current.events.push(...promptPrelude.splice(0))
       turns.push(current)
     } else if (!current) {
-      current = { id: 'turn-setup', index: 0, label: '会话设置', events: [] }
+      current = { id: 'turn-setup', index: 0, label: 'Session setup', events: [] }
       turns.push(current)
     }
     current.events.push(event)
@@ -637,7 +637,7 @@ function groupTurns(events: TimelineEvent[]): TimelineTurn[] {
 
   if (promptPrelude.length > 0) {
     if (!current) {
-      current = { id: 'turn-setup', index: 0, label: '会话设置', events: [] }
+      current = { id: 'turn-setup', index: 0, label: 'Session setup', events: [] }
       turns.push(current)
     }
     current.events.push(...promptPrelude)

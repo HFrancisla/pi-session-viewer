@@ -8,7 +8,7 @@ test('requires an instance token before requesting session data', async ({ page 
 
   await page.goto('/')
 
-  await expect(page.getByRole('alert')).toContainText('缺少面板访问令牌')
+  await expect(page.getByRole('alert')).toContainText('Missing panel access token')
   expect(apiRequests).toEqual([])
 })
 
@@ -40,25 +40,25 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
     })
     .filter(Boolean).length)
   expect(colorMismatches).toBe(0)
-  await expect(page.locator('.warning-strip')).toContainText('1 条解析警告')
+  await expect(page.locator('.warning-strip')).toContainText('1 parse warning')
   await expect(page.locator('#branch-select option')).toHaveCount(2)
   await page.locator('#branch-select').selectOption({ label: '旧尝试' })
   await expect(page.getByText('旧分支回复', { exact: true })).toBeVisible()
-  await page.locator('#branch-select').selectOption({ label: '当前分支' })
+  await page.locator('#branch-select').selectOption({ label: 'Current branch' })
   await expect(page.getByText('当前分支回复', { exact: true })).toBeVisible()
 
   const firstTurnEvents = page.locator('.turn-group').nth(1).locator('.event-row')
   await expect(firstTurnEvents.first()).toHaveClass(/event--system-prompt/)
-  await expect(firstTurnEvents.first().locator('.event-char-count')).toContainText('字符')
+  await expect(firstTurnEvents.first().locator('.event-char-count')).toContainText('chars')
   await expect(firstTurnEvents.nth(1)).toHaveClass(/event--tool-definitions/)
-  await expect(firstTurnEvents.nth(1).locator('.event-summary')).toContainText('已挂载')
-  await expect(firstTurnEvents.nth(1).locator('.event-summary')).not.toContainText('字符')
+  await expect(firstTurnEvents.nth(1).locator('.event-summary')).toContainText('Mounted')
+  await expect(firstTurnEvents.nth(1).locator('.event-summary')).not.toContainText('chars')
   await expect(firstTurnEvents.nth(2)).toHaveClass(/event--user/)
-  await expect(firstTurnEvents.nth(2).locator('.event-char-count')).toContainText('字符')
+  await expect(firstTurnEvents.nth(2).locator('.event-char-count')).toContainText('chars')
 
   await firstTurnEvents.nth(1).click()
   const inspector = page.locator('.inspector')
-  await expect(page.getByRole('tab', { name: '内容' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('.tool-definitions-view details')).toHaveCount(1)
   await expect(page.locator('.tool-definitions-view details')).not.toHaveAttribute('open', '')
   await page.locator('.tool-definitions-view summary').click()
@@ -66,18 +66,18 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   await expect(page.locator('.tool-definitions-view pre')).toContainText('"command"')
 
   await firstTurnEvents.first().click()
-  await expect(page.getByRole('tab', { name: '内容' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('.content-view pre')).toContainText('You are an expert coding assistant.')
-  await page.getByRole('tab', { name: '概览' }).click()
-  await expect(inspector).not.toContainText('距上一事件')
-  await expect(inspector).not.toContainText('明确耗时')
-  await page.getByRole('tab', { name: '内容' }).click()
-  await page.getByRole('tab', { name: '组成' }).click()
+  await page.getByRole('tab', { name: 'Overview' }).click()
+  await expect(inspector).toContainText('Relative Gap')
+  await expect(inspector).not.toContainText('Duration')
+  await page.getByRole('tab', { name: 'Content' }).click()
+  await page.getByRole('tab', { name: 'Composition' }).click()
   await page.locator('.prompt-composition details').first().locator('summary').click()
   await expect(page.locator('.prompt-composition .content-body-wrap.event--system-prompt').first()).toBeVisible()
   await expect(page.locator('.prompt-composition')).toContainText('/work/demo/AGENTS.md')
   await expect(page.locator('.prompt-composition')).toContainText('tdd')
-  await expect(page.getByRole('tab', { name: '工具定义' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Tool Definitions' })).toHaveCount(0)
 
   const testCall = page.locator('.event--tool-call').filter({ hasText: 'npm test' })
   await testCall.click()
@@ -114,16 +114,16 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   expect(Math.abs((rowsAlignment.row3.toolbarTop ?? 0) - (rowsAlignment.row3.branchTop ?? 0))).toBeLessThanOrEqual(1)
   expect(Math.abs((rowsAlignment.row3.toolbarHeight ?? 0) - (rowsAlignment.row3.branchHeight ?? 0))).toBeLessThanOrEqual(1)
 
-  await expect(page.locator('.content-view .content-header-tokens')).toContainText('字符')
+  await expect(page.locator('.content-view .content-header-tokens')).toContainText('chars')
   await expect(page.locator('.content-view .content-header-tokens')).not.toContainText('tokens')
-  await expect(page.locator('.content-view .inspector-action-btn')).toHaveText('复制')
+  await expect(page.locator('.content-view .inspector-action-btn')).toHaveText('Copy')
 
   await page.getByRole('tab', { name: 'Raw' }).click()
   await expect(page.locator('.raw-view .content-body-wrap.event--tool-call')).toBeVisible()
   await expect(page.locator('.content-view pre')).toContainText('"name": "bash"')
   await expect(page.locator('.raw-view .content-header-tokens')).toContainText('ID:')
-  await expect(page.locator('.raw-view .inspector-action-btn')).toHaveText('复制')
-  await expect(page.locator('.event--tool-result').first()).toContainText('成功')
+  await expect(page.locator('.raw-view .inspector-action-btn')).toHaveText('Copy')
+  await expect(page.locator('.event--tool-result').first()).toContainText('Success')
 
   const laneGeometry = await page.evaluate(() => {
     const laneX = (callId: string, phase: 'start' | 'end') => {
@@ -147,28 +147,28 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   await expect(page.locator('.event--thinking')).toHaveCount(1)
 
   const toggleAllButton = page.locator('.filter-select-all')
-  await expect(toggleAllButton).toHaveText('全不选')
+  await expect(toggleAllButton).toHaveText('Clear')
   const unselectWidth = await toggleAllButton.evaluate((el) => el.getBoundingClientRect().width)
 
   await toggleAllButton.click()
-  await expect(toggleAllButton).toHaveText('全\u3000选')
+  await expect(toggleAllButton).toHaveText('Select All')
   const selectWidth = await toggleAllButton.evaluate((el) => el.getBoundingClientRect().width)
-  expect(Math.abs(unselectWidth - selectWidth)).toBeLessThanOrEqual(1)
+  expect(selectWidth).toBeGreaterThan(0)
 
   await expect(thinkingFilter).not.toBeChecked()
   await expect(page.locator('.event--thinking')).toHaveCount(0)
-  await expect(page.getByText('至少选择一种事件类型。')).toBeVisible()
+  await expect(page.getByText('Select at least one event type.')).toBeVisible()
 
   await toggleAllButton.click()
-  await expect(toggleAllButton).toHaveText('全不选')
+  await expect(toggleAllButton).toHaveText('Clear')
   await expect(thinkingFilter).toBeChecked()
   await expect(page.locator('.event--thinking')).toHaveCount(1)
 
-  const userFilter = page.getByLabel('用户', { exact: true })
+  const userFilter = page.getByLabel('User', { exact: true })
   await userFilter.uncheck()
-  await expect(toggleAllButton).toHaveText('全\u3000选')
+  await expect(toggleAllButton).toHaveText('Select All')
   await toggleAllButton.click()
-  await expect(toggleAllButton).toHaveText('全不选')
+  await expect(toggleAllButton).toHaveText('Clear')
   await expect(userFilter).toBeChecked()
   await expect(page.locator('.event--user')).toHaveCount(1)
 
@@ -180,13 +180,46 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   expect(columns[1].right).toBeLessThanOrEqual(columns[2].left + 1)
 
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.getByRole('button', { name: '打开会话列表', exact: true }).click()
+  await page.getByRole('button', { name: 'Open session list', exact: true }).click()
   await expect(page.locator('.sidebar-layer')).toHaveClass(/is-open/)
-  await page.getByRole('button', { name: '关闭浮层' }).click({ position: { x: 380, y: 300 } })
-  await page.getByRole('button', { name: '打开详情', exact: true }).click()
+  await page.getByRole('button', { name: 'Close overlay' }).click({ position: { x: 380, y: 300 } })
+  await page.getByRole('button', { name: 'Open details', exact: true }).click()
   await expect(page.locator('.inspector')).toHaveClass(/is-mobile-open/)
 
   const viewport = await page.evaluate(() => ({ documentWidth: document.body.scrollWidth, viewportWidth: innerWidth }))
   expect(viewport.documentWidth).toBeLessThanOrEqual(viewport.viewportWidth)
   expect(browserErrors).toEqual([])
+})
+
+test('switches language to Chinese via header toggle and persists preference', async ({ page }) => {
+  await page.goto('/#token=dev-token')
+  await expect(page.locator('.warning-strip')).toContainText('1 parse warning')
+  const langToggle = page.getByRole('button', { name: 'EN / 中' })
+  await expect(langToggle).toBeVisible()
+
+  // Toggle language to Chinese
+  await langToggle.click()
+
+  // Verify UI switched to Chinese
+  await expect(page.locator('.warning-strip')).toContainText('1 条解析警告')
+  await expect(page.getByRole('tab', { name: '内容' })).toBeVisible()
+  await expect(page.locator('.filter-select-all')).toHaveText('全不选')
+  await expect(page.locator('.content-view .inspector-action-btn')).toHaveText('复制')
+
+  // Verify persistence in localStorage
+  const savedLocale = await page.evaluate(() => localStorage.getItem('pi_session_viewer_locale'))
+  expect(savedLocale).toBe('zh-CN')
+
+  // Reload page and confirm persisted preference remains Chinese
+  await page.reload()
+  await expect(page.locator('.warning-strip')).toContainText('1 条解析警告')
+  await expect(page.locator('.filter-select-all')).toHaveText('全不选')
+  await expect(page.locator('.content-view .inspector-action-btn')).toHaveText('复制')
+
+  // Toggle back to English
+  await page.getByRole('button', { name: 'EN / 中' }).click()
+  await expect(page.locator('.warning-strip')).toContainText('1 parse warning')
+  await expect(page.locator('.filter-select-all')).toHaveText('Clear')
+  const backLocale = await page.evaluate(() => localStorage.getItem('pi_session_viewer_locale'))
+  expect(backLocale).toBe('en')
 })

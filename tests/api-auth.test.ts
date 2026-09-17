@@ -16,14 +16,14 @@ describe('authenticated session API client', () => {
   })
 
   it('turns an expired instance token into an actionable panel-closed error', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: '需要有效的访问令牌。' }, { status: 401 })))
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: 'Valid access token required.' }, { status: 401 })))
 
-    await expect(fetchSessions('expired-token')).rejects.toThrow('面板服务已关闭或 Pi 已退出')
+    await expect(fetchSessions('expired-token')).rejects.toThrow('Viewer server is unavailable or Pi has exited')
   })
 
   it('turns a disconnected server into the same actionable error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed') }))
 
-    await expect(fetchSessions('missing-server')).rejects.toThrow('面板服务已关闭或 Pi 已退出')
+    await expect(fetchSessions('missing-server')).rejects.toThrow('Viewer server is unavailable or Pi has exited')
   })
 })

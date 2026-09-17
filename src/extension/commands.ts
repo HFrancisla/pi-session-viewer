@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from '@earendil-works/pi-c
 import type { ServerController } from './server-controller'
 
 export const SESSION_VIEWER_COMMAND = 'session-viewer'
-export const SESSION_VIEWER_USAGE = '用法：/session-viewer on | off'
+export const SESSION_VIEWER_USAGE = 'Usage: /session-viewer on | off'
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -13,15 +13,15 @@ export function registerSessionViewerCommand(
   controller: ServerController,
 ): void {
   pi.registerCommand(SESSION_VIEWER_COMMAND, {
-    description: '启动或停止本地 Pi 会话分析面板（不带参数默认为 on）',
+    description: 'Start or stop the local Pi session viewer panel (defaults to on)',
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const command = (args ?? '').trim().toLowerCase()
       if (command === 'on' || command === '') {
         try {
           const panel = await controller.start(ctx.cwd)
-          ctx.ui.notify(`面板已启动：${panel.url}`, 'info')
+          ctx.ui.notify(`Viewer started at: ${panel.url}`, 'info')
         } catch (error) {
-          ctx.ui.notify(`面板启动失败：${errorMessage(error)}`, 'error')
+          ctx.ui.notify(`Failed to start viewer: ${errorMessage(error)}`, 'error')
         }
         return
       }
@@ -29,9 +29,9 @@ export function registerSessionViewerCommand(
       if (command === 'off') {
         try {
           await controller.stop()
-          ctx.ui.notify('面板已关闭。', 'info')
+          ctx.ui.notify('Viewer stopped.', 'info')
         } catch (error) {
-          ctx.ui.notify(`面板关闭失败：${errorMessage(error)}`, 'error')
+          ctx.ui.notify(`Failed to stop viewer: ${errorMessage(error)}`, 'error')
         }
         return
       }

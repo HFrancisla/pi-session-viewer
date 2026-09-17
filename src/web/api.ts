@@ -1,6 +1,6 @@
 import type { SessionFileResponse, SessionListResponse } from '../core/types'
 
-const PANEL_UNAVAILABLE_ERROR = '面板服务已关闭或 Pi 已退出，请从 Pi 重新执行 /session-viewer on。'
+const PANEL_UNAVAILABLE_ERROR = 'Viewer server is unavailable or Pi has exited. Run /session-viewer on again from Pi.'
 
 async function request(input: RequestInfo | URL, init: RequestInit): Promise<Response> {
   try {
@@ -19,7 +19,7 @@ async function readJson<T>(response: Response): Promise<T> {
   }
   if (!response.ok) {
     if (response.status === 401) throw new Error(PANEL_UNAVAILABLE_ERROR)
-    throw new Error(payload.error ?? `请求失败（${response.status}）`)
+    throw new Error(payload.error ?? `Request failed (${response.status})`)
   }
   return payload
 }

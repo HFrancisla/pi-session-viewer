@@ -22,7 +22,7 @@ export function normalizePath(cwd?: string | null): string {
 }
 
 export function projectName(cwd: string): string {
-  if (!cwd || cwd === '未知工作目录') return '未知项目'
+  if (!cwd || cwd === 'Unknown working directory') return 'Unknown Project'
   const parts = cwd.split(/[\\/]/).filter(Boolean)
   return parts.at(-1) ?? cwd
 }
@@ -42,8 +42,8 @@ export function disambiguateProjectNames(cwds: string[]): Map<string, string> {
   })
 
   for (const item of parsed) {
-    if (!item.norm || item.norm === '未知工作目录') {
-      result.set(item.norm, '未知项目')
+    if (!item.norm || item.norm === 'Unknown working directory') {
+      result.set(item.norm, 'Unknown Project')
       continue
     }
     let depth = 1
@@ -67,7 +67,7 @@ export function disambiguateProjectNames(cwds: string[]): Map<string, string> {
 function buildProjectSummaries(sessions: SessionListItem[]): ProjectSummary[] {
   const map = new Map<string, { cwd: string; count: number; latestModifiedAt: string }>()
   for (const session of sessions) {
-    const key = normalizePath(session.cwd) || '未知工作目录'
+    const key = normalizePath(session.cwd) || 'Unknown working directory'
     const existing = map.get(key)
     if (!existing) {
       map.set(key, {
@@ -98,14 +98,14 @@ export function formatSessionTooltip(session: SessionListItem, rootDir?: string)
   const fileName = session.relativePath.split(/[\\/]/).filter(Boolean).at(-1) ?? session.relativePath
   const lines: string[] = []
   if (fileName) {
-    lines.push(`文件：${fileName}`)
+    lines.push(`File: ${fileName}`)
   }
   if (session.cwd) {
-    lines.push(`工作目录：${session.cwd}`)
+    lines.push(`Working directory: ${session.cwd}`)
   }
   if (rootDir && session.relativePath) {
     const sep = rootDir.endsWith('/') || rootDir.endsWith('\\') ? '' : '/'
-    lines.push(`完整路径：${rootDir}${sep}${session.relativePath}`)
+    lines.push(`Full path: ${rootDir}${sep}${session.relativePath}`)
   }
   return lines.join('\n')
 }
@@ -123,7 +123,7 @@ export function createSessionCatalog(
   }
 
   for (const session of sessions) {
-    const key = normalizePath(session.cwd) || '未知工作目录'
+    const key = normalizePath(session.cwd) || 'Unknown working directory'
     const list = sessionsByProject.get(key)
     if (list) {
       list.push(session)
@@ -136,7 +136,7 @@ export function createSessionCatalog(
     projects,
     allSessions: sessions,
     getSessionsForProject(cwd: string): SessionListItem[] {
-      const key = normalizePath(cwd) || '未知工作目录'
+      const key = normalizePath(cwd) || 'Unknown working directory'
       return sessionsByProject.get(key) ?? []
     },
     getProjectName(cwd?: string | null): string {

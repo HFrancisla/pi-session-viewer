@@ -4,6 +4,7 @@ import type { SessionCatalog, ProjectSummary } from '../../core/session-catalog'
 import { normalizePath } from '../../core/session-catalog'
 import type { SessionListItem } from '../../core/types'
 import { formatDateTime } from '../../core/format'
+import { useI18n } from '../i18n'
 
 export type { ProjectSummary }
 
@@ -36,6 +37,7 @@ export function SessionSidebar({
   onSelect,
   onImport,
 }: SessionSidebarProps) {
+  const { t, localizeTitle } = useI18n()
   const projects = catalog.projects
   const sessions = catalog.allSessions
 
@@ -63,22 +65,22 @@ export function SessionSidebar({
   }, [catalog, sessions, scopeMode, effectiveCurrentCwd, selectedProjectCwd])
 
   return (
-    <aside className="session-sidebar" aria-label="会话列表">
+    <aside className="session-sidebar" aria-label={t.sidebar.heading}>
       <div className="sidebar-heading">
         <div>
-          <h2>会话</h2>
+          <h2>{t.sidebar.heading}</h2>
           <p>
             {loading
-              ? '正在扫描本地记录'
+              ? t.sidebar.scanning
               : scopeMode === 'current'
-                ? `${filteredSessions.length} 个记录 · 共 ${sessions.length} 个`
-                : `${filteredSessions.length} 个记录`}
+                ? t.sidebar.recordsCountCurrent(filteredSessions.length, sessions.length)
+                : t.sidebar.recordsCountAll(filteredSessions.length)}
           </p>
         </div>
-        {loading && <LoaderCircle className="spin" size={18} aria-label="正在加载" />}
+        {loading && <LoaderCircle className="spin" size={18} aria-label={t.common.loading} />}
       </div>
 
-      <div className="sidebar-scope" aria-label="会话范围切换">
+      <div className="sidebar-scope" aria-label={t.sidebar.scopeSwitcher}>
         <div className="scope-tabs" role="tablist">
           <button
             className={`scope-tab${scopeMode === 'current' ? ' is-active' : ''}`}
@@ -86,9 +88,9 @@ export function SessionSidebar({
             role="tab"
             aria-selected={scopeMode === 'current'}
             onClick={() => onScopeModeChange('current')}
-            title={effectiveCurrentCwd ? `当前项目完整路径：${effectiveCurrentCwd}` : '当前项目'}
+            title={t.sidebar.scopeCurrentTooltip(effectiveCurrentCwd)}
           >
-            当前项目 ({currentProjectCount})
+            {t.sidebar.scopeCurrent(currentProjectCount)}
           </button>
           <button
             className={`scope-tab${scopeMode === 'all' ? ' is-active' : ''}`}
@@ -96,9 +98,9 @@ export function SessionSidebar({
             role="tab"
             aria-selected={scopeMode === 'all'}
             onClick={() => onScopeModeChange('all')}
-            title="查看所有工作区的全部会话"
+            title={t.sidebar.scopeAllTooltip}
           >
-            全部 ({sessions.length})
+            {t.sidebar.scopeAll(sessions.length)}
           </button>
         </div>
 
@@ -108,13 +110,13 @@ export function SessionSidebar({
               className="project-select"
               value={selectedProjectCwd ?? ''}
               onChange={(e) => onProjectFilterChange(e.target.value || null)}
-              aria-label="按项目过滤"
-              title={selectedProjectCwd ? `当前过滤项目路径：${selectedProjectCwd}` : '全部项目（未按特定项目过滤）'}
+              aria-label={t.sidebar.filterByProject}
+              title={t.sidebar.selectedProjectTooltip(selectedProjectCwd)}
             >
-              <option value="" title="全部项目的历史会话">全部项目 ({sessions.length})</option>
+              <option value="" title={t.sidebar.allProjectsOptionTooltip}>{t.sidebar.allProjectsOption(sessions.length)}</option>
               {projects.map((p) => (
-                <option key={p.cwd} value={p.cwd} title={p.cwd}>
-                  {p.name} ({p.count})
+                <option key={p.cwd} value={p.cwd} title={t.sidebar.projectOptionTooltip(p.cwd)}>
+                  {localizeTitle(p.name)} ({p.count})
                 </option>
               ))}
             </select>
@@ -141,7 +143,7 @@ export function SessionSidebar({
               <strong>{session.title}</strong>
               <span>
                 {formatDateTime(session.timestamp ?? session.modifiedAt)}
-                {scopeMode === 'all' ? ` · ${catalog.getProjectName(session.cwd)}` : ''}
+                {scopeMode === 'all' ? ` · ${localizeTitle(catalog.getProjectName(session.cwd))}` : ''}
               </span>
             </span>
           </button>
@@ -151,9 +153,9 @@ export function SessionSidebar({
       {!loading && filteredSessions.length === 0 && sessions.length > 0 && scopeMode === 'current' && (
         <div className="sidebar-empty">
           <FileJson2 size={22} />
-          <p>当前工作区暂无记录。</p>
+          <p>{t.sidebar.emptyCurrent}</p>
           <button className="text-link-button" type="button" onClick={() => onScopeModeChange('all')}>
-            查看全部项目历史 ({sessions.length})
+            {t.sidebar.viewAllProjectsButton(sessions.length)}
           </button>
         </div>
       )}
@@ -161,19 +163,19 @@ export function SessionSidebar({
       {!loading && sessions.length === 0 && (
         <div className="sidebar-empty">
           <FileJson2 size={22} />
-          <p>会话目录中没有可读取的 Pi 记录。</p>
+          <p>{t.sidebar.emptyAll}</p>
         </div>
       )}
 
       <div className="sidebar-footer">
         <button className="import-button" type="button" onClick={onImport}>
           <FolderOpen size={16} />
-          打开 JSONL
+          {t.sidebar.openJsonl}
         </button>
 
         <div className="session-root" title={root}>
-          <span>只读目录</span>
-          <code>{root || '尚未连接'}</code>
+          <span>{t.sidebar.readOnlyDir}</span>
+          <code>{root || t.sidebar.notConnected}</code>
         </div>
       </div>
     </aside>

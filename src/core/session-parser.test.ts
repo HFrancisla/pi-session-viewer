@@ -56,7 +56,7 @@ describe('parseSessionJsonl', () => {
       'system-prompt', 'user', 'thinking', 'assistant', 'tool-call', 'tool-result', 'assistant',
     ])
     expect(view.events[0]).toMatchObject({
-      title: '系统提示词未记录',
+      title: 'System prompt unrecorded',
       targetEntryId: 'u1',
       systemPrompt: { recordType: 'missing' },
     })
@@ -88,7 +88,7 @@ describe('parseSessionJsonl', () => {
 
     expect(session.currentLeafId).toBe('new')
     expect(session.branches).toHaveLength(2)
-    expect(session.branches[0]).toMatchObject({ leafId: 'new', isCurrent: true, label: '当前分支' })
+    expect(session.branches[0]).toMatchObject({ leafId: 'new', isCurrent: true, label: 'Current branch' })
     expect(oldBranch.events.at(-1)?.content).toBe('旧分支')
     expect(currentBranch.events.at(-1)?.content).toBe('当前分支')
   })
@@ -108,7 +108,7 @@ describe('parseSessionJsonl', () => {
     expect(warningCodes).toContain('invalid-json')
     expect(warningCodes).toContain('unknown-type')
     expect(warningCodes).toContain('missing-parent')
-    expect(buildSessionView(session, 'future').events[0]).toMatchObject({ kind: 'system', title: '未知事件：future_event' })
+    expect(buildSessionView(session, 'future').events[0]).toMatchObject({ kind: 'system', title: 'Unknown event: future_event' })
   })
 
   it('only displays system prompt on the first turn unless the prompt changes in subsequent turns', () => {
@@ -152,9 +152,9 @@ describe('parseSessionJsonl', () => {
     expect(view.turns[2].events.map((e) => e.kind)).toEqual(['system-prompt', 'user', 'assistant'])
 
     expect(promptEvents).toHaveLength(2)
-    expect(promptEvents[0].title).toBe('系统提示词')
+    expect(promptEvents[0].title).toBe('System prompt')
     expect(promptEvents[0].content).toBe('Captured system prompt')
-    expect(promptEvents[1].title).toBe('系统提示词更新')
+    expect(promptEvents[1].title).toBe('System prompt update')
     expect(promptEvents[1].content).toBe('Updated prompt with bash tool')
     expect(promptEvents[1].systemPrompt?.composition?.selectedTools).toEqual(['read', 'bash'])
   })
@@ -196,8 +196,8 @@ describe('parseSessionJsonl', () => {
 
     const toolDefEvent = view.events.find((e) => e.kind === 'tool-definitions')
     expect(toolDefEvent).toBeDefined()
-    expect(toolDefEvent?.title).toBe('工具定义')
-    expect(toolDefEvent?.summary).toBe('已挂载 1 个 API 工具')
+    expect(toolDefEvent?.title).toBe('Tool Definitions')
+    expect(toolDefEvent?.summary).toBe('Mounted 1 API tools')
     expect(toolDefEvent?.toolDefinitions?.[0]).toMatchObject({
       name: 'read',
       description: 'Read file contents',
@@ -235,12 +235,12 @@ describe('parseSessionJsonl', () => {
     const view = buildSessionView(session)
 
     expect(view.turns).toHaveLength(2)
-    expect(view.turns[0].label).toBe('会话设置')
+    expect(view.turns[0].label).toBe('Session setup')
     expect(view.turns[0].events.map((e) => e.kind)).toEqual(['system'])
-    expect(view.turns[1].label).toBe('第 1 轮')
+    expect(view.turns[1].label).toBe('Turn 1')
     expect(view.turns[1].events.map((e) => e.kind)).toEqual(['system-prompt', 'user', 'assistant'])
     expect(view.turns[1].events[0]).toMatchObject({
-      title: '系统提示词',
+      title: 'System prompt',
       content: 'Legacy system prompt',
       targetEntryId: 'u1',
     })
@@ -268,12 +268,12 @@ describe('parseSessionJsonl', () => {
     const view = buildSessionView(session)
 
     expect(view.turns).toHaveLength(2)
-    expect(view.turns[0].label).toBe('会话设置')
+    expect(view.turns[0].label).toBe('Session setup')
     expect(view.turns[0].events.map((e) => e.kind)).toEqual(['system'])
-    expect(view.turns[1].label).toBe('第 1 轮')
+    expect(view.turns[1].label).toBe('Turn 1')
     expect(view.turns[1].events.map((e) => e.kind)).toEqual(['system-prompt', 'user', 'assistant'])
     expect(view.turns[1].events[0]).toMatchObject({
-      title: '系统提示词',
+      title: 'System prompt',
       content: 'New system prompt',
       targetEntryId: 'u1',
     })

@@ -34,10 +34,10 @@ function countGuidelineLines(text: string): number {
 }
 
 function formatMetaWithChars(label: string, charCount: number): string {
-  if (charCount === 0 || label === '无') {
-    return '无'
+  if (charCount === 0 || label === 'None') {
+    return 'None'
   }
-  const charText = `${charCount.toLocaleString('zh-CN')} 字符`
+  const charText = `${charCount.toLocaleString('en-US')} chars`
   if (!label) {
     return charText
   }
@@ -150,54 +150,54 @@ export function parseSystemPromptSections(
   }
 
   // Determine metadata labels
-  let baseLabel = '无'
+  let baseLabel = 'None'
   if (composition?.customPrompt) {
-    baseLabel = '自定义模板'
+    baseLabel = 'Custom Template'
   } else if (baseTemplate) {
-    baseLabel = '默认模板'
+    baseLabel = 'Default Template'
   }
 
-  let toolsLabel = '无'
+  let toolsLabel = 'None'
   const toolsCount = composition?.selectedTools?.length ?? countToolLines(availableTools)
   if (toolsCount > 0) {
-    toolsLabel = `${toolsCount} 个工具`
+    toolsLabel = `${toolsCount} ${toolsCount === 1 ? 'tool' : 'tools'}`
   } else if (availableTools) {
-    toolsLabel = '有内容'
+    toolsLabel = 'Present'
   }
 
-  let guidelinesLabel = '无'
+  let guidelinesLabel = 'None'
   const guidelinesCount = composition?.promptGuidelines?.length ?? countGuidelineLines(guidelines)
   if (guidelinesCount > 0) {
-    guidelinesLabel = `${guidelinesCount} 条规则`
+    guidelinesLabel = `${guidelinesCount} ${guidelinesCount === 1 ? 'rule' : 'rules'}`
   } else if (guidelines) {
-    guidelinesLabel = '有内容'
+    guidelinesLabel = 'Present'
   }
 
-  const docsLabel = documentation ? '内置文档' : '无'
-  const appendLabel = appendPrompt ? '有内容' : '无'
+  const docsLabel = documentation ? 'Built-in Docs' : 'None'
+  const appendLabel = appendPrompt ? 'Present' : 'None'
 
-  let contextLabel = '无'
+  let contextLabel = 'None'
   const contextFilesCount = composition?.contextFiles?.length ?? 0
   if (contextFilesCount > 0) {
-    contextLabel = `${contextFilesCount} 个文件`
+    contextLabel = `${contextFilesCount} ${contextFilesCount === 1 ? 'file' : 'files'}`
   } else if (projectContext) {
-    contextLabel = '有内容'
+    contextLabel = 'Present'
   }
 
-  let skillsLabel = '无'
+  let skillsLabel = 'None'
   const skillsCount = composition?.skills?.length ?? 0
   if (skillsCount > 0) {
-    skillsLabel = `${skillsCount} 个 skills`
+    skillsLabel = `${skillsCount} skills`
   } else if (skillsContent) {
-    skillsLabel = '有内容'
+    skillsLabel = 'Present'
   }
 
   const baseTemplateItem: PromptSectionItem = {
     id: 'base-template',
     index: 1,
-    title: '基础模板',
+    title: 'Base Template',
     meta: formatMetaWithChars(baseLabel, baseTemplate.length),
-    content: baseTemplate || '无',
+    content: baseTemplate || 'None',
     charCount: baseTemplate.length,
     estimatedTokens: Math.ceil(baseTemplate.length / 4),
     isEmpty: !baseTemplate,
@@ -206,9 +206,9 @@ export function parseSystemPromptSections(
   const availableToolsItem: PromptSectionItem = {
     id: 'available-tools',
     index: 2,
-    title: '可用工具',
+    title: 'Available Tools',
     meta: formatMetaWithChars(toolsLabel, availableTools.length),
-    content: availableTools || '无',
+    content: availableTools || 'None',
     charCount: availableTools.length,
     estimatedTokens: Math.ceil(availableTools.length / 4),
     isEmpty: !availableTools,
@@ -217,9 +217,9 @@ export function parseSystemPromptSections(
   const guidelinesItem: PromptSectionItem = {
     id: 'guidelines',
     index: 3,
-    title: '行为准则',
+    title: 'Guidelines',
     meta: formatMetaWithChars(guidelinesLabel, guidelines.length),
-    content: guidelines || '无',
+    content: guidelines || 'None',
     charCount: guidelines.length,
     estimatedTokens: Math.ceil(guidelines.length / 4),
     isEmpty: !guidelines,
@@ -228,9 +228,9 @@ export function parseSystemPromptSections(
   const documentationItem: PromptSectionItem = {
     id: 'documentation',
     index: 4,
-    title: '系统文档指引',
+    title: 'System Documentation',
     meta: formatMetaWithChars(docsLabel, documentation.length),
-    content: documentation || '无',
+    content: documentation || 'None',
     charCount: documentation.length,
     estimatedTokens: Math.ceil(documentation.length / 4),
     isEmpty: !documentation,
@@ -239,9 +239,9 @@ export function parseSystemPromptSections(
   const appendPromptItem: PromptSectionItem = {
     id: 'append-prompt',
     index: 5,
-    title: '追加指令',
+    title: 'Append Instructions',
     meta: formatMetaWithChars(appendLabel, appendPrompt.length),
-    content: appendPrompt || '无',
+    content: appendPrompt || 'None',
     charCount: appendPrompt.length,
     estimatedTokens: Math.ceil(appendPrompt.length / 4),
     isEmpty: !appendPrompt,
@@ -250,9 +250,9 @@ export function parseSystemPromptSections(
   const projectContextItem: PromptSectionItem = {
     id: 'project-context',
     index: 6,
-    title: '项目上下文',
+    title: 'Project Context',
     meta: formatMetaWithChars(contextLabel, projectContext.length),
-    content: projectContext || '无',
+    content: projectContext || 'None',
     charCount: projectContext.length,
     estimatedTokens: Math.ceil(projectContext.length / 4),
     isEmpty: !projectContext,
@@ -263,7 +263,7 @@ export function parseSystemPromptSections(
     index: 7,
     title: 'Skills',
     meta: formatMetaWithChars(skillsLabel, skillsContent.length),
-    content: skillsContent || '无',
+    content: skillsContent || 'None',
     charCount: skillsContent.length,
     estimatedTokens: Math.ceil(skillsContent.length / 4),
     isEmpty: !skillsContent,
@@ -272,9 +272,9 @@ export function parseSystemPromptSections(
   const cwdItem: PromptSectionItem = {
     id: 'cwd',
     index: 8,
-    title: '工作目录',
+    title: 'Working Directory',
     meta: formatMetaWithChars('', cwdContent.length),
-    content: cwdContent || '无',
+    content: cwdContent || 'None',
     charCount: cwdContent.length,
     estimatedTokens: Math.ceil(cwdContent.length / 4),
     isEmpty: !cwdContent,

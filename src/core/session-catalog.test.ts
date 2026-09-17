@@ -119,7 +119,7 @@ describe('SessionCatalog domain module', () => {
       expect(catalog.getProjectName('/home/user/repo-a/server')).toBe('repo-a/server')
       expect(catalog.getProjectName('/home/user/repo-b/server/')).toBe('repo-b/server')
       expect(catalog.getProjectName('/unknown/path')).toBe('path')
-      expect(catalog.getProjectName(null)).toBe('未知项目')
+      expect(catalog.getProjectName(null)).toBe('Unknown Project')
     })
 
     it('formats session tooltip with exact file name, working directory, and full path', () => {
@@ -135,9 +135,9 @@ describe('SessionCatalog domain module', () => {
 
       const tooltip = catalog.formatSessionTooltip(session, '/home/hzf/.pi/agent/sessions')
       expect(tooltip).toBe(
-        '文件：2026-08-20T05-39-20-410Z_01a01dae.jsonl\n' +
-        '工作目录：/home/hzf/workspace/agent-projects\n' +
-        '完整路径：/home/hzf/.pi/agent/sessions/--home-hzf-workspace-agent-projects--/2026-08-20T05-39-20-410Z_01a01dae.jsonl',
+        'File: 2026-08-20T05-39-20-410Z_01a01dae.jsonl\n' +
+        'Working directory: /home/hzf/workspace/agent-projects\n' +
+        'Full path: /home/hzf/.pi/agent/sessions/--home-hzf-workspace-agent-projects--/2026-08-20T05-39-20-410Z_01a01dae.jsonl',
       )
     })
   })

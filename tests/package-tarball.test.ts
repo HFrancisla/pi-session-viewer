@@ -15,10 +15,11 @@ describe('npm package tarball', () => {
 
     expect(files).toContain('package.json')
     expect(files).toContain('README.md')
+    expect(files).toContain('README.zh-CN.md')
     expect(files).toContain('LICENSE')
     expect(files).toContain('dist/extension/index.js')
     expect(files).toContain('dist/standalone/index.js')
     expect(files).toContain('dist/web/index.html')
-    expect(files.every((file) => file === 'package.json' || file === 'README.md' || file === 'LICENSE' || file.startsWith('dist/'))).toBe(true)
+    expect(files.every((file) => file === 'package.json' || file === 'README.md' || file === 'README.zh-CN.md' || file === 'LICENSE' || file.startsWith('dist/'))).toBe(true)
   }, 30_000)
 })
