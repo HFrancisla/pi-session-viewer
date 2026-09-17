@@ -4,6 +4,8 @@
 
 为 [Pi](https://github.com/earendil-works/pi) 编程助手量身打造的本地只读会话可视化与系统提示词（System Prompt）分析面板。直观呈现多轮时间轴、工具调用因果链以及提示词快照结构。
 
+![Pi Session Viewer 预览图](https://raw.githubusercontent.com/hfrancisla/pi-session-viewer/main/assets/gallery-preview.webp)
+
 ## 安装
 
 ```bash
