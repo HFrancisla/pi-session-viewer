@@ -1,6 +1,6 @@
 # Pi Session Viewer
 
-`@hfrancisla/pi-session-viewer` is a local, read-only inspector for Pi coding-agent sessions and the system prompts captured by this package.
+A local, read-only web inspector for [Pi](https://github.com/earendil-works/pi) coding-agent sessions. Visualizes multi-turn timelines, tool-call causality, and captured system prompt compositions.
 
 ## Install
 
@@ -8,47 +8,42 @@
 pi install npm:@hfrancisla/pi-session-viewer
 ```
 
-Restart Pi or run `/reload`, then send the next message. The extension is loaded by Pi and system-prompt capture is enabled automatically.
+Restart Pi or run `/reload`. The extension loads automatically and begins capturing system prompts on the next turn.
 
-## Use
+## Usage
 
 ```text
-/session-viewer
-/session-viewer on
-/session-viewer off
+/session-viewer       # Start viewer (alias for on)
+/session-viewer on    # Start viewer and open in browser
+/session-viewer off   # Stop viewer (system prompt capture continues)
 ```
 
-Running `/session-viewer` (or `/session-viewer on`) starts one loopback-only viewer instance on an operating-system-assigned port and displays a tokenized URL. It may open the default browser. Running it again reuses the same instance.
+- Starting the viewer opens a local tokenized dashboard in your browser.
+- Session switches (`/new`, `/resume`, `/fork`) require running `/session-viewer on` again.
+- Discover sessions directly from Pi's storage or import any `.jsonl` session file via the browser.
 
-`off` stops only the viewer. System-prompt capture continues; uninstalling the package stops future capture. Pi session replacement (`/new`, `/resume`, `/fork`, or `/reload`) requires running `on` again.
+## Key Features
 
-The viewer can discover sessions from Pi's configured session directory, switch branches, inspect tool-call causality, and open a JSONL file directly with the browser File API.
+- **Timeline & Causality**: Tracks user turns, thinking blocks, and paired tool calls with visual causality rails.
+- **System Prompt Breakdown**: Inspects prompt structure across base instructions, tool definitions, skills, and context files.
+- **Multi-Project Catalog**: Groups sessions by project working directory with automatic path collision disambiguation.
+- **Local JSONL Import**: Inspect arbitrary session files offline via file drag-and-drop.
 
-## Local data and privacy
+## Security & Privacy
 
-> Installing this package enables the extension to save the complete Pi system prompt, context-file contents, skill metadata, and tool prompt information to the local Pi session by default. Data is not uploaded, is not used for telemetry, and is not sent back to the model as a captured message. Uninstalling the package stops future capture; existing session data is not deleted.
-
-The captured entry uses `customType = pi-session-viewer.system-prompt` and schema version `1`. Repeated prompts are stored as SHA-256-backed references after their first complete snapshot. The package does not save full provider request payloads, request headers, credentials, or native tool JSON Schema.
-
-The viewer listens only on `127.0.0.1`, requires a per-instance bearer token, rejects non-local Host/Origin requests, and exposes read-only APIs. The token is kept in the URL fragment, moved to the current tab's `sessionStorage`, and removed from the address bar.
-
-Sessions created before the package was installed cannot have their historical system prompts reconstructed accurately. Those turns are shown as **系统提示词未记录**; current files, skills, or tool configuration are never substituted as historical content.
+- **Local Only**: Listens strictly on `127.0.0.1` with a per-instance random bearer token. No cloud sync, telemetry, or remote access.
+- **Read-Only**: The web interface cannot mutate sessions or execute commands.
+- **Capture Scope**: Saves system prompts, skill metadata, and context file snapshots to local session files. Does **not** record API keys, request headers, or credentials.
+- **Historical Sessions**: Turns recorded prior to package installation display as *unrecorded*; past prompts are never guessed.
 
 ## Development
 
 ```bash
 npm install
-npm run dev
-npm test
-npm run test:ui
-npm run build
-npm run verify
+npm run dev        # Web dev server
+npm test           # Unit & integration tests
+npm run build      # Build web assets and extension bundle
+npm run verify     # Full verification suite
 ```
 
-The development server uses `PI_CODING_AGENT_SESSION_DIR` when set, then `~/.pi/agent/settings.json`, then `~/.pi/agent/sessions`. Production package runtime is prebuilt under `dist/` and does not require Vite, TypeScript, or `tsx`.
-
-Before testing the package, remove any old manual link such as `~/.pi/agent/extensions/pi-session-viewer-system-prompt.ts`; otherwise the capture hook can load twice. Use `pi install /path/to/pi-session-viewer` and `/reload` to test the package entrypoint.
-
-## Scope
-
-This package is intended for the Pi runtime that loads it. It does not provide cloud access, telemetry, session mutation, provider-payload replay, or guaranteed capture for third-party subagents that do not load the package.
+Session directory resolution order: `PI_CODING_AGENT_SESSION_DIR` → `~/.pi/agent/settings.json` → `~/.pi/agent/sessions`.
