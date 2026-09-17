@@ -261,6 +261,11 @@ function messageEvents(entry: ParsedEntry): TimelineEvent[] {
     }]
   }
 
+  const modelValue = isObject(message.model) ? message.model : undefined
+  const provider = stringValue(message.provider) ?? stringValue(modelValue?.provider)
+  const modelId = stringValue(message.model) ?? stringValue(message.modelId) ?? stringValue(modelValue?.id)
+  const model = provider || modelId ? { provider, id: modelId } : undefined
+
   const blocks = Array.isArray(message.content) ? message.content : []
   const events: TimelineEvent[] = []
   let textBuffer: string[] = []
@@ -271,7 +276,7 @@ function messageEvents(entry: ParsedEntry): TimelineEvent[] {
     const content = textBuffer.join('\n\n')
     events.push({
       id: `${entry.id}:assistant:${textStartIndex}`, entryId: entry.id, kind: 'assistant', title: 'Pi 回复',
-      summary: truncate(content), content, timestamp, durationMs: durationValue(message), raw: entry.raw,
+      summary: truncate(content), content, timestamp, durationMs: durationValue(message), model, raw: entry.raw,
     })
     textBuffer = []
   }
@@ -288,7 +293,7 @@ function messageEvents(entry: ParsedEntry): TimelineEvent[] {
       const content = stringValue(block.thinking) ?? ''
       events.push({
         id: `${entry.id}:thinking:${index}`, entryId: entry.id, kind: 'thinking', title: 'Thinking',
-        summary: truncate(content), content, timestamp, raw: { entry: entry.raw, block },
+        summary: truncate(content), content, timestamp, model, raw: entry.raw,
       })
     } else if (block.type === 'toolCall') {
       const toolName = stringValue(block.name) ?? '未知工具'
@@ -297,13 +302,13 @@ function messageEvents(entry: ParsedEntry): TimelineEvent[] {
       events.push({
         id: `${entry.id}:tool:${index}`, entryId: entry.id, kind: 'tool-call', title: `调用 ${toolName}`,
         summary: truncate(content), content, timestamp, durationMs: durationValue(block), toolCallId, toolName,
-        raw: { entry: entry.raw, block },
+        model, raw: entry.raw,
       })
     } else if (block.type === 'image') {
       events.push({
         id: `${entry.id}:image:${index}`, entryId: entry.id, kind: 'assistant', title: 'Pi 回复',
         summary: `[图片 ${stringValue(block.mimeType) ?? '未知格式'}]`, content: '[首版不专门渲染图片内容]',
-        timestamp, raw: { entry: entry.raw, block },
+        timestamp, model, raw: entry.raw,
       })
     }
   })
@@ -312,7 +317,7 @@ function messageEvents(entry: ParsedEntry): TimelineEvent[] {
   if (!events.length) {
     events.push({
       id: `${entry.id}:assistant`, entryId: entry.id, kind: 'assistant', title: 'Pi 回复', summary: '无文本内容',
-      content: '', timestamp, durationMs: durationValue(message), raw: entry.raw,
+      content: '', timestamp, durationMs: durationValue(message), model, raw: entry.raw,
     })
   }
   return events
@@ -350,6 +355,7 @@ function promptComposition(value: unknown): SystemPromptComposition | undefined 
     : []
   const toolDefinitions: CapturedToolDefinition[] = Array.isArray(value.toolDefinitions)
     ? value.toolDefinitions.filter(isObject).map((tool) => ({
+        ...tool,
         name: stringValue(tool.name) ?? '未命名工具',
         description: stringValue(tool.description),
         parameters: tool.parameters,
@@ -391,17 +397,18 @@ function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, Pr
   const modelValue = isObject(data.model) ? data.model : undefined
   const recordType = data.recordType === 'reference' ? 'reference' : 'snapshot'
   const captureStage = data.captureStage === 'provider_request_update' ? 'provider_request_update' : 'agent_start'
-  const summaryParts = [promptLength != null ? `${promptLength.toLocaleString('zh-CN')} 字符` : '长度未知']
+  const summaryParts: string[] = []
   if (composition?.selectedTools.length) summaryParts.push(`${composition.selectedTools.length} 个工具`)
   if (composition?.contextFiles.length) summaryParts.push(`${composition.contextFiles.length} 个上下文文件`)
   if (composition?.skills.length) summaryParts.push(`${composition.skills.length} 个 skills`)
+  const defaultSummary = recordType === 'snapshot' ? '完整快照' : recordType === 'reference' ? '快照引用' : '系统提示词'
 
   return {
     id: `${entry.id}:system-prompt`,
     entryId: entry.id,
     kind: 'system-prompt',
     title: prompt ? (captureStage === 'provider_request_update' ? '系统提示词更新' : '系统提示词') : '系统提示词快照缺失',
-    summary: prompt ? summaryParts.join(' · ') : `无法解析哈希 ${hash ?? '未知'} 的提示词快照`,
+    summary: prompt ? (summaryParts.length ? summaryParts.join(' · ') : defaultSummary) : `无法解析哈希 ${hash ?? '未知'} 的提示词快照`,
     content: prompt ?? '该引用对应的完整系统提示词快照不在当前会话文件中。',
     timestamp: entry.timestamp,
     targetEntryId: stringValue(data.targetUserEntryId),
@@ -416,6 +423,7 @@ function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, Pr
       sequence: typeof data.sequence === 'number' ? data.sequence : undefined,
       model: modelValue ? { provider: stringValue(modelValue.provider), id: stringValue(modelValue.id) } : undefined,
     },
+    model: modelValue ? { provider: stringValue(modelValue.provider), id: stringValue(modelValue.id) } : undefined,
     raw: entry.raw,
   }
 }
@@ -434,7 +442,7 @@ function buildToolDefinitionsEvent(promptEvent: TimelineEvent): TimelineEvent | 
     entryId: promptEvent.entryId,
     kind: 'tool-definitions',
     title: '工具定义',
-    summary: `${charCount.toLocaleString('zh-CN')} 字符，已挂载 ${tools.length} 个 API 工具`,
+    summary: `已挂载 ${tools.length} 个 API 工具`,
     content: jsonContent,
     timestamp: promptEvent.timestamp,
     targetEntryId: promptEvent.targetEntryId,
@@ -470,7 +478,11 @@ function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotD
     session_info: '会话信息',
   }
   let content = ''
-  if (entry.type === 'model_change') content = `${stringValue(raw.provider) ?? '未知提供方'} / ${stringValue(raw.modelId) ?? '未知模型'}`
+  let model: { provider?: string; id?: string } | undefined
+  if (entry.type === 'model_change') {
+    content = `${stringValue(raw.provider) ?? '未知提供方'} / ${stringValue(raw.modelId) ?? '未知模型'}`
+    model = { provider: stringValue(raw.provider), id: stringValue(raw.modelId) }
+  }
   else if (entry.type === 'thinking_level_change') content = stringValue(raw.thinkingLevel) ?? ''
   else if (entry.type === 'compaction' || entry.type === 'branch_summary') content = stringValue(raw.summary) ?? ''
   else if (entry.type === 'custom_message') content = contentText(raw.content)
@@ -480,7 +492,7 @@ function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotD
 
   return [{
     id: `${entry.id}:system`, entryId: entry.id, kind: 'system', title: labels[entry.type] ?? `未知事件：${entry.type}`,
-    summary: truncate(content), content, timestamp: entry.timestamp, durationMs: durationValue(raw), raw,
+    summary: truncate(content), content, timestamp: entry.timestamp, durationMs: durationValue(raw), model, raw,
   }]
 }
 

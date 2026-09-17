@@ -13,10 +13,10 @@ export function registerSessionViewerCommand(
   controller: ServerController,
 ): void {
   pi.registerCommand(SESSION_VIEWER_COMMAND, {
-    description: '启动或停止本地 Pi 会话分析面板',
+    description: '启动或停止本地 Pi 会话分析面板（不带参数默认为 on）',
     handler: async (args: string, ctx: ExtensionCommandContext) => {
-      const command = args.trim().toLowerCase()
-      if (command === 'on') {
+      const command = (args ?? '').trim().toLowerCase()
+      if (command === 'on' || command === '') {
         try {
           const panel = await controller.start(ctx.cwd)
           ctx.ui.notify(`面板已启动：${panel.url}`, 'info')

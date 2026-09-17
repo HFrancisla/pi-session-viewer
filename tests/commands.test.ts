@@ -38,6 +38,33 @@ describe('/session-viewer command', () => {
     expect(notifications).toEqual(['面板已启动：http://127.0.0.1:43210/#token=' + 'a'.repeat(64)])
   })
 
+  it('defaults to on when called without arguments', async () => {
+    const registrations = new Map<string, RegisteredCommand>()
+    const notifications: string[] = []
+    const panel: SessionViewerPanel = {
+      host: '127.0.0.1',
+      port: 43210,
+      token: 'a'.repeat(64),
+      url: 'http://127.0.0.1:43210/#token=' + 'a'.repeat(64),
+    }
+    const controller: ServerController = {
+      start: async () => panel,
+      stop: async () => {},
+      getState: () => 'stopped',
+    }
+    registerSessionViewerCommand({
+      registerCommand: (name, command) => registrations.set(name, command as RegisteredCommand),
+    }, controller)
+
+    await registrations.get('session-viewer')?.handler('', commandContext(notifications))
+    await registrations.get('session-viewer')?.handler('   ', commandContext(notifications))
+
+    expect(notifications).toEqual([
+      '面板已启动：http://127.0.0.1:43210/#token=' + 'a'.repeat(64),
+      '面板已启动：http://127.0.0.1:43210/#token=' + 'a'.repeat(64),
+    ])
+  })
+
   it('stops only the panel and notifies user', async () => {
     const registrations = new Map<string, RegisteredCommand>()
     const notifications: string[] = []

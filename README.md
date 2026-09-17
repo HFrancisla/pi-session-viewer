@@ -13,11 +13,12 @@ Restart Pi or run `/reload`, then send the next message. The extension is loaded
 ## Use
 
 ```text
+/session-viewer
 /session-viewer on
 /session-viewer off
 ```
 
-`on` starts one loopback-only viewer instance on an operating-system-assigned port and displays a tokenized URL. It may open the default browser. Running `on` again reuses the same instance.
+Running `/session-viewer` (or `/session-viewer on`) starts one loopback-only viewer instance on an operating-system-assigned port and displays a tokenized URL. It may open the default browser. Running it again reuses the same instance.
 
 `off` stops only the viewer. System-prompt capture continues; uninstalling the package stops future capture. Pi session replacement (`/new`, `/resume`, `/fork`, or `/reload`) requires running `on` again.
 

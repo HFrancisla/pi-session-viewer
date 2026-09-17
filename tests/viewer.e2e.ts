@@ -49,16 +49,21 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
 
   const firstTurnEvents = page.locator('.turn-group').nth(1).locator('.event-row')
   await expect(firstTurnEvents.first()).toHaveClass(/event--system-prompt/)
+  await expect(firstTurnEvents.first().locator('.event-char-count')).toContainText('字符')
   await expect(firstTurnEvents.nth(1)).toHaveClass(/event--tool-definitions/)
-  await expect(firstTurnEvents.nth(1).locator('.event-summary')).toContainText('字符，已挂载')
+  await expect(firstTurnEvents.nth(1).locator('.event-summary')).toContainText('已挂载')
+  await expect(firstTurnEvents.nth(1).locator('.event-summary')).not.toContainText('字符')
   await expect(firstTurnEvents.nth(2)).toHaveClass(/event--user/)
+  await expect(firstTurnEvents.nth(2).locator('.event-char-count')).toContainText('字符')
 
   await firstTurnEvents.nth(1).click()
   const inspector = page.locator('.inspector')
-  await expect(page.getByRole('tab', { name: '工具定义' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.locator('.tool-definitions-view')).toContainText('API 工具能力')
-  await expect(page.locator('.tool-definitions-view')).toContainText('参数 JSON Schema')
-  await expect(page.locator('.tool-definitions-view')).toContainText('"command"')
+  await expect(page.getByRole('tab', { name: '内容' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.tool-definitions-view details')).toHaveCount(1)
+  await expect(page.locator('.tool-definitions-view details')).not.toHaveAttribute('open', '')
+  await page.locator('.tool-definitions-view summary').click()
+  await expect(page.locator('.tool-definitions-view .content-body-wrap.event--tool-definitions')).toBeVisible()
+  await expect(page.locator('.tool-definitions-view pre')).toContainText('"command"')
 
   await firstTurnEvents.first().click()
   await expect(page.getByRole('tab', { name: '内容' })).toHaveAttribute('aria-selected', 'true')
@@ -68,14 +73,56 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   await expect(inspector).not.toContainText('明确耗时')
   await page.getByRole('tab', { name: '内容' }).click()
   await page.getByRole('tab', { name: '组成' }).click()
+  await page.locator('.prompt-composition details').first().locator('summary').click()
+  await expect(page.locator('.prompt-composition .content-body-wrap.event--system-prompt').first()).toBeVisible()
   await expect(page.locator('.prompt-composition')).toContainText('/work/demo/AGENTS.md')
   await expect(page.locator('.prompt-composition')).toContainText('tdd')
   await expect(page.getByRole('tab', { name: '工具定义' })).toHaveCount(0)
 
   const testCall = page.locator('.event--tool-call').filter({ hasText: 'npm test' })
   await testCall.click()
+
+  const rowsAlignment = await page.evaluate(() => {
+    const summary = document.querySelector('.session-summary')?.getBoundingClientRect()
+    const heading = document.querySelector('.inspector-heading')?.getBoundingClientRect()
+    const filterBar = document.querySelector('.filter-bar')?.getBoundingClientRect()
+    const inspectorTabs = document.querySelector('.inspector-tabs')?.getBoundingClientRect()
+    const branchBar = document.querySelector('.branch-bar')?.getBoundingClientRect()
+    const contentToolbar = document.querySelector('.content-header-toolbar')?.getBoundingClientRect()
+    return {
+      row1: {
+        summaryHeight: summary?.height,
+        headingHeight: heading?.height,
+      },
+      row2: {
+        filterTop: filterBar?.top,
+        tabsTop: inspectorTabs?.top,
+        filterHeight: filterBar?.height,
+        tabsHeight: inspectorTabs?.height,
+      },
+      row3: {
+        branchTop: branchBar?.top,
+        toolbarTop: contentToolbar?.top,
+        branchHeight: branchBar?.height,
+        toolbarHeight: contentToolbar?.height,
+      },
+    }
+  })
+  expect(Math.abs((rowsAlignment.row1.headingHeight ?? 0) - (rowsAlignment.row1.summaryHeight ?? 0))).toBeLessThanOrEqual(1)
+  expect(Math.abs((rowsAlignment.row2.tabsTop ?? 0) - (rowsAlignment.row2.filterTop ?? 0))).toBeLessThanOrEqual(1)
+  expect(Math.abs((rowsAlignment.row2.tabsHeight ?? 0) - (rowsAlignment.row2.filterHeight ?? 0))).toBeLessThanOrEqual(1)
+  expect(Math.abs((rowsAlignment.row3.toolbarTop ?? 0) - (rowsAlignment.row3.branchTop ?? 0))).toBeLessThanOrEqual(1)
+  expect(Math.abs((rowsAlignment.row3.toolbarHeight ?? 0) - (rowsAlignment.row3.branchHeight ?? 0))).toBeLessThanOrEqual(1)
+
+  await expect(page.locator('.content-view .content-header-tokens')).toContainText('字符')
+  await expect(page.locator('.content-view .content-header-tokens')).not.toContainText('tokens')
+  await expect(page.locator('.content-view .inspector-action-btn')).toHaveText('复制')
+
   await page.getByRole('tab', { name: 'Raw' }).click()
+  await expect(page.locator('.raw-view .content-body-wrap.event--tool-call')).toBeVisible()
   await expect(page.locator('.content-view pre')).toContainText('"name": "bash"')
+  await expect(page.locator('.raw-view .content-header-tokens')).toContainText('ID:')
+  await expect(page.locator('.raw-view .inspector-action-btn')).toHaveText('复制')
   await expect(page.locator('.event--tool-result').first()).toContainText('成功')
 
   const laneGeometry = await page.evaluate(() => {

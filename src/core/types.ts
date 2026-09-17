@@ -47,6 +47,7 @@ export interface CapturedToolDefinition {
   parameters?: unknown
   promptGuidelines?: string[]
   sourceInfo?: unknown
+  [key: string]: unknown
 }
 
 export interface SystemPromptComposition {
@@ -96,6 +97,7 @@ export interface TimelineEvent {
   targetEntryId?: string
   systemPrompt?: SystemPromptCapture
   toolDefinitions?: CapturedToolDefinition[]
+  model?: { provider?: string; id?: string }
   raw: unknown
 }
 

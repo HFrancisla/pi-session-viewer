@@ -64,6 +64,13 @@ describe('parseSessionJsonl', () => {
     expect(result?.pairedEventId).toBe(call?.id)
     expect(result?.gapMs).toBe(2_500)
     expect(getSessionTitle(session)).toBe('检查构建失败')
+
+    const thinking = view.events.find((event) => event.kind === 'thinking')
+    const assistant = view.events.find((event) => event.kind === 'assistant')
+    expect(thinking?.raw).toBe(assistant?.raw)
+    expect(call?.raw).toBe(assistant?.raw)
+    expect(thinking?.model).toEqual({ provider: 'demo', id: 'model-a' })
+    expect(call?.model).toEqual({ provider: 'demo', id: 'model-a' })
   })
 
   it('keeps historical leaves and builds the requested branch', () => {
@@ -190,7 +197,7 @@ describe('parseSessionJsonl', () => {
     const toolDefEvent = view.events.find((e) => e.kind === 'tool-definitions')
     expect(toolDefEvent).toBeDefined()
     expect(toolDefEvent?.title).toBe('工具定义')
-    expect(toolDefEvent?.summary).toContain('字符，已挂载 1 个 API 工具')
+    expect(toolDefEvent?.summary).toBe('已挂载 1 个 API 工具')
     expect(toolDefEvent?.toolDefinitions?.[0]).toMatchObject({
       name: 'read',
       description: 'Read file contents',

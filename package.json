@@ -49,7 +49,7 @@
     "build:extension": "node scripts/build-extension.mjs",
     "build:standalone": "node scripts/build-server.mjs",
     "start": "node dist/standalone/index.js",
-    "test": "vitest run",
+    "test": "vitest run --fileParallelism=false",
     "test:ui": "playwright test",
     "test:package": "node scripts/test-package.mjs",
     "verify": "npm run test && npm run build && npm run test:package",

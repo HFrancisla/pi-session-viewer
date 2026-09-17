@@ -69,6 +69,7 @@ function EventRow({ event, selected, causal, maxLanes, highlightedCallId, onSele
   const meta = kindMeta[event.kind]
   const Icon = event.kind === 'tool-result' && event.isError ? XCircle : meta.icon
   const isPairRelated = Boolean(highlightedCallId && event.toolCallId === highlightedCallId)
+  const charCount = event.content?.length
 
   return (
     <button
@@ -99,6 +100,9 @@ function EventRow({ event, selected, causal, maxLanes, highlightedCallId, onSele
           {causal.eventLane != null && <span className="lane-label">#{causal.eventLane + 1}</span>}
           {event.kind === 'tool-result' && (
             <span className={`event-status ${event.isError ? 'is-error' : 'is-success'}`}>{event.isError ? '失败' : '成功'}</span>
+          )}
+          {charCount != null && event.kind !== 'system' && (
+            <span className="event-char-count">{charCount.toLocaleString('zh-CN')} 字符</span>
           )}
         </span>
         <span className="event-summary">{event.summary}</span>
@@ -158,15 +162,6 @@ export function Timeline({
         </button>
       </div>
 
-      {session.warnings.length > 0 && (
-        <details className="warning-strip">
-          <summary><AlertTriangle size={16} />{session.warnings.length} 条解析警告<ChevronDown size={15} /></summary>
-          <ul>
-            {session.warnings.map((warning, index) => <li key={`${warning.code}-${warning.line ?? index}`}>{warning.message}</li>)}
-          </ul>
-        </details>
-      )}
-
       <div className="branch-bar">
         <label htmlFor="branch-select">会话分支</label>
         <select id="branch-select" value={selectedLeafId ?? ''} onChange={(event) => onSelectBranch(event.target.value)}>
@@ -176,6 +171,15 @@ export function Timeline({
         </select>
         <span>{visibleEventCount} 个可见事件</span>
       </div>
+
+      {session.warnings.length > 0 && (
+        <details className="warning-strip">
+          <summary><AlertTriangle size={16} />{session.warnings.length} 条解析警告<ChevronDown size={15} /></summary>
+          <ul>
+            {session.warnings.map((warning, index) => <li key={`${warning.code}-${warning.line ?? index}`}>{warning.message}</li>)}
+          </ul>
+        </details>
+      )}
 
       <div className="timeline-scroll">
         {turns.length === 0 ? (
