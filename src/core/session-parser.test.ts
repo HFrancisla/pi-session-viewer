@@ -81,7 +81,7 @@ describe('parseSessionJsonl', () => {
 
     expect(session.currentLeafId).toBe('new')
     expect(session.branches).toHaveLength(2)
-    expect(session.branches[0]).toMatchObject({ leafId: 'new', isCurrent: true, label: '当前路径' })
+    expect(session.branches[0]).toMatchObject({ leafId: 'new', isCurrent: true, label: '当前分支' })
     expect(oldBranch.events.at(-1)?.content).toBe('旧分支')
     expect(currentBranch.events.at(-1)?.content).toBe('当前分支')
   })
@@ -104,7 +104,7 @@ describe('parseSessionJsonl', () => {
     expect(buildSessionView(session, 'future').events[0]).toMatchObject({ kind: 'system', title: '未知事件：future_event' })
   })
 
-  it('resolves deduplicated system prompt references and places them before each user', () => {
+  it('only displays system prompt on the first turn unless the prompt changes in subsequent turns', () => {
     const promptData = {
       schemaVersion: 1,
       promptHash: 'hash-1',
@@ -114,6 +114,12 @@ describe('parseSessionJsonl', () => {
         cwd: '/work/demo', contextFiles: [], skills: [],
       },
     }
+    const updatedPromptData = {
+      ...promptData,
+      promptHash: 'hash-2',
+      promptLength: 28,
+      composition: { ...promptData.composition, selectedTools: ['read', 'bash'] },
+    }
     const source = jsonl(
       header,
       entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', content: '第一轮' }),
@@ -122,17 +128,74 @@ describe('parseSessionJsonl', () => {
       entry('u2', 'a1', '2026-01-01T10:00:03.000Z', { role: 'user', content: '第二轮' }),
       { type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p2', parentId: 'u2', timestamp: '2026-01-01T10:00:03.100Z', data: { ...promptData, recordType: 'reference', targetUserEntryId: 'u2', sequence: 2 } },
       entry('a2', 'p2', '2026-01-01T10:00:04.000Z', { role: 'assistant', content: [{ type: 'text', text: '回复二' }] }),
+      entry('u3', 'a2', '2026-01-01T10:00:05.000Z', { role: 'user', content: '第三轮' }),
+      { type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p3', parentId: 'u3', timestamp: '2026-01-01T10:00:05.100Z', data: { ...updatedPromptData, recordType: 'snapshot', prompt: 'Updated prompt with bash tool', targetUserEntryId: 'u3', sequence: 3 } },
+      entry('a3', 'p3', '2026-01-01T10:00:06.000Z', { role: 'assistant', content: [{ type: 'text', text: '回复三' }] }),
     )
 
-    const view = buildSessionView(parseSessionJsonl(source), 'a2')
+    const view = buildSessionView(parseSessionJsonl(source), 'a3')
     const promptEvents = view.events.filter((event) => event.kind === 'system-prompt')
 
     expect(view.events.map((event) => event.kind)).toEqual([
-      'system-prompt', 'user', 'assistant', 'system-prompt', 'user', 'assistant',
+      'system-prompt', 'user', 'assistant', 'user', 'assistant', 'system-prompt', 'user', 'assistant',
     ])
-    expect(promptEvents.map((event) => event.content)).toEqual(['Captured system prompt', 'Captured system prompt'])
-    expect(promptEvents.map((event) => event.systemPrompt?.recordType)).toEqual(['snapshot', 'reference'])
-    expect(promptEvents[1].systemPrompt?.composition?.selectedTools).toEqual(['read'])
+    expect(view.turns).toHaveLength(3)
+    expect(view.turns[0].events.map((e) => e.kind)).toEqual(['system-prompt', 'user', 'assistant'])
+    expect(view.turns[1].events.map((e) => e.kind)).toEqual(['user', 'assistant'])
+    expect(view.turns[2].events.map((e) => e.kind)).toEqual(['system-prompt', 'user', 'assistant'])
+
+    expect(promptEvents).toHaveLength(2)
+    expect(promptEvents[0].title).toBe('系统提示词')
+    expect(promptEvents[0].content).toBe('Captured system prompt')
+    expect(promptEvents[1].title).toBe('系统提示词更新')
+    expect(promptEvents[1].content).toBe('Updated prompt with bash tool')
+    expect(promptEvents[1].systemPrompt?.composition?.selectedTools).toEqual(['read', 'bash'])
+  })
+
+  it('inserts tool-definitions card with parameter schemas right after system-prompt when captured in session', () => {
+    const promptData = {
+      schemaVersion: 1,
+      promptHash: 'tools-hash',
+      promptLength: 20,
+      composition: {
+        selectedTools: ['read'],
+        toolDefinitions: [
+          {
+            name: 'read',
+            description: 'Read file contents',
+            parameters: {
+              type: 'object',
+              properties: { path: { type: 'string' } },
+              required: ['path'],
+            },
+          },
+        ],
+        promptGuidelines: [],
+        cwd: '/work/demo',
+        contextFiles: [],
+        skills: [],
+      },
+    }
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', content: '第一轮' }),
+      { type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p1', parentId: 'u1', timestamp: '2026-01-01T10:00:01.100Z', data: { ...promptData, recordType: 'snapshot', prompt: 'Prompt with tools', targetUserEntryId: 'u1', sequence: 1 } },
+      entry('a1', 'p1', '2026-01-01T10:00:02.000Z', { role: 'assistant', content: [{ type: 'text', text: '回复' }] }),
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source))
+    expect(view.events.map((e) => e.kind)).toEqual(['system-prompt', 'tool-definitions', 'user', 'assistant'])
+    expect(view.turns[0].events.map((e) => e.kind)).toEqual(['system-prompt', 'tool-definitions', 'user', 'assistant'])
+
+    const toolDefEvent = view.events.find((e) => e.kind === 'tool-definitions')
+    expect(toolDefEvent).toBeDefined()
+    expect(toolDefEvent?.title).toBe('工具定义')
+    expect(toolDefEvent?.summary).toContain('字符，已挂载 1 个 API 工具')
+    expect(toolDefEvent?.toolDefinitions?.[0]).toMatchObject({
+      name: 'read',
+      description: 'Read file contents',
+      parameters: { type: 'object', properties: { path: { type: 'string' } } },
+    })
   })
 
   it('uses a session name before the first user message', () => {
@@ -142,5 +205,70 @@ describe('parseSessionJsonl', () => {
       entry('u1', 'info', '2026-01-01T10:00:01.000Z', { role: 'user', content: '原始问题' }),
     )
     expect(getSessionTitle(parseSessionJsonl(source))).toBe('构建诊断')
+  })
+
+  it('infers user association for legacy snapshots without targetUserEntryId adjacent to user', () => {
+    const promptData = {
+      schemaVersion: 1,
+      promptHash: 'legacy-hash',
+      promptLength: 20,
+      recordType: 'snapshot',
+      captureStage: 'agent_start',
+      prompt: 'Legacy system prompt',
+    }
+    const source = jsonl(
+      header,
+      { type: 'model_change', id: 'm1', parentId: null, timestamp: '2026-01-01T10:00:00.200Z', provider: 'demo', modelId: 'model-a' },
+      { type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p1', parentId: 'm1', timestamp: '2026-01-01T10:00:00.500Z', data: promptData },
+      entry('u1', 'p1', '2026-01-01T10:00:01.000Z', { role: 'user', content: '第一轮提问' }),
+      entry('a1', 'u1', '2026-01-01T10:00:02.000Z', { role: 'assistant', content: [{ type: 'text', text: '回复' }] }),
+    )
+
+    const session = parseSessionJsonl(source)
+    const view = buildSessionView(session)
+
+    expect(view.turns).toHaveLength(2)
+    expect(view.turns[0].label).toBe('会话设置')
+    expect(view.turns[0].events.map((e) => e.kind)).toEqual(['system'])
+    expect(view.turns[1].label).toBe('第 1 轮')
+    expect(view.turns[1].events.map((e) => e.kind)).toEqual(['system-prompt', 'user', 'assistant'])
+    expect(view.turns[1].events[0]).toMatchObject({
+      title: '系统提示词',
+      content: 'Legacy system prompt',
+      targetEntryId: 'u1',
+    })
+  })
+
+  it('places system prompt snapshot before user even when persisted after user in JSONL', () => {
+    const promptData = {
+      schemaVersion: 1,
+      promptHash: 'new-hash',
+      promptLength: 20,
+      recordType: 'snapshot',
+      captureStage: 'agent_start',
+      prompt: 'New system prompt',
+      targetUserEntryId: 'u1',
+    }
+    const source = jsonl(
+      header,
+      { type: 'model_change', id: 'm1', parentId: null, timestamp: '2026-01-01T10:00:00.200Z', provider: 'demo', modelId: 'model-a' },
+      entry('u1', 'm1', '2026-01-01T10:00:01.000Z', { role: 'user', content: '新版提问' }),
+      { type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p1', parentId: 'u1', timestamp: '2026-01-01T10:00:01.200Z', data: promptData },
+      entry('a1', 'p1', '2026-01-01T10:00:02.000Z', { role: 'assistant', content: [{ type: 'text', text: '新回复' }] }),
+    )
+
+    const session = parseSessionJsonl(source)
+    const view = buildSessionView(session)
+
+    expect(view.turns).toHaveLength(2)
+    expect(view.turns[0].label).toBe('会话设置')
+    expect(view.turns[0].events.map((e) => e.kind)).toEqual(['system'])
+    expect(view.turns[1].label).toBe('第 1 轮')
+    expect(view.turns[1].events.map((e) => e.kind)).toEqual(['system-prompt', 'user', 'assistant'])
+    expect(view.turns[1].events[0]).toMatchObject({
+      title: '系统提示词',
+      content: 'New system prompt',
+      targetEntryId: 'u1',
+    })
   })
 })

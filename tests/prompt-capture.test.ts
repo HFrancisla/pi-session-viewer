@@ -10,6 +10,7 @@ interface FakePi {
   on(event: string, handler: Handler): void
   appendEntry(customType: string, data: unknown): void
   getActiveTools(): string[]
+  getAllTools(): Array<{ name: string; description?: string; parameters?: unknown; promptGuidelines?: string[] }>
 }
 
 function fakePi(): FakePi {
@@ -25,6 +26,19 @@ function fakePi(): FakePi {
     },
     getActiveTools() {
       return [...this.activeTools]
+    },
+    getAllTools() {
+      return [
+        {
+          name: 'bash',
+          description: 'Execute shell commands',
+          parameters: {
+            type: 'object',
+            properties: { command: { type: 'string' } },
+            required: ['command'],
+          },
+        },
+      ]
     },
   }
 }
@@ -59,6 +73,9 @@ describe('system prompt capture extension', () => {
 
     await pi.handlers.get('before_agent_start')?.({ systemPrompt: beforePrompt, systemPromptOptions: options }, context(finalPrompt))
     await pi.handlers.get('agent_start')?.({}, context(finalPrompt))
+    expect(pi.entries).toHaveLength(0)
+
+    await pi.handlers.get('before_provider_request')?.({}, context(finalPrompt))
 
     expect(pi.entries).toHaveLength(1)
     expect(pi.entries[0]).toMatchObject({
@@ -72,6 +89,17 @@ describe('system prompt capture extension', () => {
         composition: {
           customPrompt: 'custom base',
           selectedTools: ['bash'],
+          toolDefinitions: [
+            {
+              name: 'bash',
+              description: 'Execute shell commands',
+              parameters: {
+                type: 'object',
+                properties: { command: { type: 'string' } },
+                required: ['command'],
+              },
+            },
+          ],
           contextFiles: [{ path: '/work/demo/AGENTS.md', content: 'Use tests first.' }],
           skills: [{ name: 'tdd', filePath: '/skills/tdd/SKILL.md' }],
         },
@@ -88,6 +116,7 @@ describe('system prompt capture extension', () => {
     const run = async () => {
       await pi.handlers.get('before_agent_start')?.({ systemPrompt: 'same prompt', systemPromptOptions: options }, context('same prompt'))
       await pi.handlers.get('agent_start')?.({}, context('same prompt'))
+      await pi.handlers.get('before_provider_request')?.({}, context('same prompt'))
       await pi.handlers.get('agent_end')?.({}, context('same prompt'))
     }
 
@@ -110,6 +139,7 @@ describe('system prompt capture extension', () => {
 
     await pi.handlers.get('before_agent_start')?.({ systemPrompt: 'base prompt', systemPromptOptions: options }, context('base prompt'))
     await pi.handlers.get('agent_start')?.({}, context('base prompt'))
+    await pi.handlers.get('before_provider_request')?.({}, context('base prompt'))
     await pi.handlers.get('before_provider_request')?.({}, context('base prompt\n\nDynamic tool instructions'))
 
     expect(pi.entries).toHaveLength(2)

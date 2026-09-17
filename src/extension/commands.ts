@@ -18,8 +18,8 @@ export function registerSessionViewerCommand(
       const command = args.trim().toLowerCase()
       if (command === 'on') {
         try {
-          const panel = await controller.start()
-          ctx.ui.notify(`面板已启动：${panel.url}\nSystem prompt 捕获始终开启。`, 'info')
+          const panel = await controller.start(ctx.cwd)
+          ctx.ui.notify(`面板已启动：${panel.url}`, 'info')
         } catch (error) {
           ctx.ui.notify(`面板启动失败：${errorMessage(error)}`, 'error')
         }
@@ -29,7 +29,7 @@ export function registerSessionViewerCommand(
       if (command === 'off') {
         try {
           await controller.stop()
-          ctx.ui.notify('面板已关闭。\nSystem prompt 捕获仍在继续；卸载 package 才会停止捕获。', 'info')
+          ctx.ui.notify('面板已关闭。', 'info')
         } catch (error) {
           ctx.ui.notify(`面板关闭失败：${errorMessage(error)}`, 'error')
         }

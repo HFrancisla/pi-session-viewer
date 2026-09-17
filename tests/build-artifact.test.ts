@@ -14,6 +14,7 @@ describe('production build artifacts', () => {
     await expect(access(path.join(projectRoot, 'dist/extension/index.js'))).resolves.toBeUndefined()
     await expect(access(path.join(projectRoot, 'dist/standalone/index.js'))).resolves.toBeUndefined()
     await expect(access(path.join(projectRoot, 'dist/web/index.html'))).resolves.toBeUndefined()
+    await expect(access(path.join(projectRoot, 'dist/web/favicon.svg'))).resolves.toBeUndefined()
     const extensionBundle = await readFile(path.join(projectRoot, 'dist/extension/index.js'), 'utf8')
     expect(extensionBundle).not.toMatch(/(?:from|require\()\s*["']vite["']/)
     expect(extensionBundle).not.toContain('createViteServer')

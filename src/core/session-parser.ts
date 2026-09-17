@@ -1,5 +1,6 @@
 import type {
   BranchOption,
+  CapturedToolDefinition,
   ParsedEntry,
   ParsedSession,
   ParseWarning,
@@ -110,7 +111,7 @@ function buildBranches(entries: ParsedEntry[], currentLeafId: string | null): Br
     }
     const isCurrent = leaf.id === currentLeafId
     let label = named
-    if (!label) label = isCurrent ? '当前路径' : `历史分支 ${index + (currentLeafId ? 0 : 1)}`
+    if (!label) label = isCurrent ? '当前分支' : `历史分支 ${index + (currentLeafId ? 0 : 1)}`
     return {
       leafId: leaf.id,
       label,
@@ -175,7 +176,7 @@ export function parseSessionJsonl(content: string, sourceName = '本地文件'):
   }
 
   if (!header) {
-    warnings.unshift({ code: 'invalid-header', message: '没有找到 type 为 session 的文件头；已尝试解析其余入口。' })
+    warnings.unshift({ code: 'invalid-header', message: '没有找到 type 为 session 的文件头；已尝试解析其余条目。' })
   }
 
   const ids = new Set(entries.map((entry) => entry.id))
@@ -347,10 +348,20 @@ function promptComposition(value: unknown): SystemPromptComposition | undefined 
         disableModelInvocation: skill.disableModelInvocation === true,
       }))
     : []
+  const toolDefinitions: CapturedToolDefinition[] = Array.isArray(value.toolDefinitions)
+    ? value.toolDefinitions.filter(isObject).map((tool) => ({
+        name: stringValue(tool.name) ?? '未命名工具',
+        description: stringValue(tool.description),
+        parameters: tool.parameters,
+        promptGuidelines: stringArray(tool.promptGuidelines),
+        sourceInfo: tool.sourceInfo,
+      }))
+    : []
   return {
     customPrompt: stringValue(value.customPrompt),
     selectedTools: stringArray(value.selectedTools),
     toolSnippets: stringRecord(value.toolSnippets),
+    toolDefinitions: toolDefinitions.length > 0 ? toolDefinitions : undefined,
     promptGuidelines: stringArray(value.promptGuidelines),
     appendSystemPrompt: stringValue(value.appendSystemPrompt),
     cwd: stringValue(value.cwd) ?? '',
@@ -409,9 +420,43 @@ function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, Pr
   }
 }
 
-function systemEvent(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotData>): TimelineEvent {
+function buildToolDefinitionsEvent(promptEvent: TimelineEvent): TimelineEvent | undefined {
+  const composition = promptEvent.systemPrompt?.composition
+  if (!composition?.toolDefinitions?.length) return undefined
+
+  const tools = composition.toolDefinitions
+  const jsonContent = JSON.stringify(tools, null, 2)
+  const charCount = jsonContent.length
+  const estimatedTokens = Math.ceil(charCount / 4)
+
+  return {
+    id: `${promptEvent.entryId}:tool-definitions`,
+    entryId: promptEvent.entryId,
+    kind: 'tool-definitions',
+    title: '工具定义',
+    summary: `${charCount.toLocaleString('zh-CN')} 字符，已挂载 ${tools.length} 个 API 工具`,
+    content: jsonContent,
+    timestamp: promptEvent.timestamp,
+    targetEntryId: promptEvent.targetEntryId,
+    systemPrompt: promptEvent.systemPrompt,
+    toolDefinitions: tools,
+    raw: {
+      type: 'tool-definitions',
+      tools,
+      charCount,
+      estimatedTokens,
+    },
+  }
+}
+
+function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotData>): TimelineEvent[] {
   const capturedPrompt = capturedSystemPromptEvent(entry, snapshots)
-  if (capturedPrompt) return capturedPrompt
+  if (capturedPrompt) {
+    const list = [capturedPrompt]
+    const toolEvent = buildToolDefinitionsEvent(capturedPrompt)
+    if (toolEvent) list.push(toolEvent)
+    return list
+  }
 
   const raw = entry.raw
   const labels: Record<string, string> = {
@@ -433,10 +478,10 @@ function systemEvent(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotDa
   else if (entry.type === 'label') content = stringValue(raw.label) ?? ''
   else content = JSON.stringify(raw.data ?? raw, null, 2)
 
-  return {
+  return [{
     id: `${entry.id}:system`, entryId: entry.id, kind: 'system', title: labels[entry.type] ?? `未知事件：${entry.type}`,
     summary: truncate(content), content, timestamp: entry.timestamp, durationMs: durationValue(raw), raw,
-  }
+  }]
 }
 
 function pairTools(events: TimelineEvent[]): void {
@@ -480,7 +525,7 @@ function missingSystemPromptEvent(user: TimelineEvent): TimelineEvent {
 function placeSystemPromptsBeforeUsers(events: TimelineEvent[]): TimelineEvent[] {
   const promptsByUser = new Map<string, TimelineEvent[]>()
   for (const event of events) {
-    if (event.kind !== 'system-prompt' || !event.targetEntryId) continue
+    if ((event.kind !== 'system-prompt' && event.kind !== 'tool-definitions') || !event.targetEntryId) continue
     const prompts = promptsByUser.get(event.targetEntryId) ?? []
     prompts.push(event)
     promptsByUser.set(event.targetEntryId, prompts)
@@ -488,23 +533,68 @@ function placeSystemPromptsBeforeUsers(events: TimelineEvent[]): TimelineEvent[]
 
   const placed = new Set<string>()
   const ordered: TimelineEvent[] = []
+  let activePromptHash: string | undefined
+  let isFirstUser = true
+
   for (const event of events) {
-    if (event.kind === 'system-prompt' && event.targetEntryId) continue
+    if (event.kind === 'system-prompt' || event.kind === 'tool-definitions') {
+      if (event.targetEntryId) continue
+      // Mid-turn prompt update (no targetEntryId): keep it inline and track hash
+      if (event.systemPrompt?.promptHash) {
+        activePromptHash = event.systemPrompt.promptHash
+      }
+      ordered.push(event)
+      continue
+    }
+
     if (event.kind === 'user') {
-      const prompts = promptsByUser.get(event.entryId) ?? [missingSystemPromptEvent(event)]
-      prompts.forEach((prompt, index) => {
-        prompt.timestamp = event.timestamp
-        prompt.gapMs = index === 0 ? event.gapMs : 0
-        placed.add(prompt.id)
-        ordered.push(prompt)
-      })
-      event.gapMs = 0
+      const candidatePrompts = promptsByUser.get(event.entryId)
+
+      if (isFirstUser) {
+        isFirstUser = false
+        const prompts = candidatePrompts ?? [missingSystemPromptEvent(event)]
+        prompts.forEach((prompt, index) => {
+          prompt.timestamp = event.timestamp
+          prompt.gapMs = index === 0 ? event.gapMs : 0
+          if (prompt.systemPrompt?.promptHash) {
+            activePromptHash = prompt.systemPrompt.promptHash
+          }
+          placed.add(prompt.id)
+          ordered.push(prompt)
+        })
+        event.gapMs = 0
+      } else {
+        // Subsequent turns: only place system prompts if the prompt has changed!
+        if (candidatePrompts && candidatePrompts.length > 0) {
+          const changedPrompts = candidatePrompts.filter((prompt) => {
+            const hash = prompt.systemPrompt?.promptHash
+            return !hash || hash !== activePromptHash
+          })
+
+          if (changedPrompts.length > 0) {
+            changedPrompts.forEach((prompt, index) => {
+              prompt.timestamp = event.timestamp
+              prompt.gapMs = index === 0 ? event.gapMs : 0
+              if (prompt.title === '系统提示词') {
+                prompt.title = '系统提示词更新'
+              }
+              if (prompt.systemPrompt?.promptHash) {
+                activePromptHash = prompt.systemPrompt.promptHash
+              }
+              placed.add(prompt.id)
+              ordered.push(prompt)
+            })
+            event.gapMs = 0
+          }
+          candidatePrompts.forEach((prompt) => placed.add(prompt.id))
+        }
+      }
     }
     ordered.push(event)
   }
 
   for (const event of events) {
-    if (event.kind === 'system-prompt' && event.targetEntryId && !placed.has(event.id)) ordered.push(event)
+    if ((event.kind === 'system-prompt' || event.kind === 'tool-definitions') && event.targetEntryId && !placed.has(event.id)) ordered.push(event)
   }
   return ordered
 }
@@ -516,7 +606,7 @@ function groupTurns(events: TimelineEvent[]): TimelineTurn[] {
   let turnIndex = 0
 
   for (const event of events) {
-    if (event.kind === 'system-prompt' && event.targetEntryId) {
+    if ((event.kind === 'system-prompt' || event.kind === 'tool-definitions') && event.targetEntryId) {
       promptPrelude.push(event)
       continue
     }
@@ -543,14 +633,51 @@ function groupTurns(events: TimelineEvent[]): TimelineTurn[] {
   return turns
 }
 
+function inferMissingPromptTargets(events: TimelineEvent[]): void {
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]
+    if ((event.kind !== 'system-prompt' && event.kind !== 'tool-definitions') || event.targetEntryId) continue
+
+    const captureStage = event.systemPrompt?.captureStage ?? 'agent_start'
+    if (captureStage !== 'agent_start') continue
+
+    // 1. Look forward for the next user event (e.g. legacy snapshots recorded at agent_start before user persisted)
+    for (let nextIndex = index + 1; nextIndex < events.length; nextIndex += 1) {
+      const candidate = events[nextIndex]
+      if (candidate.kind === 'user') {
+        event.targetEntryId = candidate.entryId
+        break
+      }
+      if (candidate.kind === 'assistant' || candidate.kind === 'tool-call' || candidate.kind === 'tool-result') {
+        break
+      }
+    }
+
+    // 2. If not found, look backward to check if it immediately followed a user event
+    if (!event.targetEntryId) {
+      for (let prevIndex = index - 1; prevIndex >= 0; prevIndex -= 1) {
+        const candidate = events[prevIndex]
+        if (candidate.kind === 'user') {
+          event.targetEntryId = candidate.entryId
+          break
+        }
+        if (candidate.kind === 'assistant' || candidate.kind === 'tool-call' || candidate.kind === 'tool-result') {
+          break
+        }
+      }
+    }
+  }
+}
+
 export function buildSessionView(session: ParsedSession, requestedLeafId?: string | null): SessionView {
   const leafId = requestedLeafId && session.entries.some((entry) => entry.id === requestedLeafId)
     ? requestedLeafId
     : session.currentLeafId
   const branchEntries = leafId ? getPath(session.entries, leafId) : []
   const snapshots = collectPromptSnapshots(session.entries)
-  const rawEvents = branchEntries.flatMap((entry) => entry.type === 'message' ? messageEvents(entry) : [systemEvent(entry, snapshots)])
+  const rawEvents = branchEntries.flatMap((entry) => entry.type === 'message' ? messageEvents(entry) : systemEvents(entry, snapshots))
   pairTools(rawEvents)
+  inferMissingPromptTargets(rawEvents)
   const events = placeSystemPromptsBeforeUsers(rawEvents)
   return { branchEntries, events, turns: groupTurns(events) }
 }

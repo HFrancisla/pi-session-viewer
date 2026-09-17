@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, Brain, CheckCircle2, ChevronDown, CircleUserRound, Cog, ScrollText, Wrench, XCircle } from 'lucide-react'
+import { AlertTriangle, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { buildCausalLayout, causalLaneX, type CausalEventLayout } from '../../core/causal-layout'
 import { allEventKinds } from '../../core/event-kinds'
@@ -7,6 +7,7 @@ import type { EventKind, ParsedSession, TimelineEvent, TimelineTurn } from '../.
 
 const kindMeta: Record<EventKind, { label: string; icon: ComponentType<{ size?: number; className?: string }>; color: string }> = {
   'system-prompt': { label: '系统提示词', icon: ScrollText, color: '#8a4f68' },
+  'tool-definitions': { label: '工具定义', icon: Boxes, color: '#2f6f8f' },
   user: { label: '用户', icon: CircleUserRound, color: '#485c66' },
   assistant: { label: 'Pi 回复', icon: Bot, color: '#246b83' },
   thinking: { label: 'Thinking', icon: Brain, color: '#765a9a' },
@@ -25,13 +26,13 @@ interface TimelineProps {
   onSelectEvent: (event: TimelineEvent) => void
   onSelectBranch: (leafId: string) => void
   onToggleKind: (kind: EventKind) => void
+  onToggleAllKinds: () => void
 }
 
 interface LlmOutputGroup {
   id: string
   events: TimelineEvent[]
   isLlmOutput: boolean
-  totalBlocks: number
 }
 
 function isLlmOutputEvent(event: TimelineEvent): boolean {
@@ -51,7 +52,6 @@ function groupLlmOutputEvents(events: TimelineEvent[], blockCounts: Map<string, 
         id: shouldGroup ? event.entryId : event.id,
         events: [event],
         isLlmOutput: shouldGroup,
-        totalBlocks,
       })
     }
   }
@@ -117,6 +117,7 @@ export function Timeline({
   onSelectEvent,
   onSelectBranch,
   onToggleKind,
+  onToggleAllKinds,
 }: TimelineProps) {
   const causalLayout = buildCausalLayout(allEvents)
   const selectedEvent = allEvents.find((event) => event.id === selectedEventId)
@@ -128,11 +129,12 @@ export function Timeline({
     }
   }
   const visibleEventCount = turns.reduce((count, turn) => count + turn.events.length, 0)
+  const allSelected = allEventKinds.length > 0 && allEventKinds.every((kind) => enabledKinds.has(kind))
 
   return (
     <section className="timeline-panel" aria-label="会话时间轴">
       <div className="filter-bar">
-        <span className="filter-label">显示</span>
+        <span className="filter-label">显示事件</span>
         <div className="filter-options">
           {allEventKinds.map((kind) => {
             const FilterIcon = kindMeta[kind].icon
@@ -145,6 +147,15 @@ export function Timeline({
             )
           })}
         </div>
+        <button
+          type="button"
+          className={`filter-select-all${allSelected ? ' is-all-selected' : ''}`}
+          onClick={onToggleAllKinds}
+          title={allSelected ? '取消全选所有事件类型' : '全选所有事件类型'}
+        >
+          {allSelected ? <Square size={13} /> : <CheckCheck size={13} />}
+          {allSelected ? '全不选' : '全\u3000选'}
+        </button>
       </div>
 
       {session.warnings.length > 0 && (
@@ -157,7 +168,7 @@ export function Timeline({
       )}
 
       <div className="branch-bar">
-        <label htmlFor="branch-select">路径</label>
+        <label htmlFor="branch-select">会话分支</label>
         <select id="branch-select" value={selectedLeafId ?? ''} onChange={(event) => onSelectBranch(event.target.value)}>
           {session.branches.map((branch) => (
             <option key={branch.leafId} value={branch.leafId}>{branch.label}</option>
@@ -170,7 +181,7 @@ export function Timeline({
         {turns.length === 0 ? (
           <div className="timeline-empty">
             <Cog size={25} />
-            <p>{enabledKinds.size === 0 ? '至少选择一种事件类型。' : '当前路径没有可显示的事件。'}</p>
+            <p>{enabledKinds.size === 0 ? '至少选择一种事件类型。' : '当前分支没有可显示的事件。'}</p>
           </div>
         ) : turns.map((turn) => (
           <section className="turn-group" key={turn.id}>
@@ -193,12 +204,7 @@ export function Timeline({
                 ))
                 if (!group.isLlmOutput) return rows
                 return (
-                  <section className="llm-output-group" key={group.id} aria-label="一轮 LLM 输出">
-                    <header className="llm-output-header">
-                      <Bot size={13} />
-                      <span>LLM 输出</span>
-                      <small>{group.totalBlocks} 个内容块</small>
-                    </header>
+                  <section className="llm-output-group" key={group.id} aria-label="一轮回复输出">
                     {rows}
                   </section>
                 )

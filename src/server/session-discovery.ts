@@ -98,7 +98,7 @@ async function sessionMetadata(root: string, filePath: string): Promise<SessionL
   }
 }
 
-export async function listSessions(root: string): Promise<SessionListResponse> {
+export async function listSessions(root: string, currentCwd?: string): Promise<SessionListResponse> {
   const warnings: string[] = []
   try {
     const rootRealPath = await fs.realpath(root)
@@ -116,10 +116,10 @@ export async function listSessions(root: string): Promise<SessionListResponse> {
       sessions.push(...batch.filter((item): item is SessionListItem => item !== null))
     }
     sessions.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt))
-    return { root: rootRealPath, sessions, warnings }
+    return { root: rootRealPath, currentCwd, sessions, warnings }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return { root, sessions: [], warnings: [`无法扫描 Pi 会话目录：${message}`] }
+    return { root, currentCwd, sessions: [], warnings: [`无法扫描 Pi 会话目录：${message}`] }
   }
 }
 

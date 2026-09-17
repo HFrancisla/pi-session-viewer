@@ -14,6 +14,7 @@ const server = await startSessionHttpServer({
   host,
   port,
   version: '0.1.0',
+  currentCwd: process.cwd(),
 })
 
 process.stdout.write(`Pi 会话分析已启动：http://${server.host}:${server.port}\n`)

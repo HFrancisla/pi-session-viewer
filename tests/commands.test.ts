@@ -35,10 +35,10 @@ describe('/session-viewer command', () => {
 
     await registrations.get('session-viewer')?.handler('on', commandContext(notifications))
 
-    expect(notifications).toEqual(['面板已启动：http://127.0.0.1:43210/#token=' + 'a'.repeat(64) + '\nSystem prompt 捕获始终开启。'])
+    expect(notifications).toEqual(['面板已启动：http://127.0.0.1:43210/#token=' + 'a'.repeat(64)])
   })
 
-  it('stops only the panel and explains that capture continues', async () => {
+  it('stops only the panel and notifies user', async () => {
     const registrations = new Map<string, RegisteredCommand>()
     const notifications: string[] = []
     let stopCount = 0
@@ -54,7 +54,7 @@ describe('/session-viewer command', () => {
     await registrations.get('session-viewer')?.handler('off', commandContext(notifications))
 
     expect(stopCount).toBe(1)
-    expect(notifications).toEqual(['面板已关闭。\nSystem prompt 捕获仍在继续；卸载 package 才会停止捕获。'])
+    expect(notifications).toEqual(['面板已关闭。'])
   })
 
   it('returns usage for an unknown argument without changing server state', async () => {

@@ -19,14 +19,18 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
 
   await page.goto('/#token=dev-token')
   await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/)
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg')
+  const faviconResponse = await page.request.get('/favicon.svg')
+  expect(faviconResponse.status()).toBe(200)
+  expect(faviconResponse.headers()['content-type']).toContain('image/svg+xml')
   await expect(page.getByText('工具配对演示', { exact: true }).first()).toBeVisible()
-  await expect(page.locator('.event-row')).toHaveCount(11)
+  await expect(page.locator('.event-row')).toHaveCount(12)
   const llmOutput = page.locator('.llm-output-group')
   await expect(llmOutput).toHaveCount(1)
-  await expect(llmOutput.locator('.llm-output-header')).toContainText('4 个内容块')
+  await expect(llmOutput.locator('.llm-output-header')).toHaveCount(0)
   await expect(llmOutput.locator('.event-row')).toHaveCount(4)
   await expect(llmOutput.locator('.event--tool-result')).toHaveCount(0)
-  await expect(page.locator('.filter-kind-icon')).toHaveCount(7)
+  await expect(page.locator('.filter-kind-icon')).toHaveCount(8)
   await expect(page.locator('.filter-swatch')).toHaveCount(0)
   const colorMismatches = await page.locator('.event-row').evaluateAll((rows) => rows
     .map((row) => {
@@ -40,14 +44,23 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   await expect(page.locator('#branch-select option')).toHaveCount(2)
   await page.locator('#branch-select').selectOption({ label: '旧尝试' })
   await expect(page.getByText('旧分支回复', { exact: true })).toBeVisible()
-  await page.locator('#branch-select').selectOption({ label: '当前路径' })
+  await page.locator('#branch-select').selectOption({ label: '当前分支' })
   await expect(page.getByText('当前分支回复', { exact: true })).toBeVisible()
 
   const firstTurnEvents = page.locator('.turn-group').nth(1).locator('.event-row')
   await expect(firstTurnEvents.first()).toHaveClass(/event--system-prompt/)
-  await expect(firstTurnEvents.nth(1)).toHaveClass(/event--user/)
-  await firstTurnEvents.first().click()
+  await expect(firstTurnEvents.nth(1)).toHaveClass(/event--tool-definitions/)
+  await expect(firstTurnEvents.nth(1).locator('.event-summary')).toContainText('字符，已挂载')
+  await expect(firstTurnEvents.nth(2)).toHaveClass(/event--user/)
+
+  await firstTurnEvents.nth(1).click()
   const inspector = page.locator('.inspector')
+  await expect(page.getByRole('tab', { name: '工具定义' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.tool-definitions-view')).toContainText('API 工具能力')
+  await expect(page.locator('.tool-definitions-view')).toContainText('参数 JSON Schema')
+  await expect(page.locator('.tool-definitions-view')).toContainText('"command"')
+
+  await firstTurnEvents.first().click()
   await expect(page.getByRole('tab', { name: '内容' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('.content-view pre')).toContainText('You are an expert coding assistant.')
   await page.getByRole('tab', { name: '概览' }).click()
@@ -57,6 +70,7 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   await page.getByRole('tab', { name: '组成' }).click()
   await expect(page.locator('.prompt-composition')).toContainText('/work/demo/AGENTS.md')
   await expect(page.locator('.prompt-composition')).toContainText('tdd')
+  await expect(page.getByRole('tab', { name: '工具定义' })).toHaveCount(0)
 
   const testCall = page.locator('.event--tool-call').filter({ hasText: 'npm test' })
   await testCall.click()
@@ -84,6 +98,32 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   await expect(page.locator('.event--thinking')).toHaveCount(0)
   await thinkingFilter.check()
   await expect(page.locator('.event--thinking')).toHaveCount(1)
+
+  const toggleAllButton = page.locator('.filter-select-all')
+  await expect(toggleAllButton).toHaveText('全不选')
+  const unselectWidth = await toggleAllButton.evaluate((el) => el.getBoundingClientRect().width)
+
+  await toggleAllButton.click()
+  await expect(toggleAllButton).toHaveText('全\u3000选')
+  const selectWidth = await toggleAllButton.evaluate((el) => el.getBoundingClientRect().width)
+  expect(Math.abs(unselectWidth - selectWidth)).toBeLessThanOrEqual(1)
+
+  await expect(thinkingFilter).not.toBeChecked()
+  await expect(page.locator('.event--thinking')).toHaveCount(0)
+  await expect(page.getByText('至少选择一种事件类型。')).toBeVisible()
+
+  await toggleAllButton.click()
+  await expect(toggleAllButton).toHaveText('全不选')
+  await expect(thinkingFilter).toBeChecked()
+  await expect(page.locator('.event--thinking')).toHaveCount(1)
+
+  const userFilter = page.getByLabel('用户', { exact: true })
+  await userFilter.uncheck()
+  await expect(toggleAllButton).toHaveText('全\u3000选')
+  await toggleAllButton.click()
+  await expect(toggleAllButton).toHaveText('全不选')
+  await expect(userFilter).toBeChecked()
+  await expect(page.locator('.event--user')).toHaveCount(1)
 
   const columns = await page.locator('.session-sidebar, .main-stage, .inspector').evaluateAll((elements) => elements.map((element) => {
     const box = element.getBoundingClientRect()

@@ -7,11 +7,34 @@ import { Timeline } from './components/Timeline'
 import { allEventKinds } from '../core/event-kinds'
 import { formatDateTime, formatDuration } from '../core/format'
 import { buildSessionView, getSessionTitle, parseSessionJsonl } from '../core/session-parser'
-import { browserAccessToken } from './session-auth'
+import { browserAccessToken, browserInitialCwd } from './session-auth'
 import type { EventKind, ParsedSession, SessionListItem, TimelineEvent } from '../core/types'
+
+function PiGlyph({ size = 26 }: { size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 28 28"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 11.2c.6-1.5 1.5-1.7 2.6-1.7h13.4" />
+      <path d="M10.25 9.5v9.5" />
+      <path d="M16.75 9.5v7c0 1.5 1 2.5 2.5 2.5" />
+    </svg>
+  )
+}
 
 function App() {
   const [accessToken] = useState<string | null>(() => browserAccessToken())
+  const [currentCwd, setCurrentCwd] = useState<string | null>(() => browserInitialCwd())
+  const [scopeMode, setScopeMode] = useState<'current' | 'all'>('current')
+  const [selectedProjectCwd, setSelectedProjectCwd] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionListItem[]>([])
   const [sessionRoot, setSessionRoot] = useState('')
   const [listWarnings, setListWarnings] = useState<string[]>([])
@@ -56,29 +79,43 @@ function App() {
     }
   }, [accessToken, applyContent])
 
-  useEffect(() => {
-    let cancelled = false
+  const reloadSessions = useCallback(async () => {
     if (!accessToken) {
       setListLoading(false)
-      return () => { cancelled = true }
+      return null
     }
     setListLoading(true)
-    fetchSessions(accessToken)
-      .then((payload) => {
-        if (cancelled) return
-        setSessions(payload.sessions)
-        setSessionRoot(payload.root)
-        setListWarnings(payload.warnings)
-        if (payload.sessions[0]) void openServerSession(payload.sessions[0])
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setListWarnings([error instanceof Error ? error.message : String(error)])
-      })
-      .finally(() => {
-        if (!cancelled) setListLoading(false)
-      })
+    try {
+      const payload = await fetchSessions(accessToken)
+      setSessions(payload.sessions)
+      setSessionRoot(payload.root)
+      setListWarnings(payload.warnings)
+      if (payload.currentCwd) {
+        setCurrentCwd((prev) => prev ?? payload.currentCwd ?? null)
+      }
+      return payload
+    } catch (error) {
+      setListWarnings([error instanceof Error ? error.message : String(error)])
+      return null
+    } finally {
+      setListLoading(false)
+    }
+  }, [accessToken])
+
+  useEffect(() => {
+    let cancelled = false
+    reloadSessions().then((payload) => {
+      if (cancelled || !payload || !payload.sessions.length) return
+      const list = payload.sessions
+      const targetCwd = payload.currentCwd ?? currentCwd ?? browserInitialCwd()
+      const normalize = (val?: string | null) => (val ? val.replace(/\\/g, '/').replace(/\/+$/, '') : '')
+      const currentProjectSession = targetCwd
+        ? list.find((s) => normalize(s.cwd) === normalize(targetCwd))
+        : undefined
+      void openServerSession(currentProjectSession ?? list[0])
+    })
     return () => { cancelled = true }
-  }, [openServerSession])
+  }, [currentCwd, openServerSession, reloadSessions])
 
   const view = useMemo(
     () => parsedSession ? buildSessionView(parsedSession, selectedLeafId) : null,
@@ -104,17 +141,49 @@ function App() {
   ), [view, enabledKinds])
 
   async function refreshCurrent() {
+    const listPromise = reloadSessions()
+
     if (selectedToken && selectedMetadata) {
-      await openServerSession(selectedMetadata)
-      return
-    }
-    if (importedFile) {
       setSessionLoading(true)
       try {
-        applyContent(await importedFile.text(), importedFile.name, null)
+        const [sessionPayload, payload] = await Promise.all([
+          accessToken ? fetchSession(selectedToken, accessToken) : Promise.reject(new Error('缺少访问令牌')),
+          listPromise,
+        ])
+        const updatedMetadata = payload?.sessions.find((item) => item.token === selectedToken) ?? selectedMetadata
+        applyContent(sessionPayload.content, sessionPayload.relativePath, updatedMetadata)
+      } catch (error) {
+        setLoadError(error instanceof Error ? error.message : String(error))
       } finally {
         setSessionLoading(false)
       }
+      return
+    }
+
+    if (importedFile) {
+      setSessionLoading(true)
+      try {
+        const [fileText] = await Promise.all([
+          importedFile.text(),
+          listPromise,
+        ])
+        applyContent(fileText, importedFile.name, null)
+      } catch (error) {
+        setLoadError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setSessionLoading(false)
+      }
+      return
+    }
+
+    const payload = await listPromise
+    if (payload && payload.sessions.length > 0) {
+      const targetCwd = payload.currentCwd ?? currentCwd ?? browserInitialCwd()
+      const normalize = (val?: string | null) => (val ? val.replace(/\\/g, '/').replace(/\/+$/, '') : '')
+      const currentProjectSession = targetCwd
+        ? payload.sessions.find((s) => normalize(s.cwd) === normalize(targetCwd))
+        : undefined
+      void openServerSession(currentProjectSession ?? payload.sessions[0])
     }
   }
 
@@ -141,6 +210,13 @@ function App() {
     })
   }
 
+  function toggleAllKinds() {
+    setEnabledKinds((current) => {
+      const allSelected = allEventKinds.length > 0 && allEventKinds.every((kind) => current.has(kind))
+      return allSelected ? new Set() : new Set(allEventKinds)
+    })
+  }
+
   function selectEvent(event: TimelineEvent) {
     setSelectedEventId(event.id)
     setInspectorOpen(true)
@@ -155,7 +231,7 @@ function App() {
           <Menu size={19} />
         </button>
         <div className="product-mark" aria-label="Pi 会话分析">
-          <span className="product-glyph"><Rows3 size={18} /></span>
+          <span className="product-glyph"><PiGlyph size={18} /></span>
           <strong>Pi 会话分析</strong>
         </div>
         <div className="header-session">
@@ -164,8 +240,15 @@ function App() {
         </div>
         <div className="header-actions">
           {loadedAt && <span className="loaded-at"><Clock3 size={14} />{formatDateTime(loadedAt)} 已加载</span>}
-          <button className="icon-button" type="button" onClick={() => void refreshCurrent()} disabled={!parsedSession || sessionLoading} title="重新读取会话" aria-label="重新读取会话">
-            <RefreshCw className={sessionLoading ? 'spin' : ''} size={18} />
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => void refreshCurrent()}
+            disabled={sessionLoading || listLoading || (!accessToken && !importedFile)}
+            title="重新读取会话与列表"
+            aria-label="重新读取会话与列表"
+          >
+            <RefreshCw className={sessionLoading || listLoading ? 'spin' : ''} size={18} />
           </button>
           <button className="icon-button mobile-only" type="button" onClick={() => { setSidebarOpen(false); setInspectorOpen(true) }} title="打开详情" aria-label="打开详情">
             <PanelRightOpen size={19} />
@@ -181,6 +264,11 @@ function App() {
             root={sessionRoot}
             loading={listLoading}
             warnings={listWarnings}
+            currentCwd={currentCwd}
+            scopeMode={scopeMode}
+            selectedProjectCwd={selectedProjectCwd}
+            onScopeModeChange={setScopeMode}
+            onProjectFilterChange={setSelectedProjectCwd}
             onSelect={(session) => void openServerSession(session)}
             onImport={() => fileInput.current?.click()}
           />
@@ -196,7 +284,7 @@ function App() {
           ) : parsedSession && view ? (
             <>
               <section className="session-summary" aria-label="会话概览">
-                <div><span>入口</span><strong>{parsedSession.stats.entryCount}</strong></div>
+                <div><span>条目</span><strong>{parsedSession.stats.entryCount}</strong></div>
                 <div><span>轮次</span><strong>{parsedSession.stats.turnCount}</strong></div>
                 <div><span>总跨度</span><strong>{formatDuration(parsedSession.stats.elapsedMs)}</strong></div>
                 <div><span>开始</span><strong>{formatDateTime(parsedSession.stats.startedAt)}</strong></div>
@@ -211,13 +299,14 @@ function App() {
                 onSelectEvent={selectEvent}
                 onSelectBranch={(leafId) => setSelectedLeafId(leafId)}
                 onToggleKind={toggleKind}
+                onToggleAllKinds={toggleAllKinds}
               />
             </>
           ) : (
             <div className="load-state">
               <Rows3 size={30} />
               <h1>{sessionLoading ? '正在读取会话' : '打开一次 Pi 会话'}</h1>
-              <p>{sessionLoading ? '正在恢复入口树和调用关系。' : '从左侧选择本地记录，或打开一个 JSONL 文件。'}</p>
+              <p>{sessionLoading ? '正在恢复条目树和调用关系。' : '从左侧选择本地记录，或打开一个 JSONL 文件。'}</p>
             </div>
           )}
         </main>

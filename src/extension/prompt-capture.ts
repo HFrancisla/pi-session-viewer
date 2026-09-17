@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { BuildSystemPromptOptions, ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import type { CapturedToolDefinition } from '../core/types'
 
 export const SYSTEM_PROMPT_ENTRY_TYPE = 'pi-session-viewer.system-prompt'
 
@@ -7,12 +8,14 @@ interface PendingCapture {
   targetUserEntryId?: string
   options: SerializablePromptOptions
   promptAtCapture: string
+  recordedInitial?: boolean
 }
 
 interface SerializablePromptOptions {
   customPrompt?: string
   selectedTools: string[]
   toolSnippets: Record<string, string>
+  toolDefinitions?: CapturedToolDefinition[]
   promptGuidelines: string[]
   appendSystemPrompt?: string
   cwd: string
@@ -67,16 +70,38 @@ function latestUserEntryId(entries: unknown): string | undefined {
   return undefined
 }
 
-function recordPrompt(ctx: ExtensionContext, pi: ExtensionAPI, pending: PendingCapture | undefined, captureStage: 'agent_start' | 'provider_request_update', forceReference: boolean, knownPromptHashes: Set<string>, sequence: { value: number }, lastRecordedHash: { value?: string }): void {
+function recordPrompt(
+  ctx: ExtensionContext,
+  pi: ExtensionAPI,
+  pending: PendingCapture | undefined,
+  captureStage: 'agent_start' | 'provider_request_update',
+  forceReference: boolean,
+  knownPromptHashes: Set<string>,
+  sequence: { value: number },
+  lastRecordedHash: { value?: string },
+  targetUserEntryId?: string,
+): void {
   if (!pending) return
   const prompt = ctx.getSystemPrompt()
   const hash = promptHash(prompt)
   if (!forceReference && hash === lastRecordedHash.value) return
   const isNewSnapshot = !knownPromptHashes.has(hash)
   sequence.value += 1
+  const allTools = typeof pi.getAllTools === 'function' ? pi.getAllTools() : []
+  const activeToolNames = new Set(typeof pi.getActiveTools === 'function' ? pi.getActiveTools() : [])
+  const activeTools = activeToolNames.size > 0
+    ? allTools.filter((tool) => activeToolNames.has(tool.name))
+    : allTools
+  const toolDefinitions: CapturedToolDefinition[] = activeTools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+    promptGuidelines: tool.promptGuidelines,
+  }))
   const composition = {
     ...pending.options,
     selectedTools: [...pi.getActiveTools()],
+    toolDefinitions: toolDefinitions.length > 0 ? toolDefinitions : undefined,
   }
 
   pi.appendEntry(SYSTEM_PROMPT_ENTRY_TYPE, {
@@ -88,8 +113,8 @@ function recordPrompt(ctx: ExtensionContext, pi: ExtensionAPI, pending: PendingC
     promptLength: prompt.length,
     composition: isNewSnapshot ? composition : undefined,
     promptBeforeFinalExtensions: isNewSnapshot && pending.promptAtCapture !== prompt ? pending.promptAtCapture : undefined,
-    targetUserEntryId: captureStage === 'agent_start' ? pending.targetUserEntryId : undefined,
-    relatedUserEntryId: pending.targetUserEntryId,
+    targetUserEntryId,
+    relatedUserEntryId: targetUserEntryId ?? pending.targetUserEntryId,
     sequence: sequence.value,
     capturedAt: new Date().toISOString(),
     model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined,
@@ -121,20 +146,50 @@ export default function systemPromptCapture(pi: ExtensionAPI): void {
     }
   })
 
-  pi.on('before_agent_start', (event, ctx) => {
+  pi.on('before_agent_start', (event) => {
     pending = {
-      targetUserEntryId: latestUserEntryId(ctx.sessionManager.getBranch()),
       options: serializeOptions(event.systemPromptOptions),
       promptAtCapture: event.systemPrompt,
+      recordedInitial: false,
     }
   })
 
-  pi.on('agent_start', (_event, ctx) => {
-    recordPrompt(ctx, pi, pending, 'agent_start', true, knownPromptHashes, sequence, lastRecordedHash)
+  pi.on('agent_start', () => {
+    // Prompt snapshot writing is deferred to before_provider_request once the turn's user entry is persisted.
   })
 
   pi.on('before_provider_request', (_event, ctx) => {
-    recordPrompt(ctx, pi, pending, 'provider_request_update', false, knownPromptHashes, sequence, lastRecordedHash)
+    if (!pending) return
+
+    if (!pending.recordedInitial) {
+      const userEntryId = latestUserEntryId(ctx.sessionManager.getBranch())
+      pending.targetUserEntryId = userEntryId
+      recordPrompt(
+        ctx,
+        pi,
+        pending,
+        'agent_start',
+        true,
+        knownPromptHashes,
+        sequence,
+        lastRecordedHash,
+        userEntryId,
+      )
+      pending.recordedInitial = true
+      return
+    }
+
+    recordPrompt(
+      ctx,
+      pi,
+      pending,
+      'provider_request_update',
+      false,
+      knownPromptHashes,
+      sequence,
+      lastRecordedHash,
+      undefined,
+    )
   })
 
   pi.on('agent_end', () => {

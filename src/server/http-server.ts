@@ -12,6 +12,7 @@ export interface SessionHttpServerOptions {
   host?: string
   port?: number
   version?: string
+  currentCwd?: string
 }
 
 export interface SessionHttpServer {
@@ -73,7 +74,7 @@ async function handleRequest(
   }
 
   if (pathname === '/api/sessions') {
-    sendJson(response, 200, await listSessions(options.sessionRoot))
+    sendJson(response, 200, await listSessions(options.sessionRoot, options.currentCwd))
     return
   }
 

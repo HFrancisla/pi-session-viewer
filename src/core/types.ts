@@ -39,12 +39,21 @@ export interface BranchOption {
   isCurrent: boolean
 }
 
-export type EventKind = 'system-prompt' | 'user' | 'assistant' | 'thinking' | 'tool-call' | 'tool-result' | 'system'
+export type EventKind = 'system-prompt' | 'tool-definitions' | 'user' | 'assistant' | 'thinking' | 'tool-call' | 'tool-result' | 'system'
+
+export interface CapturedToolDefinition {
+  name: string
+  description?: string
+  parameters?: unknown
+  promptGuidelines?: string[]
+  sourceInfo?: unknown
+}
 
 export interface SystemPromptComposition {
   customPrompt?: string
   selectedTools: string[]
   toolSnippets: Record<string, string>
+  toolDefinitions?: CapturedToolDefinition[]
   promptGuidelines: string[]
   appendSystemPrompt?: string
   cwd: string
@@ -86,6 +95,7 @@ export interface TimelineEvent {
   pairedEventId?: string
   targetEntryId?: string
   systemPrompt?: SystemPromptCapture
+  toolDefinitions?: CapturedToolDefinition[]
   raw: unknown
 }
 
@@ -135,6 +145,7 @@ export interface SessionListItem {
 
 export interface SessionListResponse {
   root: string
+  currentCwd?: string
   sessions: SessionListItem[]
   warnings: string[]
 }
