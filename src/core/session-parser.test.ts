@@ -194,6 +194,10 @@ describe('parseSessionJsonl', () => {
     expect(view.events.map((e) => e.kind)).toEqual(['system-prompt', 'tool-definitions', 'user', 'assistant'])
     expect(view.turns[0].events.map((e) => e.kind)).toEqual(['system-prompt', 'tool-definitions', 'user', 'assistant'])
 
+    const promptEvent = view.events.find((e) => e.kind === 'system-prompt')
+    expect(promptEvent).toBeDefined()
+    expect(promptEvent?.summary).toBe('Full snapshot')
+
     const toolDefEvent = view.events.find((e) => e.kind === 'tool-definitions')
     expect(toolDefEvent).toBeDefined()
     expect(toolDefEvent?.title).toBe('Tool Definitions')
@@ -203,6 +207,89 @@ describe('parseSessionJsonl', () => {
       description: 'Read file contents',
       parameters: { type: 'object', properties: { path: { type: 'string' } } },
     })
+  })
+
+  it('displays mounted skills in system-prompt event summary without tool counts', () => {
+    const promptData = {
+      schemaVersion: 1,
+      promptHash: 'skills-hash',
+      promptLength: 50,
+      composition: {
+        selectedTools: ['read', 'bash'],
+        skills: [
+          { name: 'tdd', description: 'TDD' },
+          { name: 'review', description: 'Review' },
+        ],
+        contextFiles: [],
+        promptGuidelines: [],
+        cwd: '/work/demo',
+      },
+    }
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', content: '测试' }),
+      { type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p1', parentId: 'u1', timestamp: '2026-01-01T10:00:01.100Z', data: { ...promptData, recordType: 'snapshot', prompt: 'Prompt with skills', targetUserEntryId: 'u1', sequence: 1 } },
+      entry('a1', 'p1', '2026-01-01T10:00:02.000Z', { role: 'assistant', content: [{ type: 'text', text: '回复' }] }),
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source))
+    const promptEvent = view.events.find((e) => e.kind === 'system-prompt')
+    expect(promptEvent).toBeDefined()
+    expect(promptEvent?.summary).toBe('Mounted 2 skills')
+  })
+
+  it('links toolDefinition with provenance to tool-call and tool-result events', () => {
+    const promptData = {
+      schemaVersion: 1,
+      promptHash: 'tools-prov-hash',
+      promptLength: 20,
+      composition: {
+        selectedTools: ['mcpScript'],
+        toolDefinitions: [
+          {
+            name: 'mcpScript',
+            description: 'Run MCP script',
+            parameters: { type: 'object' },
+            sourceInfo: {
+              path: '/home/user/.pi/agent/extensions/pi-mcp-adapter/index.js',
+              source: 'local',
+            },
+          },
+        ],
+        promptGuidelines: [],
+        cwd: '/work/demo',
+        contextFiles: [],
+        skills: [],
+      },
+    }
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', content: '测试工具' }),
+      { type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p1', parentId: 'u1', timestamp: '2026-01-01T10:00:01.100Z', data: { ...promptData, recordType: 'snapshot', prompt: 'Prompt', targetUserEntryId: 'u1', sequence: 1 } },
+      entry('a1', 'p1', '2026-01-01T10:00:02.000Z', {
+        role: 'assistant',
+        content: [
+          { type: 'toolCall', id: 'c1', name: 'mcpScript', arguments: { cmd: 'status' } },
+        ],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:03.000Z', {
+        role: 'toolResult',
+        toolCallId: 'c1',
+        toolName: 'mcpScript',
+        content: 'OK',
+      }),
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source))
+    const callEvent = view.events.find((e) => e.kind === 'tool-call')
+    expect(callEvent).toBeDefined()
+    expect(callEvent?.toolName).toBe('mcpScript')
+    expect(callEvent?.toolDefinition).toBeDefined()
+    expect(callEvent?.toolDefinition?.sourceInfo?.path).toBe('/home/user/.pi/agent/extensions/pi-mcp-adapter/index.js')
+
+    const resultEvent = view.events.find((e) => e.kind === 'tool-result')
+    expect(resultEvent?.toolDefinition).toBeDefined()
+    expect(resultEvent?.toolDefinition?.name).toBe('mcpScript')
   })
 
   it('uses a session name before the first user message', () => {

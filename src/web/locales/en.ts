@@ -81,7 +81,20 @@ export const en = {
       overview: 'Overview',
       composition: 'Composition',
       content: 'Content',
+      diff: 'Diff',
       raw: 'Raw',
+    },
+    diff: {
+      baselineLabel: 'Baseline',
+      baselineVanilla: 'Vanilla Pi',
+      noChanges: 'Identical to baseline. No modifications or additions found.',
+      addedLines: (count: number) => `+${count} lines`,
+      removedLines: (count: number) => `-${count} lines`,
+      collapseUnchanged: 'Collapse unchanged',
+      expandAll: 'Expand all',
+      copyDiff: 'Copy Diff',
+      currentSuffix: 'Current',
+      baselineSuffix: 'Baseline',
     },
     sections: {
       basicInfo: 'Basic Info',
@@ -126,6 +139,13 @@ export const en = {
     views: {
       noContent: 'This event has no text content.',
       noRaw: 'No raw data',
+    },
+    toolProvenance: {
+      builtin: 'Built-in',
+      extension: 'Extension',
+      sdk: 'SDK',
+      unknown: 'Unknown',
+      sourceLabel: 'Source',
     },
   },
   overview: {

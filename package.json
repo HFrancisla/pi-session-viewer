@@ -1,6 +1,6 @@
 {
   "name": "@hfrancisla/pi-session-viewer",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Local, read-only Pi session and system-prompt inspector",
   "type": "module",
   "license": "MIT",

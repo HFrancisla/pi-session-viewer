@@ -10,8 +10,10 @@ import type {
   SystemPromptComposition,
   TimelineEvent,
   TimelineTurn,
+  ToolSourceInfo,
 } from './types'
 import { truncate } from './format'
+import { sanitizeToolForApi } from './tool-provenance'
 
 const KNOWN_ENTRY_TYPES = new Set([
   'message',
@@ -360,7 +362,7 @@ function promptComposition(value: unknown): SystemPromptComposition | undefined 
         description: stringValue(tool.description),
         parameters: tool.parameters,
         promptGuidelines: stringArray(tool.promptGuidelines),
-        sourceInfo: tool.sourceInfo,
+        sourceInfo: isObject(tool.sourceInfo) ? (tool.sourceInfo as ToolSourceInfo) : undefined,
       }))
     : []
   return {
@@ -398,9 +400,8 @@ function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, Pr
   const recordType = data.recordType === 'reference' ? 'reference' : 'snapshot'
   const captureStage = data.captureStage === 'provider_request_update' ? 'provider_request_update' : 'agent_start'
   const summaryParts: string[] = []
-  if (composition?.selectedTools.length) summaryParts.push(`${composition.selectedTools.length} tools`)
-  if (composition?.contextFiles.length) summaryParts.push(`${composition.contextFiles.length} context files`)
-  if (composition?.skills.length) summaryParts.push(`${composition.skills.length} skills`)
+  if (composition?.skills.length) summaryParts.push(`Mounted ${composition.skills.length} ${composition.skills.length === 1 ? 'skill' : 'skills'}`)
+  if (composition?.contextFiles.length) summaryParts.push(`${composition.contextFiles.length} context ${composition.contextFiles.length === 1 ? 'file' : 'files'}`)
   const defaultSummary = recordType === 'snapshot' ? 'Full snapshot' : recordType === 'reference' ? 'Snapshot reference' : 'System prompt'
 
   return {
@@ -433,7 +434,8 @@ function buildToolDefinitionsEvent(promptEvent: TimelineEvent): TimelineEvent | 
   if (!composition?.toolDefinitions?.length) return undefined
 
   const tools = composition.toolDefinitions
-  const jsonContent = JSON.stringify(tools, null, 2)
+  const apiTools = tools.map(sanitizeToolForApi)
+  const jsonContent = JSON.stringify(apiTools, null, 2)
   const charCount = jsonContent.length
   const estimatedTokens = Math.ceil(charCount / 4)
 
@@ -450,7 +452,7 @@ function buildToolDefinitionsEvent(promptEvent: TimelineEvent): TimelineEvent | 
     toolDefinitions: tools,
     raw: {
       type: 'tool-definitions',
-      tools,
+      tools: apiTools,
       charCount,
       estimatedTokens,
     },
@@ -498,7 +500,21 @@ function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotD
 
 function pairTools(events: TimelineEvent[]): void {
   const calls = new Map<string, TimelineEvent>()
+  const toolDefs = new Map<string, CapturedToolDefinition>()
   let previousTimestamp: number | undefined
+
+  for (const event of events) {
+    if (event.toolDefinitions) {
+      for (const td of event.toolDefinitions) {
+        toolDefs.set(td.name, td)
+      }
+    }
+    if (event.systemPrompt?.composition?.toolDefinitions) {
+      for (const td of event.systemPrompt.composition.toolDefinitions) {
+        toolDefs.set(td.name, td)
+      }
+    }
+  }
 
   for (const event of events) {
     if (event.timestamp) {
@@ -508,12 +524,20 @@ function pairTools(events: TimelineEvent[]): void {
         previousTimestamp = time
       }
     }
-    if (event.kind === 'tool-call' && event.toolCallId) calls.set(event.toolCallId, event)
+    if (event.kind === 'tool-call') {
+      if (event.toolName && toolDefs.has(event.toolName)) {
+        event.toolDefinition = toolDefs.get(event.toolName)
+      }
+      if (event.toolCallId) calls.set(event.toolCallId, event)
+    }
     if (event.kind === 'tool-result' && event.toolCallId) {
       const call = calls.get(event.toolCallId)
       if (call) {
         call.pairedEventId = event.id
         event.pairedEventId = call.id
+        if (call.toolDefinition && !event.toolDefinition) {
+          event.toolDefinition = call.toolDefinition
+        }
       }
     }
   }

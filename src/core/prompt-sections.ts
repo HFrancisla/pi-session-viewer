@@ -23,11 +23,6 @@ export interface ParsedPromptSections {
   items: PromptSectionItem[]
 }
 
-function countToolLines(text: string): number {
-  const matches = text.match(/^\s*-\s+[^:\n]+:/gm)
-  return matches ? matches.length : 0
-}
-
 function countGuidelineLines(text: string): number {
   const matches = text.match(/^\s*-\s+/gm)
   return matches ? matches.length : 0
@@ -157,14 +152,6 @@ export function parseSystemPromptSections(
     baseLabel = 'Default Template'
   }
 
-  let toolsLabel = 'None'
-  const toolsCount = composition?.selectedTools?.length ?? countToolLines(availableTools)
-  if (toolsCount > 0) {
-    toolsLabel = `${toolsCount} ${toolsCount === 1 ? 'tool' : 'tools'}`
-  } else if (availableTools) {
-    toolsLabel = 'Present'
-  }
-
   let guidelinesLabel = 'None'
   const guidelinesCount = composition?.promptGuidelines?.length ?? countGuidelineLines(guidelines)
   if (guidelinesCount > 0) {
@@ -207,7 +194,7 @@ export function parseSystemPromptSections(
     id: 'available-tools',
     index: 2,
     title: 'Available Tools',
-    meta: formatMetaWithChars(toolsLabel, availableTools.length),
+    meta: formatMetaWithChars('', availableTools.length),
     content: availableTools || 'None',
     charCount: availableTools.length,
     estimatedTokens: Math.ceil(availableTools.length / 4),

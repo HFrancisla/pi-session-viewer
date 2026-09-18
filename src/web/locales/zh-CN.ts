@@ -83,7 +83,20 @@ export const zhCN: Translations = {
       overview: '概览',
       composition: '组成',
       content: '内容',
+      diff: '差异',
       raw: 'Raw',
+    },
+    diff: {
+      baselineLabel: '基准',
+      baselineVanilla: '原生 Pi',
+      noChanges: '与对比基准完全一致，未发现任何修改或追加。',
+      addedLines: (count: number) => `+${count} 行`,
+      removedLines: (count: number) => `-${count} 行`,
+      collapseUnchanged: '折叠未变行',
+      expandAll: '展开全部',
+      copyDiff: '复制 Diff',
+      currentSuffix: '当前',
+      baselineSuffix: '基准',
     },
     sections: {
       basicInfo: '基本信息',
@@ -128,6 +141,13 @@ export const zhCN: Translations = {
     views: {
       noContent: '此事件没有文本内容。',
       noRaw: '无原始数据',
+    },
+    toolProvenance: {
+      builtin: '原生内置',
+      extension: '扩展',
+      sdk: 'SDK',
+      unknown: '未知来源',
+      sourceLabel: '来源',
     },
   },
   overview: {

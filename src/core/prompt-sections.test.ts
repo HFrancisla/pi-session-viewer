@@ -75,7 +75,7 @@ Current working directory: /work/demo`
     expect(sections.baseTemplate.isEmpty).toBe(false)
 
     expect(sections.availableTools.content).toContain('Available tools:\n- read: Read file contents')
-    expect(sections.availableTools.meta).toBe(`4 tools, ${sections.availableTools.charCount.toLocaleString('en-US')} chars`)
+    expect(sections.availableTools.meta).toBe(`${sections.availableTools.charCount.toLocaleString('en-US')} chars`)
     expect(sections.availableTools.isEmpty).toBe(false)
 
     expect(sections.guidelines.content).toContain('Guidelines:\n- Be concise')
@@ -122,8 +122,7 @@ Current working directory: /work/demo`
     expect(sections.baseTemplate.meta).toContain('chars')
 
     expect(sections.availableTools.content).toBe('Available tools:\n- bash: Execute commands')
-    expect(sections.availableTools.meta).toContain('1 tool, ')
-    expect(sections.availableTools.meta).toContain('chars')
+    expect(sections.availableTools.meta).toBe(`${sections.availableTools.charCount.toLocaleString('en-US')} chars`)
 
     expect(sections.guidelines.content).toBe('Guidelines:\n- Be concise')
     expect(sections.guidelines.meta).toContain('1 rule, ')

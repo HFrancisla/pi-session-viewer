@@ -41,12 +41,21 @@ export interface BranchOption {
 
 export type EventKind = 'system-prompt' | 'tool-definitions' | 'user' | 'assistant' | 'thinking' | 'tool-call' | 'tool-result' | 'system'
 
+export interface ToolSourceInfo {
+  path?: string
+  source?: string
+  scope?: string
+  origin?: string
+  baseDir?: string
+  [key: string]: unknown
+}
+
 export interface CapturedToolDefinition {
   name: string
   description?: string
   parameters?: unknown
   promptGuidelines?: string[]
-  sourceInfo?: unknown
+  sourceInfo?: ToolSourceInfo
   [key: string]: unknown
 }
 
@@ -92,6 +101,7 @@ export interface TimelineEvent {
   gapMs?: number
   toolCallId?: string
   toolName?: string
+  toolDefinition?: CapturedToolDefinition
   isError?: boolean
   pairedEventId?: string
   targetEntryId?: string

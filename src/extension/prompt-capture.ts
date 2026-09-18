@@ -97,6 +97,7 @@ function recordPrompt(
     description: tool.description,
     parameters: tool.parameters,
     promptGuidelines: tool.promptGuidelines,
+    sourceInfo: (tool as any).sourceInfo,
   }))
   const composition = {
     ...pending.options,

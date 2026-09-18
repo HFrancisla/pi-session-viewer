@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Copy,
   FileText,
+  GitCompare,
   Info,
   Layers3,
   X,
@@ -12,6 +13,8 @@ import { useEffect, useState } from 'react'
 import { formatClock, formatDateTime, formatDuration } from '../../core/format'
 import type { CapturedToolDefinition, SystemPromptComposition, TimelineEvent } from '../../core/types'
 import { parseSystemPromptSections } from '../../core/prompt-sections'
+import { getToolProvenanceLabel, resolveToolProvenance, sanitizeToolForApi } from '../../core/tool-provenance'
+import { PromptDiffView } from './PromptDiffView'
 import { useI18n } from '../i18n'
 
 interface InspectorProps {
@@ -20,7 +23,7 @@ interface InspectorProps {
   onClose: () => void
 }
 
-type InspectorTab = 'overview' | 'content' | 'composition' | 'raw'
+type InspectorTab = 'overview' | 'content' | 'composition' | 'diff' | 'raw'
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
   const { t } = useI18n()
@@ -57,8 +60,11 @@ function ToolDefinitionsView({ tools }: { tools: CapturedToolDefinition[] }) {
   return (
     <div className="tool-definitions-view">
       {tools.map((tool, index) => {
-        const toolJson = JSON.stringify(tool, null, 2)
+        const apiTool = sanitizeToolForApi(tool)
+        const toolJson = JSON.stringify(apiTool, null, 2)
         const toolChars = toolJson.length
+        const provenance = resolveToolProvenance(tool)
+        const badgeLabel = getToolProvenanceLabel(provenance, t.inspector.toolProvenance)
 
         return (
           <details className="prompt-block" key={tool.name}>
@@ -67,6 +73,12 @@ function ToolDefinitionsView({ tools }: { tools: CapturedToolDefinition[] }) {
               <span className="prompt-block-title">
                 <span className="prompt-block-index">{index + 1}.</span>
                 <code>{tool.name}</code>
+                <span
+                  className={`tool-source-badge tool-source-badge--${provenance.kind}`}
+                  title={provenance.displayPath ?? undefined}
+                >
+                  {badgeLabel}
+                </span>
               </span>
               <span className="prompt-block-meta">
                 {t.common.chars(toolChars)}
@@ -122,6 +134,8 @@ function EventOverview({ event }: { event: TimelineEvent }) {
   const estimatedTokens = Math.ceil(totalChars / 4)
   const isToolDef = event.kind === 'tool-definitions'
   const model = event.model || event.systemPrompt?.model
+  const callProvenance = event.toolName ? resolveToolProvenance(event.toolDefinition, event.toolName) : undefined
+  const callBadgeLabel = callProvenance ? getToolProvenanceLabel(callProvenance, t.inspector.toolProvenance) : ''
 
   return (
     <div className="inspector-overview">
@@ -164,7 +178,22 @@ function EventOverview({ event }: { event: TimelineEvent }) {
                 <dd>{model.provider ?? t.inspector.facts.unknownProvider} / {model.id ?? t.inspector.facts.unknownModel}</dd>
               </div>
             )}
-            {event.toolName && <div><dt>{t.inspector.facts.toolName}</dt><dd><code>{event.toolName}</code></dd></div>}
+            {event.toolName && (
+              <div>
+                <dt>{t.inspector.facts.toolName}</dt>
+                <dd className="tool-name-fact">
+                  <code>{event.toolName}</code>
+                  {callProvenance && (
+                    <span
+                      className={`tool-source-badge tool-source-badge--${callProvenance.kind}`}
+                      title={callProvenance.displayPath ?? undefined}
+                    >
+                      {callBadgeLabel}
+                    </span>
+                  )}
+                </dd>
+              </div>
+            )}
             {event.toolCallId && <div><dt>{t.inspector.facts.callId}</dt><dd className="break-value"><code>{event.toolCallId}</code></dd></div>}
             {event.kind === 'tool-result' && (
               <div>
@@ -250,7 +279,8 @@ export function Inspector({ event, mobileOpen, onClose }: InspectorProps) {
   }, [event?.id])
 
   const tools = event?.toolDefinitions ?? []
-  const hasComposition = event?.kind === 'system-prompt' || (event?.kind !== 'tool-definitions' && Boolean(event?.systemPrompt?.composition))
+  const isSystemPrompt = event?.kind === 'system-prompt'
+  const hasComposition = isSystemPrompt || (event?.kind !== 'tool-definitions' && Boolean(event?.systemPrompt?.composition))
   const isToolDef = event?.kind === 'tool-definitions'
 
   return (
@@ -284,6 +314,11 @@ export function Inspector({ event, mobileOpen, onClose }: InspectorProps) {
             <button type="button" role="tab" aria-selected={tab === 'content'} onClick={() => setTab('content')}>
               <FileText size={15} />{t.inspector.tabs.content}
             </button>
+            {isSystemPrompt && (
+              <button type="button" role="tab" aria-selected={tab === 'diff'} onClick={() => setTab('diff')}>
+                <GitCompare size={15} />{t.inspector.tabs.diff}
+              </button>
+            )}
             <button type="button" role="tab" aria-selected={tab === 'raw'} onClick={() => setTab('raw')}>
               <Braces size={15} />{t.inspector.tabs.raw}
             </button>
@@ -298,6 +333,8 @@ export function Inspector({ event, mobileOpen, onClose }: InspectorProps) {
                 prompt={event.content}
                 composition={event.systemPrompt?.composition}
               />
+            ) : tab === 'diff' && event ? (
+              <PromptDiffView key={event.id} event={event} />
             ) : tab === 'raw' ? (
               <EventRawView event={event} />
             ) : isToolDef ? (
