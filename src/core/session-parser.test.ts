@@ -365,4 +365,48 @@ describe('parseSessionJsonl', () => {
       targetEntryId: 'u1',
     })
   })
+
+  it('detects subagent references and attaches them to tool-result events', () => {
+    const source = jsonl(
+      entry('s1', null, '2026-01-01T10:00:00.000Z', {
+        type: 'session',
+        id: 'main-session',
+      }),
+      entry('u1', 's1', '2026-01-01T10:00:00.000Z', {
+        role: 'user',
+        content: 'Investigate leak',
+      }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolCall',
+            id: 'call-1',
+            name: 'subagent',
+            arguments: { agent: 'code-analyzer', task: 'Check memory leaks' },
+          },
+        ],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult',
+        toolCallId: 'call-1',
+        toolName: 'subagent',
+        content: JSON.stringify({
+          status: 'success',
+          sessionFile: 'subagent-artifacts/analyzer-run.jsonl',
+        }),
+      }),
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source))
+    const callEvent = view.events.find((e) => e.kind === 'tool-call')
+    const resultEvent = view.events.find((e) => e.kind === 'tool-result')
+
+    expect(callEvent?.subagent).toBeUndefined()
+
+    expect(resultEvent?.subagent).toBeDefined()
+    expect(resultEvent?.subagent?.targetFile).toBe('subagent-artifacts/analyzer-run.jsonl')
+    expect(resultEvent?.subagent?.agentName).toBe('code-analyzer')
+    expect(resultEvent?.subagent?.task).toBe('Check memory leaks')
+  })
 })

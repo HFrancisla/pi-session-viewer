@@ -1,9 +1,9 @@
 import { AlertTriangle, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
-import type { ComponentType } from 'react'
+import { useLayoutEffect, useMemo, useRef, type ComponentType } from 'react'
 import { buildCausalLayout, causalLaneX, type CausalEventLayout } from '../../core/causal-layout'
 import { allEventKinds } from '../../core/event-kinds'
 import { formatClock, formatDuration } from '../../core/format'
-import type { EventKind, ParsedSession, TimelineEvent, TimelineTurn } from '../../core/types'
+import type { EventKind, ParsedSession, SubagentReference, TimelineEvent, TimelineTurn } from '../../core/types'
 import { useI18n } from '../i18n'
 
 const kindMeta: Record<EventKind, { icon: ComponentType<{ size?: number; className?: string }>; color: string }> = {
@@ -22,12 +22,14 @@ interface TimelineProps {
   turns: TimelineTurn[]
   allEvents: TimelineEvent[]
   selectedEventId: string | null
+  restorePosition?: { eventId: string | null; scrollTop?: number; key: number } | null
   selectedLeafId: string | null
   enabledKinds: Set<EventKind>
   onSelectEvent: (event: TimelineEvent) => void
   onSelectBranch: (leafId: string) => void
   onToggleKind: (kind: EventKind) => void
   onToggleAllKinds: () => void
+  onOpenSubagent?: (subagent: SubagentReference, sourceEventId?: string) => void
 }
 
 interface LlmOutputGroup {
@@ -40,11 +42,10 @@ function isLlmOutputEvent(event: TimelineEvent): boolean {
   return event.kind === 'assistant' || event.kind === 'thinking' || event.kind === 'tool-call'
 }
 
-function groupLlmOutputEvents(events: TimelineEvent[], blockCounts: Map<string, number>): LlmOutputGroup[] {
+function groupLlmOutputEvents(events: TimelineEvent[]): LlmOutputGroup[] {
   const groups: LlmOutputGroup[] = []
   for (const event of events) {
-    const totalBlocks = blockCounts.get(event.entryId) ?? 0
-    const shouldGroup = isLlmOutputEvent(event) && totalBlocks > 1
+    const shouldGroup = isLlmOutputEvent(event)
     const previous = groups.at(-1)
     if (shouldGroup && previous?.isLlmOutput && previous.id === event.entryId) {
       previous.events.push(event)
@@ -59,13 +60,15 @@ function groupLlmOutputEvents(events: TimelineEvent[], blockCounts: Map<string, 
   return groups
 }
 
-function EventRow({ event, selected, causal, maxLanes, highlightedCallId, onSelect }: {
+function EventRow({ event, selected, causal, maxLanes, highlightedCallId, mutedCallIds, onSelect, onOpenSubagent }: {
   event: TimelineEvent
   selected: boolean
   causal: CausalEventLayout
   maxLanes: number
   highlightedCallId?: string
+  mutedCallIds?: Set<string>
   onSelect: () => void
+  onOpenSubagent?: (subagent: SubagentReference, sourceEventId?: string) => void
 }) {
   const { t, localizeTitle } = useI18n()
   const meta = kindMeta[event.kind]
@@ -77,6 +80,8 @@ function EventRow({ event, selected, causal, maxLanes, highlightedCallId, onSele
     <button
       className={`event-row event--${event.kind}${selected ? ' is-selected' : ''}${isPairRelated ? ' is-pair-related' : ''}`}
       type="button"
+      id={`event-row-${event.id}`}
+      data-event-id={event.id}
       onClick={onSelect}
       data-tool-call-id={event.toolCallId}
       style={{ '--event-color': event.isError ? '#b24b4b' : meta.color } as React.CSSProperties}
@@ -87,23 +92,57 @@ function EventRow({ event, selected, causal, maxLanes, highlightedCallId, onSele
       </span>
       <span className="event-track" aria-hidden="true">
         <span className="track-dot"><Icon size={14} /></span>
-        {causal.segments.map((segment) => (
-          <span
-            className={`causal-rail causal-rail--${segment.phase}${highlightedCallId === segment.callId ? ' is-highlighted' : ''}${highlightedCallId && highlightedCallId !== segment.callId ? ' is-muted' : ''}`}
-            data-call-id={segment.callId}
-            key={segment.callId}
-            style={{ '--lane-x': `${causalLaneX(segment.lane, maxLanes)}px` } as React.CSSProperties}
-          />
-        ))}
+        {causal.segments.map((segment) => {
+          const isHighlighted = highlightedCallId === segment.callId
+          const isMuted = Boolean(mutedCallIds?.has(segment.callId))
+          return (
+            <span
+              className={`causal-rail causal-rail--${segment.phase}${isHighlighted ? ' is-highlighted' : ''}${isMuted ? ' is-muted' : ''}`}
+              data-call-id={segment.callId}
+              key={segment.callId}
+              style={{ '--lane-x': `${causalLaneX(segment.lane, maxLanes)}px` } as React.CSSProperties}
+            />
+          )
+        })}
       </span>
       <span className="event-copy">
         <span className="event-title-line">
           <strong>{localizeTitle(event.title)}</strong>
           {causal.eventLane != null && <span className="lane-label">#{causal.eventLane + 1}</span>}
           {event.kind === 'tool-result' && (
-            <span className={`event-status ${event.isError ? 'is-error' : 'is-success'}`}>
-              {event.isError ? t.common.failed : t.common.success}
-            </span>
+            <>
+              <span className={`event-status ${event.isError ? 'is-error' : 'is-success'}`}>
+                {event.isError ? t.common.failed : t.common.success}
+              </span>
+              {event.subagent && (
+                <span
+                  className="event-subagent-tag"
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onSelect()
+                    onOpenSubagent?.(event.subagent!, event.id)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation()
+                      onSelect()
+                      onOpenSubagent?.(event.subagent!, event.id)
+                    }
+                  }}
+                  title={event.subagents && event.subagents.length > 1 ? `${event.subagents.length} subagents` : t.timeline.openSubagent}
+                >
+                  <Bot size={12} />
+                  <span>
+                    {event.subagents && event.subagents.length > 1
+                      ? `${event.subagents.length} ${t.timeline.subagentTag}`
+                      : (event.subagent.agentName ?? t.timeline.subagentTag)}
+                  </span>
+                  <span className="subagent-tag-arrow">→</span>
+                </span>
+              )}
+            </>
           )}
           {charCount != null && event.kind !== 'system' && (
             <span className="event-char-count">{t.common.chars(charCount)}</span>
@@ -120,25 +159,96 @@ export function Timeline({
   turns,
   allEvents,
   selectedEventId,
+  restorePosition,
   selectedLeafId,
   enabledKinds,
   onSelectEvent,
   onSelectBranch,
   onToggleKind,
   onToggleAllKinds,
+  onOpenSubagent,
 }: TimelineProps) {
   const { t, localizeTitle } = useI18n()
   const causalLayout = buildCausalLayout(allEvents)
   const selectedEvent = allEvents.find((event) => event.id === selectedEventId)
   const highlightedCallId = selectedEvent?.toolCallId
-  const llmBlockCounts = new Map<string, number>()
-  for (const event of allEvents) {
-    if (isLlmOutputEvent(event)) {
-      llmBlockCounts.set(event.entryId, (llmBlockCounts.get(event.entryId) ?? 0) + 1)
+
+  const mutedCallIds = useMemo(() => {
+    if (!highlightedCallId) return new Set<string>()
+
+    const groupCallIds = new Set<string>()
+
+    // 1. Sibling tool calls dispatched in the same LLM assistant entry
+    const toolCallEvent = allEvents.find((e) => e.kind === 'tool-call' && e.toolCallId === highlightedCallId)
+    if (toolCallEvent) {
+      for (const ev of allEvents) {
+        if (ev.entryId === toolCallEvent.entryId && ev.toolCallId && ev.toolCallId !== highlightedCallId) {
+          groupCallIds.add(ev.toolCallId)
+        }
+      }
     }
-  }
+
+    // 2. Tool calls that concurrently overlap with highlightedCallId in causal segments
+    const overlappingGraph = new Map<string, Set<string>>()
+    for (const layout of causalLayout.byEventId.values()) {
+      const activeIds = layout.segments.map((s) => s.callId)
+      if (activeIds.length > 1) {
+        for (const id of activeIds) {
+          let set = overlappingGraph.get(id)
+          if (!set) {
+            set = new Set()
+            overlappingGraph.set(id, set)
+          }
+          for (const other of activeIds) {
+            if (other !== id) set.add(other)
+          }
+        }
+      }
+    }
+
+    const queue = [highlightedCallId, ...groupCallIds]
+    const visited = new Set<string>([highlightedCallId])
+    while (queue.length > 0) {
+      const current = queue.pop()!
+      const neighbors = overlappingGraph.get(current)
+      if (neighbors) {
+        for (const neighbor of neighbors) {
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor)
+            groupCallIds.add(neighbor)
+            queue.push(neighbor)
+          }
+        }
+      }
+    }
+
+    return groupCallIds
+  }, [highlightedCallId, allEvents, causalLayout])
+
   const visibleEventCount = turns.reduce((count, turn) => count + turn.events.length, 0)
   const allSelected = allEventKinds.length > 0 && allEventKinds.every((kind) => enabledKinds.has(kind))
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    if (!restorePosition) return
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    if (restorePosition.scrollTop != null) {
+      container.scrollTop = restorePosition.scrollTop
+      requestAnimationFrame(() => {
+        if (container && restorePosition.scrollTop != null) {
+          container.scrollTop = restorePosition.scrollTop
+        }
+      })
+    } else if (restorePosition.eventId) {
+      const el = document.getElementById(`event-row-${restorePosition.eventId}`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'auto', block: 'nearest' })
+      }
+    }
+  }, [restorePosition])
 
   return (
     <section className="timeline-panel" aria-label={t.timeline.ariaLabel}>
@@ -186,7 +296,7 @@ export function Timeline({
         </details>
       )}
 
-      <div className="timeline-scroll">
+      <div className="timeline-scroll" ref={scrollContainerRef}>
         {turns.length === 0 ? (
           <div className="timeline-empty">
             <Cog size={25} />
@@ -199,7 +309,7 @@ export function Timeline({
               <span>{t.timeline.turnEvents(turn.events.length)}</span>
             </header>
             <div className="turn-events">
-              {groupLlmOutputEvents(turn.events, llmBlockCounts).map((group) => {
+              {groupLlmOutputEvents(turn.events).map((group) => {
                 const rows = group.events.map((event) => (
                   <EventRow
                     key={event.id}
@@ -208,7 +318,9 @@ export function Timeline({
                     causal={causalLayout.byEventId.get(event.id) ?? { segments: [] }}
                     maxLanes={causalLayout.maxLanes}
                     highlightedCallId={highlightedCallId}
+                    mutedCallIds={mutedCallIds}
                     onSelect={() => onSelectEvent(event)}
+                    onOpenSubagent={onOpenSubagent}
                   />
                 ))
                 if (!group.isLlmOutput) return rows

@@ -30,13 +30,8 @@ export async function configuredSessionRoot(env: NodeJS.ProcessEnv = process.env
   return configuredSessionRootSync(env)
 }
 
-export function encodeSessionToken(relativePath: string): string {
-  return Buffer.from(relativePath, 'utf8').toString('base64url')
-}
-
-export function decodeSessionToken(token: string): string {
-  return Buffer.from(token, 'base64url').toString('utf8')
-}
+import { decodeSessionToken, encodeSessionToken } from '../core/session-token'
+export { decodeSessionToken, encodeSessionToken }
 
 function isSessionCandidate(entry: import('node:fs').Dirent, name: string): boolean {
   return entry.isFile()
@@ -51,6 +46,7 @@ async function walkJsonl(root: string): Promise<string[]> {
     const entries = await fs.readdir(directory, { withFileTypes: true })
     for (const entry of entries) {
       if (entry.name === 'subagent-artifacts') continue
+      if (entry.isDirectory() && (/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/.test(entry.name) || /^run-\d+$/.test(entry.name))) continue
       const absolute = path.join(directory, entry.name)
       if (entry.isDirectory()) {
         await visit(absolute)
@@ -80,7 +76,12 @@ async function sessionMetadata(root: string, filePath: string): Promise<SessionL
   try {
     const header = JSON.parse(firstLine) as Record<string, unknown>
     if (header.type !== 'session') return null
+    if (header.parentSession) return null
     const relativePath = path.relative(root, filePath)
+    const normalizedRel = relativePath.replace(/\\/g, '/')
+    if (normalizedRel.includes('subagent-artifacts/') || normalizedRel.includes('/run-') || normalizedRel.includes('/subagents/')) {
+      return null
+    }
     const parsed = parseSessionJsonl(prefix, path.basename(filePath))
     const stat = await fs.stat(filePath)
     return {
@@ -135,7 +136,7 @@ export async function resolveAllowedSessionFile(root: string, token: string): Pr
     throw new Error('Requested file is outside allowed directory.')
   }
   const name = path.basename(absolute)
-  if (name === 'events.jsonl' || name.endsWith('_transcript.jsonl') || absolute.split(path.sep).includes('subagent-artifacts')) {
+  if (name === 'events.jsonl' || name.endsWith('_transcript.jsonl')) {
     throw new Error('Reading this session file is not permitted.')
   }
   const stat = await fs.stat(absolute)

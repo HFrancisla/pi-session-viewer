@@ -110,11 +110,21 @@ export function formatSessionTooltip(session: SessionListItem, rootDir?: string)
   return lines.join('\n')
 }
 
+export function isSubagentSession(session: SessionListItem): boolean {
+  if (session.parentSession) return true
+  const rel = session.relativePath.toLowerCase().replace(/\\/g, '/')
+  return rel.includes('subagent-artifacts/')
+    || rel.includes('/run-')
+    || rel.includes('/subagents/')
+    || session.id.toLowerCase().startsWith('subagent-')
+}
+
 export function createSessionCatalog(
   sessions: SessionListItem[],
   defaultCwd?: string | null,
 ): SessionCatalog {
-  const projects = buildProjectSummaries(sessions)
+  const mainSessions = sessions.filter((s) => !isSubagentSession(s))
+  const projects = buildProjectSummaries(mainSessions)
   const sessionsByProject = new Map<string, SessionListItem[]>()
   const projectNamesByNormCwd = new Map<string, string>()
 
@@ -122,7 +132,7 @@ export function createSessionCatalog(
     projectNamesByNormCwd.set(normalizePath(project.cwd), project.name)
   }
 
-  for (const session of sessions) {
+  for (const session of mainSessions) {
     const key = normalizePath(session.cwd) || 'Unknown working directory'
     const list = sessionsByProject.get(key)
     if (list) {
@@ -134,7 +144,7 @@ export function createSessionCatalog(
 
   return {
     projects,
-    allSessions: sessions,
+    allSessions: mainSessions,
     getSessionsForProject(cwd: string): SessionListItem[] {
       const key = normalizePath(cwd) || 'Unknown working directory'
       return sessionsByProject.get(key) ?? []
@@ -147,10 +157,10 @@ export function createSessionCatalog(
       const target = preferredCwd ?? defaultCwd
       if (target) {
         const normTarget = normalizePath(target)
-        const matched = sessions.find((s) => normalizePath(s.cwd) === normTarget)
+        const matched = mainSessions.find((s) => normalizePath(s.cwd) === normTarget)
         if (matched) return matched
       }
-      return sessions[0]
+      return mainSessions[0]
     },
     formatSessionTooltip,
   }

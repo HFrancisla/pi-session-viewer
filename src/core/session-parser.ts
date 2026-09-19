@@ -14,6 +14,7 @@ import type {
 } from './types'
 import { truncate } from './format'
 import { sanitizeToolForApi } from './tool-provenance'
+import { extractSubagentReference, extractSubagentReferences } from './subagent-detector'
 
 const KNOWN_ENTRY_TYPES = new Set([
   'message',
@@ -230,7 +231,7 @@ export function parseSessionJsonl(content: string, sourceName = 'Local file'): P
   return parsed
 }
 
-function messageEvents(entry: ParsedEntry): TimelineEvent[] {
+function messageEvents(entry: ParsedEntry, sourceName?: string): TimelineEvent[] {
   const message = isObject(entry.raw.message) ? entry.raw.message : {}
   const role = stringValue(message.role) ?? 'unknown'
   const timestamp = timestampValue(entry, message)
@@ -247,11 +248,13 @@ function messageEvents(entry: ParsedEntry): TimelineEvent[] {
     const content = contentText(message.content)
     const toolName = stringValue(message.toolName) ?? 'Unknown tool'
     const isError = message.isError === true
+    const subagents = extractSubagentReferences(toolName, undefined, content, message.details, sourceName)
+    const subagent = subagents[0]
     return [{
       id: `${entry.id}:result`, entryId: entry.id, kind: 'tool-result',
       title: `${toolName} ${isError ? 'failed' : 'result'}`, summary: truncate(content), content,
       timestamp, durationMs: durationValue(message), toolCallId: stringValue(message.toolCallId), toolName,
-      isError, raw: entry.raw,
+      isError, subagent, subagents: subagents.length > 1 ? subagents : undefined, raw: entry.raw,
     }]
   }
 
@@ -498,7 +501,7 @@ function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotD
   }]
 }
 
-function pairTools(events: TimelineEvent[]): void {
+function pairTools(events: TimelineEvent[], sourceName?: string): void {
   const calls = new Map<string, TimelineEvent>()
   const toolDefs = new Map<string, CapturedToolDefinition>()
   let previousTimestamp: number | undefined
@@ -537,6 +540,26 @@ function pairTools(events: TimelineEvent[]): void {
         event.pairedEventId = call.id
         if (call.toolDefinition && !event.toolDefinition) {
           event.toolDefinition = call.toolDefinition
+        }
+        const eventMessage = isObject(event.raw) && isObject((event.raw as RawObject).message)
+          ? (event.raw as RawObject).message as RawObject
+          : undefined
+        const subagents = extractSubagentReferences(
+          call.toolName ?? event.toolName ?? '',
+          call.content,
+          event.content,
+          eventMessage?.details,
+          sourceName,
+        )
+        const effectiveSubagents = subagents.length > 0
+          ? subagents
+          : (event.subagents ?? (event.subagent ? [event.subagent] : undefined) ?? call.subagents ?? (call.subagent ? [call.subagent] : undefined))
+        const effectiveSubagent = effectiveSubagents?.[0] ?? event.subagent ?? call.subagent
+        if (effectiveSubagent) {
+          event.subagent = effectiveSubagent
+          if (effectiveSubagents && effectiveSubagents.length > 1) {
+            event.subagents = effectiveSubagents
+          }
         }
       }
     }
@@ -711,8 +734,8 @@ export function buildSessionView(session: ParsedSession, requestedLeafId?: strin
     : session.currentLeafId
   const branchEntries = leafId ? getPath(session.entries, leafId) : []
   const snapshots = collectPromptSnapshots(session.entries)
-  const rawEvents = branchEntries.flatMap((entry) => entry.type === 'message' ? messageEvents(entry) : systemEvents(entry, snapshots))
-  pairTools(rawEvents)
+  const rawEvents = branchEntries.flatMap((entry) => entry.type === 'message' ? messageEvents(entry, session.sourceName) : systemEvents(entry, snapshots))
+  pairTools(rawEvents, session.sourceName)
   inferMissingPromptTargets(rawEvents)
   const events = placeSystemPromptsBeforeUsers(rawEvents)
   return { branchEntries, events, turns: groupTurns(events) }

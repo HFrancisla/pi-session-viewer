@@ -27,6 +27,10 @@ export const zhCN: Translations = {
     closeInspector: '关闭详情',
     closeOverlay: '关闭浮层',
     language: '语言',
+    backToParent: '返回父会话',
+    subagentBadge: '子 Agent',
+    loadingSubagent: '正在加载子 Agent 会话...',
+    failedToLoadSubagent: (err: string) => `加载子 Agent 会话失败：${err}`,
   },
   sidebar: {
     heading: '会话',
@@ -74,6 +78,8 @@ export const zhCN: Translations = {
       'tool-result': '工具结果',
       system: '系统',
     },
+    subagentTag: '子 Agent',
+    openSubagent: '查看子 Agent 执行过程',
   },
   inspector: {
     heading: '详情',
@@ -103,9 +109,13 @@ export const zhCN: Translations = {
       specs: '规格与开销',
       trace: '链路与模型',
       promptSnapshot: '提示词快照',
+      subagent: '子 Agent 执行轨迹',
     },
     facts: {
       eventType: '事件类型',
+      subagentSession: '子 Agent 会话',
+      subagentTask: '子任务目标',
+      viewSubagentTimeline: '查看子 Agent 执行过程',
       timestamp: '发生时刻',
       relativeGap: '相对间隔',
       duration: '明确耗时',

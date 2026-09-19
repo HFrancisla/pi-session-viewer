@@ -25,6 +25,10 @@ export const en = {
     closeInspector: 'Close details',
     closeOverlay: 'Close overlay',
     language: 'Language',
+    backToParent: 'Back to parent session',
+    subagentBadge: 'Subagent',
+    loadingSubagent: 'Loading subagent session...',
+    failedToLoadSubagent: (err: string) => `Failed to load subagent session: ${err}`,
   },
   sidebar: {
     heading: 'Sessions',
@@ -72,6 +76,8 @@ export const en = {
       'tool-result': 'Tool Result',
       system: 'System',
     },
+    subagentTag: 'Subagent',
+    openSubagent: 'View subagent process',
   },
   inspector: {
     heading: 'Details',
@@ -101,9 +107,13 @@ export const en = {
       specs: 'Specs & Overhead',
       trace: 'Trace & Model',
       promptSnapshot: 'Prompt Snapshot',
+      subagent: 'Subagent Execution',
     },
     facts: {
       eventType: 'Event Type',
+      subagentSession: 'Subagent Session',
+      subagentTask: 'Subagent Task',
+      viewSubagentTimeline: 'View Subagent Timeline',
       timestamp: 'Timestamp',
       relativeGap: 'Relative Gap',
       duration: 'Duration',

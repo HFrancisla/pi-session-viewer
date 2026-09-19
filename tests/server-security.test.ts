@@ -163,6 +163,19 @@ describe('production session HTTP server security', () => {
     expect(payload).toMatchObject({ relativePath: 'nested/session.jsonl', content })
   })
 
+  it('reads a subagent session file under subagent-artifacts by its token', async () => {
+    const content = '{"type":"session","version":3,"id":"child-1","timestamp":"2026-01-01T10:05:00.000Z","cwd":"/work/demo","parentSession":"session-1"}\n'
+    const server = await createServerWithSessions({ 'subagent-artifacts/child-1.jsonl': content })
+
+    const response = await fetch(`${server.url}/api/sessions/${encodeSessionToken('subagent-artifacts/child-1.jsonl')}`, {
+      headers: { Authorization: `Bearer ${server.token}` },
+    })
+    const payload = await response.json() as { relativePath: string; content: string }
+
+    expect(response.status).toBe(200)
+    expect(payload).toMatchObject({ relativePath: 'subagent-artifacts/child-1.jsonl', content })
+  })
+
   it('rejects a file token that resolves outside the configured session root', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'pi-session-viewer-server-'))
     directories.push(directory)

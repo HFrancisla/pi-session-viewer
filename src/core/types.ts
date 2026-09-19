@@ -89,6 +89,15 @@ export interface SystemPromptCapture {
   model?: { provider?: string; id?: string }
 }
 
+export interface SubagentReference {
+  targetFile: string
+  token: string
+  agentName?: string
+  task?: string
+  sessionName?: string
+  runId?: string
+}
+
 export interface TimelineEvent {
   id: string
   entryId: string
@@ -108,6 +117,8 @@ export interface TimelineEvent {
   systemPrompt?: SystemPromptCapture
   toolDefinitions?: CapturedToolDefinition[]
   model?: { provider?: string; id?: string }
+  subagent?: SubagentReference
+  subagents?: SubagentReference[]
   raw: unknown
 }
 
