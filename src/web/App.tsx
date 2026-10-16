@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchSession, fetchSessions } from './api'
 import { Inspector } from './components/Inspector'
 import { SessionSidebar } from './components/SessionSidebar'
-import { Timeline, type TimelineAnchor } from './components/Timeline'
+import { Timeline, type TimelineAnchor, type TimelineHandle } from './components/Timeline'
 import { allEventKinds } from '../core/event-kinds'
 import { formatDateTime, formatDuration } from '../core/format'
 import { createSessionCatalog } from '../core/session-catalog'
@@ -66,25 +66,6 @@ interface SessionStackFrame {
   timelineAnchor: TimelineAnchor | null
 }
 
-function captureTimelineAnchor(): TimelineAnchor | null {
-  const scroller = document.querySelector<HTMLElement>('.timeline-scroll')
-  if (!scroller) return null
-
-  const bounds = scroller.getBoundingClientRect()
-  const viewportTop = bounds.top + scroller.clientTop
-  const viewportBottom = viewportTop + scroller.clientHeight
-  const firstVisible = [...scroller.querySelectorAll<HTMLElement>('.event-row')].find((row) => {
-    const rowBounds = row.getBoundingClientRect()
-    return rowBounds.bottom > viewportTop && rowBounds.top < viewportBottom
-  })
-  if (!firstVisible?.dataset.eventId) return null
-
-  return {
-    eventId: firstVisible.dataset.eventId,
-    offset: firstVisible.getBoundingClientRect().top - viewportTop,
-  }
-}
-
 function App() {
   const { t, locale, setLocale } = useI18n()
   const [accessToken] = useState<string | null>(() => browserAccessToken())
@@ -116,6 +97,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const timelineRef = useRef<TimelineHandle>(null)
   const currentContentRef = useRef<string>('')
 
   const catalog = useMemo(() => createSessionCatalog(sessions, currentCwd), [sessions, currentCwd])
@@ -159,15 +141,14 @@ function App() {
   const openSubagent = useCallback(async (subagent: SubagentReference, sourceEventId?: string) => {
     if (!parsedSession) return
 
-    const scrollContainer = document.querySelector('.timeline-scroll')
-    const currentScrollTop = scrollContainer ? scrollContainer.scrollTop : undefined
-    const timelineAnchor = captureTimelineAnchor()
+    const currentViewport = timelineRef.current?.getViewport() ?? null
+    const currentScrollTop = currentViewport?.scrollTop
+    const timelineAnchor = currentViewport?.anchor ?? null
 
-    if (currentSelectedTokenRef.current && currentScrollTop != null) {
+    if (currentSelectedTokenRef.current && currentViewport) {
       sessionViewportsRef.current.set(currentSelectedTokenRef.current, {
-        scrollTop: currentScrollTop,
+        ...currentViewport,
         selectedEventId: currentSelectedEventIdRef.current,
-        anchor: timelineAnchor,
       })
     }
 
@@ -256,14 +237,13 @@ function App() {
   }, [accessToken, applyContent, importedFile, parsedSession, selectedEventId, selectedLeafId, selectedMetadata, selectedToken, t.header])
 
   const popSessionStack = useCallback((targetIndex?: number) => {
-    const scrollContainer = document.querySelector('.timeline-scroll')
-    const currentScrollTop = scrollContainer ? scrollContainer.scrollTop : undefined
-    const timelineAnchor = captureTimelineAnchor()
-    if (currentSelectedTokenRef.current && currentScrollTop != null) {
+    const currentViewport = timelineRef.current?.getViewport() ?? null
+    const currentScrollTop = currentViewport?.scrollTop
+    const timelineAnchor = currentViewport?.anchor ?? null
+    if (currentSelectedTokenRef.current && currentViewport) {
       sessionViewportsRef.current.set(currentSelectedTokenRef.current, {
-        scrollTop: currentScrollTop,
+        ...currentViewport,
         selectedEventId: currentSelectedEventIdRef.current,
-        anchor: timelineAnchor,
       })
     }
 
@@ -581,6 +561,7 @@ function App() {
                 <div><span>{t.overview.started}</span><strong>{formatDateTime(parsedSession.stats.startedAt)}</strong></div>
               </section>
               <Timeline
+                ref={timelineRef}
                 session={parsedSession}
                 turns={filteredTurns}
                 allEvents={view.events}

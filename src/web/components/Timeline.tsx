@@ -1,6 +1,6 @@
 import { AlertTriangle, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
 import { GroupedVirtuoso, type GroupedVirtuosoHandle, type GroupProps } from 'react-virtuoso'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { buildCausalLayout, causalLaneX, type CausalEventLayout } from '../../core/causal-layout'
 import { allEventKinds } from '../../core/event-kinds'
 import { formatClock, formatDuration } from '../../core/format'
@@ -38,6 +38,15 @@ interface TimelineProps {
 export interface TimelineAnchor {
   eventId: string
   offset: number
+}
+
+export interface TimelineViewport {
+  scrollTop: number
+  anchor: TimelineAnchor | null
+}
+
+export interface TimelineHandle {
+  getViewport: () => TimelineViewport | null
 }
 
 interface LlmOutputGroup {
@@ -120,7 +129,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
       id={`event-row-${event.id}`}
       data-event-id={event.id}
       data-turn-id={turnId}
-      aria-label={t.timeline.eventAccessibleLabel(localizeTitle(event.title), index + 1, eventCount, focused, selected)}
+      aria-label={t.timeline.eventAccessibleLabel(localizeTitle(event.title), clockLabel, index + 1, eventCount, focused, selected)}
       onPointerDown={(pointerEvent) => {
         if (pointerEvent.button !== 0
           || (pointerEvent.target instanceof Element && pointerEvent.target.closest('.event-subagent-tag'))) return
@@ -202,7 +211,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
   )
 })
 
-export function Timeline({
+export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timeline({
   session,
   turns,
   allEvents,
@@ -217,7 +226,7 @@ export function Timeline({
   onEnsureEventKindEnabled,
   onRestorePositionApplied,
   onOpenSubagent,
-}: TimelineProps) {
+}, ref) {
   const { t, localizeTitle } = useI18n()
   const causalLayout = useMemo(() => buildCausalLayout(allEvents), [allEvents])
   const selectedEvent = useMemo(
@@ -331,6 +340,29 @@ export function Timeline({
   const setScrollContainer = useCallback((element: HTMLElement | Window | null) => {
     scrollContainerRef.current = element instanceof HTMLElement ? element : null
   }, [])
+
+  const getViewport = useCallback((): TimelineViewport | null => {
+    const container = scrollContainerRef.current
+    if (!container) return null
+
+    const bounds = container.getBoundingClientRect()
+    const viewportTop = bounds.top + container.clientTop
+    const viewportBottom = viewportTop + container.clientHeight
+    const firstVisible = [...container.querySelectorAll<HTMLElement>('.event-row')].find((row) => {
+      const rowBounds = row.getBoundingClientRect()
+      return rowBounds.bottom > viewportTop && rowBounds.top < viewportBottom
+    })
+    const eventId = firstVisible?.dataset.eventId
+
+    return {
+      scrollTop: container.scrollTop,
+      anchor: eventId && firstVisible
+        ? { eventId, offset: firstVisible.getBoundingClientRect().top - viewportTop }
+        : null,
+    }
+  }, [])
+
+  useImperativeHandle(ref, () => ({ getViewport }), [getViewport])
 
   const onFocusEvent = useCallback((index: number) => {
     focusRequestRef.current += 1
@@ -613,4 +645,4 @@ export function Timeline({
       )}
     </section>
   )
-}
+})

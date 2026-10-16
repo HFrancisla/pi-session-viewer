@@ -62,7 +62,7 @@ export const en = {
     branchLabel: 'Session branch',
     visibleEvents: (count: number) => `${count} visible events`,
     keyboardInstructions: 'Use Up and Down Arrow keys to focus events. Press Enter or Space to show the focused event in Details.',
-    eventAccessibleLabel: (title: string, position: number, total: number, focused: boolean, selected: boolean) => `${focused ? 'Focused event' : 'Event'} ${position} of ${total}: ${title}${selected ? ', selected in Inspector' : ''}`,
+    eventAccessibleLabel: (title: string, time: string, position: number, total: number, focused: boolean, selected: boolean) => `${focused ? 'Focused event' : 'Event'} ${position} of ${total} at ${time}: ${title}${selected ? ', selected in Inspector' : ''}`,
     keyboardAnnouncement: (focusedTitle: string, position: number, total: number, selectedTitle: string) => `Focused event ${position} of ${total}: ${focusedTitle}. Selected event in Inspector: ${selectedTitle}.`,
     warningsSummary: (count: number) => `${count} parse warning${count === 1 ? '' : 's'}`,
     emptyNoKinds: 'Select at least one event type.',
