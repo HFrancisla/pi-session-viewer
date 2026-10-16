@@ -1,5 +1,6 @@
 import { AlertTriangle, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
-import { useLayoutEffect, useMemo, useRef, type ComponentType } from 'react'
+import { GroupedVirtuoso, type GroupedVirtuosoHandle, type GroupProps } from 'react-virtuoso'
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, type ComponentType } from 'react'
 import { buildCausalLayout, causalLaneX, type CausalEventLayout } from '../../core/causal-layout'
 import { allEventKinds } from '../../core/event-kinds'
 import { formatClock, formatDuration } from '../../core/format'
@@ -38,6 +39,24 @@ interface LlmOutputGroup {
   isLlmOutput: boolean
 }
 
+interface LlmOutputBoundary {
+  id: string
+  isStart: boolean
+  isEnd: boolean
+}
+
+interface TimelineItem {
+  event: TimelineEvent
+  turnId: string
+  llmOutputBoundary?: LlmOutputBoundary
+}
+
+function VirtualizedTurnGroup({ children, style, ...dataAttributes }: GroupProps) {
+  return <section className="turn-group" style={style} {...dataAttributes}>{children}</section>
+}
+
+const timelineComponents = { Group: VirtualizedTurnGroup }
+
 function isLlmOutputEvent(event: TimelineEvent): boolean {
   return event.kind === 'assistant' || event.kind === 'thinking' || event.kind === 'tool-call'
 }
@@ -60,14 +79,17 @@ function groupLlmOutputEvents(events: TimelineEvent[]): LlmOutputGroup[] {
   return groups
 }
 
-function EventRow({ event, selected, causal, maxLanes, highlightedCallId, mutedCallIds, onSelect, onOpenSubagent }: {
+const EventRow = memo(function EventRow({ event, turnId, selected, causal, maxLanes, highlightedCallId, mutedCallIds, clockLabel, llmOutputBoundary, onSelectEvent, onOpenSubagent }: {
   event: TimelineEvent
+  turnId: string
   selected: boolean
   causal: CausalEventLayout
   maxLanes: number
   highlightedCallId?: string
   mutedCallIds?: Set<string>
-  onSelect: () => void
+  clockLabel: string
+  llmOutputBoundary?: LlmOutputBoundary
+  onSelectEvent: (event: TimelineEvent) => void
   onOpenSubagent?: (subagent: SubagentReference, sourceEventId?: string) => void
 }) {
   const { t, localizeTitle } = useI18n()
@@ -75,19 +97,24 @@ function EventRow({ event, selected, causal, maxLanes, highlightedCallId, mutedC
   const Icon = event.kind === 'tool-result' && event.isError ? XCircle : meta.icon
   const isPairRelated = Boolean(highlightedCallId && event.toolCallId === highlightedCallId)
   const charCount = event.content?.length
+  const llmOutputClasses = llmOutputBoundary
+    ? ` is-llm-output-group${llmOutputBoundary.isStart ? ' llm-output-group-start' : ''}${llmOutputBoundary.isEnd ? ' llm-output-group-end' : ''}`
+    : ''
 
   return (
     <button
-      className={`event-row event--${event.kind}${selected ? ' is-selected' : ''}${isPairRelated ? ' is-pair-related' : ''}`}
+      className={`event-row event--${event.kind}${selected ? ' is-selected' : ''}${isPairRelated ? ' is-pair-related' : ''}${llmOutputClasses}`}
       type="button"
       id={`event-row-${event.id}`}
       data-event-id={event.id}
-      onClick={onSelect}
+      data-turn-id={turnId}
+      data-llm-output-group={llmOutputBoundary?.id}
+      onClick={() => onSelectEvent(event)}
       data-tool-call-id={event.toolCallId}
       style={{ '--event-color': event.isError ? '#b24b4b' : meta.color } as React.CSSProperties}
     >
       <span className="event-time">
-        <span>{formatClock(event.timestamp)}</span>
+        <span>{clockLabel}</span>
         {event.gapMs != null && <small>+{formatDuration(event.gapMs)}</small>}
       </span>
       <span className="event-track" aria-hidden="true">
@@ -121,13 +148,13 @@ function EventRow({ event, selected, causal, maxLanes, highlightedCallId, mutedC
                   tabIndex={0}
                   onClick={(e) => {
                     e.stopPropagation()
-                    onSelect()
+                    onSelectEvent(event)
                     onOpenSubagent?.(event.subagent!, event.id)
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.stopPropagation()
-                      onSelect()
+                      onSelectEvent(event)
                       onOpenSubagent?.(event.subagent!, event.id)
                     }
                   }}
@@ -152,7 +179,7 @@ function EventRow({ event, selected, causal, maxLanes, highlightedCallId, mutedC
       </span>
     </button>
   )
-}
+})
 
 export function Timeline({
   session,
@@ -169,9 +196,22 @@ export function Timeline({
   onOpenSubagent,
 }: TimelineProps) {
   const { t, localizeTitle } = useI18n()
-  const causalLayout = buildCausalLayout(allEvents)
-  const selectedEvent = allEvents.find((event) => event.id === selectedEventId)
+  const causalLayout = useMemo(() => buildCausalLayout(allEvents), [allEvents])
+  const selectedEvent = useMemo(
+    () => allEvents.find((event) => event.id === selectedEventId),
+    [allEvents, selectedEventId],
+  )
   const highlightedCallId = selectedEvent?.toolCallId
+
+  const onSelectEventRef = useRef(onSelectEvent)
+  onSelectEventRef.current = onSelectEvent
+  const stableSelectEvent = useCallback((event: TimelineEvent) => onSelectEventRef.current(event), [])
+
+  const onOpenSubagentRef = useRef(onOpenSubagent)
+  onOpenSubagentRef.current = onOpenSubagent
+  const stableOpenSubagent = useCallback((subagent: SubagentReference, sourceEventId?: string) => {
+    onOpenSubagentRef.current?.(subagent, sourceEventId)
+  }, [])
 
   const mutedCallIds = useMemo(() => {
     if (!highlightedCallId) return new Set<string>()
@@ -225,10 +265,44 @@ export function Timeline({
     return groupCallIds
   }, [highlightedCallId, allEvents, causalLayout])
 
-  const visibleEventCount = turns.reduce((count, turn) => count + turn.events.length, 0)
+  const visibleEventCount = useMemo(() => turns.reduce((count, turn) => count + turn.events.length, 0), [turns])
   const allSelected = allEventKinds.length > 0 && allEventKinds.every((kind) => enabledKinds.has(kind))
 
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const llmOutputBoundaries = useMemo(() => {
+    const boundaries = new Map<string, LlmOutputBoundary>()
+    for (const turn of turns) {
+      for (const group of groupLlmOutputEvents(turn.events)) {
+        if (!group.isLlmOutput) continue
+        group.events.forEach((event, index) => {
+          boundaries.set(event.id, {
+            id: group.id,
+            isStart: index === 0,
+            isEnd: index === group.events.length - 1,
+          })
+        })
+      }
+    }
+    return boundaries
+  }, [turns])
+
+  const timelineItems = useMemo<TimelineItem[]>(() => turns.flatMap((turn) => turn.events.map((event) => ({
+    event,
+    turnId: turn.id,
+    llmOutputBoundary: llmOutputBoundaries.get(event.id),
+  }))), [llmOutputBoundaries, turns])
+  const groupCounts = useMemo(() => turns.map((turn) => turn.events.length), [turns])
+  const timelineItemKey = useCallback((index: number) => timelineItems[index]?.event.id ?? index, [timelineItems])
+  const eventIndexById = useMemo(() => new Map(timelineItems.map(({ event }, index) => [event.id, index])), [timelineItems])
+  const clockLabels = useMemo(
+    () => new Map(allEvents.map((event) => [event.id, formatClock(event.timestamp)])),
+    [allEvents],
+  )
+
+  const scrollContainerRef = useRef<HTMLElement | null>(null)
+  const virtuosoRef = useRef<GroupedVirtuosoHandle>(null)
+  const setScrollContainer = useCallback((element: HTMLElement | Window | null) => {
+    scrollContainerRef.current = element instanceof HTMLElement ? element : null
+  }, [])
 
   useLayoutEffect(() => {
     if (!restorePosition) return
@@ -243,12 +317,10 @@ export function Timeline({
         }
       })
     } else if (restorePosition.eventId) {
-      const el = document.getElementById(`event-row-${restorePosition.eventId}`)
-      if (el) {
-        el.scrollIntoView({ behavior: 'auto', block: 'nearest' })
-      }
+      const index = eventIndexById.get(restorePosition.eventId)
+      if (index != null) virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'auto' })
     }
-  }, [restorePosition])
+  }, [eventIndexById, restorePosition])
 
   return (
     <section className="timeline-panel" aria-label={t.timeline.ariaLabel}>
@@ -296,44 +368,52 @@ export function Timeline({
         </details>
       )}
 
-      <div className="timeline-scroll" ref={scrollContainerRef}>
-        {turns.length === 0 ? (
-          <div className="timeline-empty">
-            <Cog size={25} />
-            <p>{enabledKinds.size === 0 ? t.timeline.emptyNoKinds : t.timeline.emptyNoEvents}</p>
-          </div>
-        ) : turns.map((turn) => (
-          <section className="turn-group" key={turn.id}>
-            <header>
-              <span>{localizeTitle(turn.label)}</span>
-              <span>{t.timeline.turnEvents(turn.events.length)}</span>
-            </header>
-            <div className="turn-events">
-              {groupLlmOutputEvents(turn.events).map((group) => {
-                const rows = group.events.map((event) => (
-                  <EventRow
-                    key={event.id}
-                    event={event}
-                    selected={selectedEventId === event.id}
-                    causal={causalLayout.byEventId.get(event.id) ?? { segments: [] }}
-                    maxLanes={causalLayout.maxLanes}
-                    highlightedCallId={highlightedCallId}
-                    mutedCallIds={mutedCallIds}
-                    onSelect={() => onSelectEvent(event)}
-                    onOpenSubagent={onOpenSubagent}
-                  />
-                ))
-                if (!group.isLlmOutput) return rows
-                return (
-                  <section className="llm-output-group" key={group.id} aria-label={t.timeline.llmOutputGroup}>
-                    {rows}
-                  </section>
-                )
-              })}
-            </div>
-          </section>
-        ))}
-      </div>
+      {turns.length === 0 ? (
+        <div className="timeline-empty">
+          <Cog size={25} />
+          <p>{enabledKinds.size === 0 ? t.timeline.emptyNoKinds : t.timeline.emptyNoEvents}</p>
+        </div>
+      ) : (
+        <GroupedVirtuoso
+          ref={virtuosoRef}
+          className="timeline-scroll"
+          style={{ flex: '1 1 0', minHeight: 0 }}
+          components={timelineComponents}
+          groupCounts={groupCounts}
+          defaultItemHeight={68}
+          overscan={{ main: 300, reverse: 300 }}
+          scrollerRef={setScrollContainer}
+          computeItemKey={timelineItemKey}
+          groupContent={(groupIndex) => {
+            const turn = turns[groupIndex]
+            return (
+              <header>
+                <span>{localizeTitle(turn.label)}</span>
+                <span>{t.timeline.turnEvents(turn.events.length)}</span>
+              </header>
+            )
+          }}
+          itemContent={(index) => {
+            const item = timelineItems[index]
+            if (!item) return null
+            return (
+              <EventRow
+                event={item.event}
+                turnId={item.turnId}
+                selected={selectedEventId === item.event.id}
+                causal={causalLayout.byEventId.get(item.event.id) ?? { segments: [] }}
+                maxLanes={causalLayout.maxLanes}
+                highlightedCallId={highlightedCallId}
+                mutedCallIds={mutedCallIds}
+                clockLabel={clockLabels.get(item.event.id) ?? ''}
+                llmOutputBoundary={item.llmOutputBoundary}
+                onSelectEvent={stableSelectEvent}
+                onOpenSubagent={stableOpenSubagent}
+              />
+            )
+          }}
+        />
+      )}
     </section>
   )
 }

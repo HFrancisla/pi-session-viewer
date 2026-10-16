@@ -33,6 +33,13 @@ function PiGlyph({ size = 26 }: { size?: number }) {
   )
 }
 
+function measurePerformance<T>(name: string, work: () => T): T {
+  const start = performance.now()
+  const result = work()
+  performance.measure(name, { start, end: performance.now() })
+  return result
+}
+
 export interface RestorePosition {
   eventId: string | null
   scrollTop?: number
@@ -93,7 +100,7 @@ function App() {
     initialEventId?: string | null,
   ) => {
     currentContentRef.current = content
-    const parsed = parseSessionJsonl(content, sourceName)
+    const parsed = measurePerformance('pi-session-viewer:parse-session', () => parseSessionJsonl(content, sourceName))
     setParsedSession(parsed)
     setSelectedMetadata(metadata)
     setSelectedLeafId(parsed.currentLeafId)
@@ -286,7 +293,9 @@ function App() {
   }, [currentCwd, openServerSession, reloadSessions])
 
   const view = useMemo(
-    () => parsedSession ? buildSessionView(parsedSession, selectedLeafId) : null,
+    () => parsedSession
+      ? measurePerformance('pi-session-viewer:build-session-view', () => buildSessionView(parsedSession, selectedLeafId))
+      : null,
     [parsedSession, selectedLeafId],
   )
 
