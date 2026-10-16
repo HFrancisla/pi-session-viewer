@@ -146,6 +146,45 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   await expect(page.locator('.event-row[data-event-id="synthetic-result-0:result"] .causal-rail--end'))
     .toHaveAttribute('data-call-id', 'synthetic-call-0')
 
+  const firstKeyboardEvent = page.locator(`.event-row[data-event-id="${firstEventId}"]`)
+  await page.locator('#branch-select').focus()
+  await expect(page.locator('#branch-select')).toBeFocused()
+  await page.keyboard.press('Tab')
+  const timelineList = page.getByRole('listbox', { name: 'Session timeline' })
+  await expect(timelineList).toBeFocused()
+  await expect(timelineList).toHaveAttribute('aria-activedescendant', `event-row-${firstEventId}`)
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.inspector-heading p')).toHaveText('System prompt unrecorded')
+  await expect(firstKeyboardEvent).toHaveAttribute('aria-selected', 'true')
+
+  for (let index = 0; index < 51; index += 1) {
+    await page.keyboard.press('ArrowDown')
+  }
+
+  const focusedKeyboardEvent = page.locator('.event-row[data-event-id="synthetic-user-10:user"]')
+  await expect(timelineList).toBeFocused()
+  await expect(timelineList).toHaveAttribute('aria-activedescendant', 'event-row-synthetic-user-10:user')
+  await expect(focusedKeyboardEvent).toHaveAttribute('aria-label', /Focused event 52 of 2001/)
+  await expect(firstKeyboardEvent).toHaveCount(0)
+  await expect(page.getByRole('status')).toContainText('Focused event 52 of 2001')
+  await expect(page.locator('.inspector-heading p')).toHaveText('System prompt unrecorded')
+
+  const previousKeyboardEvent = page.locator('.event-row[data-event-id="synthetic-result-9:result"]')
+  await page.keyboard.press('ArrowUp')
+  await expect(timelineList).toHaveAttribute('aria-activedescendant', 'event-row-synthetic-result-9:result')
+  await expect(previousKeyboardEvent).toHaveAttribute('aria-label', /Focused event 51 of 2001/)
+  await page.keyboard.press('ArrowDown')
+  await expect(timelineList).toHaveAttribute('aria-activedescendant', 'event-row-synthetic-user-10:user')
+
+  await page.keyboard.press('Space')
+  await expect(focusedKeyboardEvent).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.inspector-heading p')).toHaveText('User')
+  await page.keyboard.press('Tab')
+  await expect(page.locator('.timeline-scroll:focus, .event-row:focus')).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Content' }).click()
+  await expect(page.locator('.inspector')).toContainText('Synthetic request 11')
+  await timelineList.evaluate((element) => { element.scrollTop = 0 })
+
   const selectedAssistant = page.locator('.event-row[data-event-id="synthetic-assistant-0:assistant:0"]')
   const selectionStartedAt = performance.now()
   await selectedAssistant.click()

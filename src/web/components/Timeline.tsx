@@ -1,6 +1,6 @@
 import { AlertTriangle, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
 import { GroupedVirtuoso, type GroupedVirtuosoHandle, type GroupProps } from 'react-virtuoso'
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, type ComponentType } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { buildCausalLayout, causalLaneX, type CausalEventLayout } from '../../core/causal-layout'
 import { allEventKinds } from '../../core/event-kinds'
 import { formatClock, formatDuration } from '../../core/format'
@@ -52,7 +52,7 @@ interface TimelineItem {
 }
 
 function VirtualizedTurnGroup({ children, style, ...dataAttributes }: GroupProps) {
-  return <section className="turn-group" style={style} {...dataAttributes}>{children}</section>
+  return <section className="turn-group" role="group" style={style} {...dataAttributes}>{children}</section>
 }
 
 const timelineComponents = { Group: VirtualizedTurnGroup }
@@ -79,10 +79,13 @@ function groupLlmOutputEvents(events: TimelineEvent[]): LlmOutputGroup[] {
   return groups
 }
 
-const EventRow = memo(function EventRow({ event, turnId, selected, causal, maxLanes, highlightedCallId, mutedCallIds, clockLabel, llmOutputBoundary, onSelectEvent, onOpenSubagent }: {
+const EventRow = memo(function EventRow({ event, index, eventCount, turnId, selected, focused, causal, maxLanes, highlightedCallId, mutedCallIds, clockLabel, llmOutputBoundary, onSelectEvent, onFocusEvent, onOpenSubagent }: {
   event: TimelineEvent
+  index: number
+  eventCount: number
   turnId: string
   selected: boolean
+  focused: boolean
   causal: CausalEventLayout
   maxLanes: number
   highlightedCallId?: string
@@ -90,6 +93,7 @@ const EventRow = memo(function EventRow({ event, turnId, selected, causal, maxLa
   clockLabel: string
   llmOutputBoundary?: LlmOutputBoundary
   onSelectEvent: (event: TimelineEvent) => void
+  onFocusEvent: (index: number) => void
   onOpenSubagent?: (subagent: SubagentReference, sourceEventId?: string) => void
 }) {
   const { t, localizeTitle } = useI18n()
@@ -102,14 +106,19 @@ const EventRow = memo(function EventRow({ event, turnId, selected, causal, maxLa
     : ''
 
   return (
-    <button
-      className={`event-row event--${event.kind}${selected ? ' is-selected' : ''}${isPairRelated ? ' is-pair-related' : ''}${llmOutputClasses}`}
-      type="button"
+    <div
+      className={`event-row event--${event.kind}${selected ? ' is-selected' : ''}${focused ? ' is-focused' : ''}${isPairRelated ? ' is-pair-related' : ''}${llmOutputClasses}`}
+      role="option"
+      aria-selected={selected}
       id={`event-row-${event.id}`}
       data-event-id={event.id}
       data-turn-id={turnId}
+      aria-label={t.timeline.eventAccessibleLabel(localizeTitle(event.title), index + 1, eventCount, focused, selected)}
+      onClick={() => {
+        onFocusEvent(index)
+        onSelectEvent(event)
+      }}
       data-llm-output-group={llmOutputBoundary?.id}
-      onClick={() => onSelectEvent(event)}
       data-tool-call-id={event.toolCallId}
       style={{ '--event-color': event.isError ? '#b24b4b' : meta.color } as React.CSSProperties}
     >
@@ -177,7 +186,7 @@ const EventRow = memo(function EventRow({ event, turnId, selected, causal, maxLa
         </span>
         <span className="event-summary">{event.summary}</span>
       </span>
-    </button>
+    </div>
   )
 })
 
@@ -300,9 +309,94 @@ export function Timeline({
 
   const scrollContainerRef = useRef<HTMLElement | null>(null)
   const virtuosoRef = useRef<GroupedVirtuosoHandle>(null)
+  const [focusedEventId, setFocusedEventId] = useState<string | null>(null)
+  const focusedEventIndexRef = useRef<number | null>(null)
+  const pendingFocusEventIdRef = useRef<string | null>(null)
+  const focusRequestRef = useRef(0)
   const setScrollContainer = useCallback((element: HTMLElement | Window | null) => {
     scrollContainerRef.current = element instanceof HTMLElement ? element : null
   }, [])
+
+  const onFocusEvent = useCallback((index: number) => {
+    focusRequestRef.current += 1
+    pendingFocusEventIdRef.current = null
+    focusedEventIndexRef.current = index
+    setFocusedEventId(timelineItems[index]?.event.id ?? null)
+    scrollContainerRef.current?.focus()
+  }, [timelineItems])
+
+  const focusEventAtIndex = useCallback((index: number) => {
+    const item = timelineItems[index]
+    if (!item) return
+
+    focusedEventIndexRef.current = index
+    pendingFocusEventIdRef.current = item.event.id
+    setFocusedEventId(null)
+    const request = ++focusRequestRef.current
+    virtuosoRef.current?.scrollIntoView({
+      index,
+      behavior: 'auto',
+      done: () => {
+        if (focusRequestRef.current !== request) return
+        pendingFocusEventIdRef.current = null
+        setFocusedEventId(item.event.id)
+      },
+    })
+  }, [timelineItems])
+
+  const onMoveFocus = useCallback((direction: -1 | 1) => {
+    const currentIndex = focusedEventIndexRef.current ?? 0
+    const nextIndex = Math.max(0, Math.min(timelineItems.length - 1, currentIndex + direction))
+    if (nextIndex !== currentIndex) focusEventAtIndex(nextIndex)
+  }, [focusEventAtIndex, timelineItems.length])
+
+  useEffect(() => {
+    const focusedIndex = focusedEventId == null ? undefined : eventIndexById.get(focusedEventId)
+    if ((focusedEventId != null && focusedIndex == null)
+      || (pendingFocusEventIdRef.current != null && !eventIndexById.has(pendingFocusEventIdRef.current))) {
+      focusRequestRef.current += 1
+      pendingFocusEventIdRef.current = null
+      focusedEventIndexRef.current = null
+      setFocusedEventId(null)
+      if (scrollContainerRef.current === document.activeElement && timelineItems.length > 0) {
+        focusEventAtIndex(0)
+      }
+    } else if (focusedIndex != null) {
+      focusedEventIndexRef.current = focusedIndex
+    }
+  }, [eventIndexById, focusEventAtIndex, focusedEventId, timelineItems.length])
+
+  const onTimelineFocus = useCallback((focusEvent: React.FocusEvent<HTMLDivElement>) => {
+    if (focusEvent.target === focusEvent.currentTarget && focusedEventIndexRef.current == null && timelineItems.length > 0) {
+      focusEventAtIndex(0)
+    }
+  }, [focusEventAtIndex, timelineItems.length])
+
+  const onTimelineKeyDown = useCallback((keyboardEvent: React.KeyboardEvent<HTMLDivElement>) => {
+    if (keyboardEvent.key === 'ArrowUp' || keyboardEvent.key === 'ArrowDown') {
+      keyboardEvent.preventDefault()
+      onMoveFocus(keyboardEvent.key === 'ArrowUp' ? -1 : 1)
+      return
+    }
+
+    if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') {
+      keyboardEvent.preventDefault()
+      const focusedIndex = focusedEventIndexRef.current ?? 0
+      const item = timelineItems[focusedIndex]
+      if (item) stableSelectEvent(item.event)
+    }
+  }, [onMoveFocus, stableSelectEvent, timelineItems])
+
+  const focusedEventIndex = focusedEventId == null ? undefined : eventIndexById.get(focusedEventId)
+  const focusedItem = focusedEventIndex == null ? undefined : timelineItems[focusedEventIndex]
+  const focusedAnnouncement = focusedItem && focusedEventIndex != null
+    ? t.timeline.keyboardAnnouncement(
+      localizeTitle(focusedItem.event.title),
+      focusedEventIndex + 1,
+      timelineItems.length,
+      selectedEvent ? localizeTitle(selectedEvent.title) : t.inspector.selectEvent,
+    )
+    : ''
 
   useLayoutEffect(() => {
     if (!restorePosition) return
@@ -324,6 +418,8 @@ export function Timeline({
 
   return (
     <section className="timeline-panel" aria-label={t.timeline.ariaLabel}>
+      <div className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{focusedAnnouncement}</div>
+      <div className="visually-hidden" id="timeline-keyboard-help">{t.timeline.keyboardInstructions}</div>
       <div className="filter-bar">
         <span className="filter-label">{t.timeline.filterLabel}</span>
         <div className="filter-options">
@@ -377,6 +473,13 @@ export function Timeline({
         <GroupedVirtuoso
           ref={virtuosoRef}
           className="timeline-scroll"
+          role="listbox"
+          aria-label={t.timeline.ariaLabel}
+          aria-describedby="timeline-keyboard-help"
+          aria-activedescendant={focusedEventId ? `event-row-${focusedEventId}` : undefined}
+          tabIndex={0}
+          onFocus={onTimelineFocus}
+          onKeyDown={onTimelineKeyDown}
           style={{ flex: '1 1 0', minHeight: 0 }}
           components={timelineComponents}
           groupCounts={groupCounts}
@@ -399,8 +502,11 @@ export function Timeline({
             return (
               <EventRow
                 event={item.event}
+                index={index}
+                eventCount={timelineItems.length}
                 turnId={item.turnId}
                 selected={selectedEventId === item.event.id}
+                focused={focusedEventId === item.event.id}
                 causal={causalLayout.byEventId.get(item.event.id) ?? { segments: [] }}
                 maxLanes={causalLayout.maxLanes}
                 highlightedCallId={highlightedCallId}
@@ -408,6 +514,7 @@ export function Timeline({
                 clockLabel={clockLabels.get(item.event.id) ?? ''}
                 llmOutputBoundary={item.llmOutputBoundary}
                 onSelectEvent={stableSelectEvent}
+                onFocusEvent={onFocusEvent}
                 onOpenSubagent={stableOpenSubagent}
               />
             )
