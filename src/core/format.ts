@@ -1,14 +1,16 @@
 // Shared core formatting helpers.
+const clockFormatter = new Intl.DateTimeFormat('en-US', {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+})
+
 export function formatClock(timestamp?: string): string {
   if (!timestamp) return 'Unknown time'
   const date = new Date(timestamp)
   if (Number.isNaN(date.getTime())) return 'Unknown time'
-  return new Intl.DateTimeFormat('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(date)
+  return clockFormatter.format(date)
 }
 
 export function formatDateTime(timestamp?: string): string {

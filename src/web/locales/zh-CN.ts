@@ -64,7 +64,7 @@ export const zhCN: Translations = {
     branchLabel: '会话分支',
     visibleEvents: (count: number) => `${count} 个可见事件`,
     keyboardInstructions: '使用上、下方向键移动事件焦点，按 Enter 或空格在详情中查看当前事件。',
-    eventAccessibleLabel: (title: string, position: number, total: number, focused: boolean, selected: boolean) => `${focused ? '焦点事件' : '事件'} ${position}/${total}：${title}${selected ? '，当前在详情中查看' : ''}`,
+    eventAccessibleLabel: (title: string, time: string, position: number, total: number, focused: boolean, selected: boolean) => `${focused ? '焦点事件' : '事件'} ${position}/${total}，时间 ${time}：${title}${selected ? '，当前在详情中查看' : ''}`,
     keyboardAnnouncement: (focusedTitle: string, position: number, total: number, selectedTitle: string) => `焦点事件 ${position}/${total}：${focusedTitle}。详情中当前选择的事件：${selectedTitle}。`,
     warningsSummary: (count: number) => `${count} 条解析警告`,
     emptyNoKinds: '至少选择一种事件类型。',

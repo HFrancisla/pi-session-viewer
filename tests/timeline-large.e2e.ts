@@ -174,6 +174,13 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   await expect(page.locator('.header-session strong')).toContainText('Synthetic request 1')
   await expect(page.locator('.branch-bar')).toContainText('2001 visible events')
 
+  const timestampedEvent = page.locator('.event-row[data-event-id="synthetic-user-0:user"]')
+  const eventClockLabel = (await timestampedEvent.locator('.event-time > span').innerText()).trim()
+  await expect(timestampedEvent).toHaveAttribute('aria-label', new RegExp(`at ${eventClockLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+  await page.getByRole('button', { name: 'EN / 中' }).click()
+  await expect(timestampedEvent).toHaveAttribute('aria-label', new RegExp(`时间 ${eventClockLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+  await page.getByRole('button', { name: 'EN / 中' }).click()
+
   const initialMountedCount = await rows.count()
   const firstRenderMs = performance.now() - navigationStartedAt
   expect(initialMountedCount).toBeGreaterThan(0)
@@ -396,6 +403,95 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
     initialMountedCount,
     bottomMountedCount,
   }))
+})
+
+test('keeps the large virtualized timeline reachable without horizontal overflow on mobile', async ({ page }) => {
+  const content = syntheticSession(undefined, 'Synthetic request', true)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.route('**/api/sessions', async (route) => {
+    await route.fulfill({
+      json: {
+        root: '/synthetic/sessions',
+        currentCwd: cwd,
+        warnings: [],
+        sessions: [{
+          token: sessionToken,
+          id: sessionToken,
+          title: 'Synthetic 2,000 event session',
+          cwd,
+          timestamp: sessionTimestamp,
+          modifiedAt: sessionTimestamp,
+          relativePath: 'synthetic-large-session.jsonl',
+        }],
+      },
+    })
+  })
+  await page.route(`**/api/sessions/${sessionToken}`, async (route) => {
+    await route.fulfill({
+      json: {
+        token: sessionToken,
+        relativePath: 'synthetic-large-session.jsonl',
+        modifiedAt: sessionTimestamp,
+        content,
+      },
+    })
+  })
+
+  await page.goto('/#token=dev-token')
+  await expect(page.locator('.branch-bar')).toContainText('2001 visible events')
+  const scrollContainer = page.locator('.timeline-scroll')
+  const rows = scrollContainer.locator('.event-row')
+  const firstEventId = 'missing-system-prompt:synthetic-user-0'
+  const lastEventId = 'synthetic-result-399:result'
+  await expect(rows.first()).toHaveAttribute('data-event-id', firstEventId)
+  expect(await rows.count()).toBeLessThan(60)
+
+  const mobileLayout = await page.evaluate(() => ({
+    viewportWidth: window.innerWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    bodyWidth: document.body.scrollWidth,
+  }))
+  expect(mobileLayout.documentWidth).toBeLessThanOrEqual(mobileLayout.viewportWidth)
+  expect(mobileLayout.bodyWidth).toBeLessThanOrEqual(mobileLayout.viewportWidth)
+
+  const lastEventReachable = await scrollContainer.evaluate(async (element, eventIds) => {
+    const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    element.scrollTop = 0
+    await nextFrame()
+    const firstRow = element.querySelector<HTMLElement>(`[data-event-id="${eventIds.first}"]`)
+    if (!firstRow) return false
+
+    let previousMaxScroll = -1
+    let stableBottomFrames = 0
+    for (let frame = 0; frame < 1200; frame += 1) {
+      const maxScroll = Math.max(0, element.scrollHeight - element.clientHeight)
+      element.scrollTop = Math.min(element.scrollTop + 600, maxScroll)
+      await nextFrame()
+      await nextFrame()
+
+      const row = element.querySelector<HTMLElement>(`[data-event-id="${eventIds.last}"]`)
+      if (row) {
+        const viewport = element.getBoundingClientRect()
+        const viewportTop = viewport.top + element.clientTop
+        const viewportBottom = viewportTop + element.clientHeight
+        const rowBounds = row.getBoundingClientRect()
+        if (rowBounds.bottom > viewportTop && rowBounds.top < viewportBottom) return true
+      }
+
+      const updatedMaxScroll = Math.max(0, element.scrollHeight - element.clientHeight)
+      if (element.scrollTop >= updatedMaxScroll - 1 && Math.abs(updatedMaxScroll - previousMaxScroll) < 1) {
+        stableBottomFrames += 1
+      } else {
+        stableBottomFrames = 0
+      }
+      if (stableBottomFrames >= 6) return false
+      previousMaxScroll = updatedMaxScroll
+    }
+    return false
+  }, { first: firstEventId, last: lastEventId })
+  expect(lastEventReachable).toBe(true)
+  await expect(rows.last()).toHaveAttribute('data-event-id', lastEventId)
+  expect(await rows.count()).toBeLessThan(60)
 })
 
 test('restores a large parent timeline anchor after subagent navigation', async ({ page }) => {
