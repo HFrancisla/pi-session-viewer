@@ -23,7 +23,7 @@ interface TimelineProps {
   turns: TimelineTurn[]
   allEvents: TimelineEvent[]
   selectedEventId: string | null
-  restorePosition?: { eventId: string | null; scrollTop?: number; key: number } | null
+  restorePosition?: { eventId: string | null; scrollTop?: number; anchor?: TimelineAnchor; key: number } | null
   selectedLeafId: string | null
   enabledKinds: Set<EventKind>
   onSelectEvent: (event: TimelineEvent) => void
@@ -31,6 +31,11 @@ interface TimelineProps {
   onToggleKind: (kind: EventKind) => void
   onToggleAllKinds: () => void
   onOpenSubagent?: (subagent: SubagentReference, sourceEventId?: string) => void
+}
+
+export interface TimelineAnchor {
+  eventId: string
+  offset: number
 }
 
 interface LlmOutputGroup {
@@ -300,27 +305,74 @@ export function Timeline({
 
   const scrollContainerRef = useRef<HTMLElement | null>(null)
   const virtuosoRef = useRef<GroupedVirtuosoHandle>(null)
+  const restoreFrameRef = useRef<number | null>(null)
   const setScrollContainer = useCallback((element: HTMLElement | Window | null) => {
     scrollContainerRef.current = element instanceof HTMLElement ? element : null
   }, [])
 
+  const correctAnchorOffset = useCallback((anchor: TimelineAnchor) => {
+    const container = scrollContainerRef.current
+    if (!container) return null
+
+    const row = [...container.querySelectorAll<HTMLElement>('.event-row')]
+      .find((element) => element.dataset.eventId === anchor.eventId)
+    if (!row) return null
+
+    const viewportTop = container.getBoundingClientRect().top + container.clientTop
+    const difference = row.getBoundingClientRect().top - viewportTop - anchor.offset
+    if (Math.abs(difference) > 0.5) container.scrollTop += difference
+    return difference
+  }, [])
+
   useLayoutEffect(() => {
+    if (restoreFrameRef.current != null) {
+      cancelAnimationFrame(restoreFrameRef.current)
+      restoreFrameRef.current = null
+    }
     if (!restorePosition) return
     const container = scrollContainerRef.current
     if (!container) return
 
-    if (restorePosition.scrollTop != null) {
-      container.scrollTop = restorePosition.scrollTop
-      requestAnimationFrame(() => {
-        if (container && restorePosition.scrollTop != null) {
+    if (restorePosition.anchor) {
+      const index = eventIndexById.get(restorePosition.anchor.eventId)
+      if (index == null) {
+        if (restorePosition.scrollTop != null) {
           container.scrollTop = restorePosition.scrollTop
+          requestAnimationFrame(() => { container.scrollTop = restorePosition.scrollTop! })
         }
-      })
+        return
+      }
+
+      virtuosoRef.current?.scrollToIndex({ index, align: 'start', behavior: 'auto' })
+
+      let frameCount = 0
+      let stableFrames = 0
+      const correctAfterMeasurement = () => {
+        frameCount += 1
+        const difference = correctAnchorOffset(restorePosition.anchor!)
+        stableFrames = difference != null && Math.abs(difference) <= 0.5 ? stableFrames + 1 : 0
+
+        if (frameCount < 120 && (frameCount < 12 || stableFrames < 8)) {
+          restoreFrameRef.current = requestAnimationFrame(correctAfterMeasurement)
+        } else {
+          restoreFrameRef.current = null
+        }
+      }
+      restoreFrameRef.current = requestAnimationFrame(correctAfterMeasurement)
+    } else if (restorePosition.scrollTop != null) {
+      const { scrollTop } = restorePosition
+      const scrollToTop = scrollTop === 0 && restorePosition.eventId == null
+      const restoreScroll = () => {
+        if (scrollToTop) virtuosoRef.current?.scrollToIndex({ index: 0, align: 'start', behavior: 'auto' })
+        container.scrollTop = scrollTop
+      }
+      restoreScroll()
+      requestAnimationFrame(restoreScroll)
     } else if (restorePosition.eventId) {
       const index = eventIndexById.get(restorePosition.eventId)
       if (index != null) virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'auto' })
     }
-  }, [eventIndexById, restorePosition])
+  }, [correctAnchorOffset, eventIndexById, restorePosition])
 
   return (
     <section className="timeline-panel" aria-label={t.timeline.ariaLabel}>
