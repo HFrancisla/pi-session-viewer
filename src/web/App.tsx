@@ -434,6 +434,41 @@ function App() {
     setInspectorOpen(true)
   }
 
+  const ensureEventKindEnabled = useCallback((kind: EventKind) => {
+    setEnabledKinds((current) => {
+      if (current.has(kind)) return current
+      const next = new Set(current)
+      next.add(kind)
+      return next
+    })
+  }, [])
+
+  const acknowledgeRestorePosition = useCallback((key: number) => {
+    setRestorePosition((current) => current?.key === key ? null : current)
+  }, [])
+
+  const jumpToSelectedEvent = useCallback(() => {
+    if (!selectedEvent) return
+    setRestorePosition({ eventId: selectedEvent.id, key: ++restoreKeyRef.current })
+  }, [selectedEvent])
+
+  const selectBranch = useCallback((leafId: string) => {
+    if (!parsedSession) {
+      setSelectedLeafId(leafId)
+      return
+    }
+
+    const nextView = buildSessionView(parsedSession, leafId)
+    setSelectedLeafId(leafId)
+    if (nextView.events.some((event) => event.id === selectedEventId)) return
+
+    const firstEvent = nextView.events[0] ?? null
+    setSelectedEventId(firstEvent?.id ?? null)
+    if (firstEvent) {
+      setRestorePosition({ eventId: firstEvent.id, key: ++restoreKeyRef.current })
+    }
+  }, [parsedSession, selectedEventId])
+
   const displayError = loadError ?? (!accessToken ? t.header.missingToken : null)
   const title = parsedSession ? getSessionTitle(parsedSession) : t.header.selectSession
   const fullJsonlPath = useMemo(() => {
@@ -554,9 +589,11 @@ function App() {
                 selectedLeafId={selectedLeafId}
                 enabledKinds={enabledKinds}
                 onSelectEvent={selectEvent}
-                onSelectBranch={(leafId) => setSelectedLeafId(leafId)}
+                onSelectBranch={selectBranch}
                 onToggleKind={toggleKind}
                 onToggleAllKinds={toggleAllKinds}
+                onEnsureEventKindEnabled={ensureEventKindEnabled}
+                onRestorePositionApplied={acknowledgeRestorePosition}
                 onOpenSubagent={openSubagent}
               />
             </>
@@ -573,6 +610,7 @@ function App() {
           event={selectedEvent}
           mobileOpen={inspectorOpen}
           onClose={() => setInspectorOpen(false)}
+          onJumpToEvent={jumpToSelectedEvent}
         />
       </div>
 

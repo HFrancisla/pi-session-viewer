@@ -84,6 +84,7 @@ export const zhCN: Translations = {
   inspector: {
     heading: '详情',
     selectEvent: '选择一个事件',
+    jumpToEvent: '在时间线中显示',
     emptyHint: '从时间轴选择事件，查看内容和原始记录。',
     tabs: {
       overview: '概览',

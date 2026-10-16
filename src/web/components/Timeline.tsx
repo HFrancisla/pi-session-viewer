@@ -30,6 +30,8 @@ interface TimelineProps {
   onSelectBranch: (leafId: string) => void
   onToggleKind: (kind: EventKind) => void
   onToggleAllKinds: () => void
+  onEnsureEventKindEnabled: (kind: EventKind) => void
+  onRestorePositionApplied: (key: number) => void
   onOpenSubagent?: (subagent: SubagentReference, sourceEventId?: string) => void
 }
 
@@ -198,6 +200,8 @@ export function Timeline({
   onSelectBranch,
   onToggleKind,
   onToggleAllKinds,
+  onEnsureEventKindEnabled,
+  onRestorePositionApplied,
   onOpenSubagent,
 }: TimelineProps) {
   const { t, localizeTitle } = useI18n()
@@ -330,49 +334,78 @@ export function Timeline({
       restoreFrameRef.current = null
     }
     if (!restorePosition) return
-    const container = scrollContainerRef.current
-    if (!container) return
 
-    if (restorePosition.anchor) {
-      const index = eventIndexById.get(restorePosition.anchor.eventId)
-      if (index == null) {
-        if (restorePosition.scrollTop != null) {
-          container.scrollTop = restorePosition.scrollTop
-          requestAnimationFrame(() => { container.scrollTop = restorePosition.scrollTop! })
-        }
+    const anchor = restorePosition.anchor
+    const targetEventId = anchor?.eventId ?? restorePosition.eventId
+    const target = targetEventId
+      ? allEvents.find((event) => event.id === targetEventId)
+      : undefined
+    if (target && !enabledKinds.has(target.kind)) {
+      onEnsureEventKindEnabled(target.kind)
+      return
+    }
+
+    const index = targetEventId ? eventIndexById.get(targetEventId) : undefined
+    if (restorePosition.scrollTop == null && index == null) return
+
+    let frame = 0
+    let secondFrame = 0
+    let attempts = 0
+    let cancelled = false
+    const restoreWhenReady = () => {
+      if (cancelled) return
+      const container = scrollContainerRef.current
+      const virtuoso = virtuosoRef.current
+      if (!container || !virtuoso) {
+        attempts += 1
+        if (attempts < 30) frame = requestAnimationFrame(restoreWhenReady)
         return
       }
 
-      virtuosoRef.current?.scrollToIndex({ index, align: 'start', behavior: 'auto' })
+      if (anchor && index != null) {
+        virtuoso.scrollToIndex({ index, align: 'start', behavior: 'auto' })
 
-      let frameCount = 0
-      let stableFrames = 0
-      const correctAfterMeasurement = () => {
-        frameCount += 1
-        const difference = correctAnchorOffset(restorePosition.anchor!)
-        stableFrames = difference != null && Math.abs(difference) <= 0.5 ? stableFrames + 1 : 0
+        let frameCount = 0
+        let stableFrames = 0
+        const correctAfterMeasurement = () => {
+          if (cancelled) return
+          frameCount += 1
+          const difference = correctAnchorOffset(anchor)
+          stableFrames = difference != null && Math.abs(difference) <= 0.5 ? stableFrames + 1 : 0
 
-        if (frameCount < 120 && (frameCount < 12 || stableFrames < 8)) {
-          restoreFrameRef.current = requestAnimationFrame(correctAfterMeasurement)
-        } else {
-          restoreFrameRef.current = null
+          if (frameCount < 120 && (frameCount < 12 || stableFrames < 8)) {
+            restoreFrameRef.current = requestAnimationFrame(correctAfterMeasurement)
+          } else {
+            restoreFrameRef.current = null
+            onRestorePositionApplied(restorePosition.key)
+          }
         }
+        restoreFrameRef.current = requestAnimationFrame(correctAfterMeasurement)
+      } else if (restorePosition.scrollTop != null) {
+        const scrollToTop = restorePosition.scrollTop === 0 && restorePosition.eventId == null
+        if (scrollToTop) virtuoso.scrollToIndex({ index: 0, align: 'start', behavior: 'auto' })
+        container.scrollTop = restorePosition.scrollTop
+        secondFrame = requestAnimationFrame(() => {
+          if (cancelled) return
+          container.scrollTop = restorePosition.scrollTop!
+          onRestorePositionApplied(restorePosition.key)
+        })
+      } else if (index != null) {
+        virtuoso.scrollToIndex({ index, align: 'center', behavior: 'auto' })
+        onRestorePositionApplied(restorePosition.key)
       }
-      restoreFrameRef.current = requestAnimationFrame(correctAfterMeasurement)
-    } else if (restorePosition.scrollTop != null) {
-      const { scrollTop } = restorePosition
-      const scrollToTop = scrollTop === 0 && restorePosition.eventId == null
-      const restoreScroll = () => {
-        if (scrollToTop) virtuosoRef.current?.scrollToIndex({ index: 0, align: 'start', behavior: 'auto' })
-        container.scrollTop = scrollTop
-      }
-      restoreScroll()
-      requestAnimationFrame(restoreScroll)
-    } else if (restorePosition.eventId) {
-      const index = eventIndexById.get(restorePosition.eventId)
-      if (index != null) virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'auto' })
     }
-  }, [correctAnchorOffset, eventIndexById, restorePosition])
+    frame = requestAnimationFrame(restoreWhenReady)
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(frame)
+      cancelAnimationFrame(secondFrame)
+      if (restoreFrameRef.current != null) {
+        cancelAnimationFrame(restoreFrameRef.current)
+        restoreFrameRef.current = null
+      }
+    }
+  }, [allEvents, correctAnchorOffset, enabledKinds, eventIndexById, onEnsureEventKindEnabled, onRestorePositionApplied, restorePosition])
 
   return (
     <section className="timeline-panel" aria-label={t.timeline.ariaLabel}>
