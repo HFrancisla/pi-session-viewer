@@ -1,5 +1,6 @@
 import { FileJson2, FolderOpen, LoaderCircle, MessageSquareText } from 'lucide-react'
-import { useMemo } from 'react'
+import { forwardRef, useMemo } from 'react'
+import { Virtuoso, type Components, type ScrollerProps } from 'react-virtuoso'
 import type { SessionCatalog, ProjectSummary } from '../../core/session-catalog'
 import { normalizePath } from '../../core/session-catalog'
 import type { SessionListItem } from '../../core/types'
@@ -7,6 +8,22 @@ import { formatDateTime } from '../../core/format'
 import { useI18n } from '../i18n'
 
 export type { ProjectSummary }
+
+interface SessionListContext {
+  label: string
+}
+
+const SessionListScroller: Components<SessionListItem, SessionListContext>['Scroller'] = forwardRef<
+  HTMLDivElement,
+  ScrollerProps & { context: SessionListContext }
+>(({ context, ...props }, ref) => (
+  <nav
+    {...props}
+    ref={ref as React.Ref<HTMLElement>}
+    className="session-list"
+    aria-label={context.label}
+  />
+))
 
 interface SessionSidebarProps {
   catalog: SessionCatalog
@@ -128,11 +145,17 @@ export function SessionSidebar({
         <div className="sidebar-warning" role="status">{warnings[0]}</div>
       )}
 
-      <nav className="session-list">
-        {filteredSessions.map((session) => (
+      <Virtuoso
+        style={{ height: '100%' }}
+        data={filteredSessions}
+        context={{ label: t.sidebar.heading }}
+        components={{ Scroller: SessionListScroller }}
+        computeItemKey={(_, session) => session.token}
+        defaultItemHeight={61}
+        overscan={160}
+        itemContent={(_, session) => (
           <button
             className={`session-item${selectedToken === session.token ? ' is-selected' : ''}`}
-            key={session.token}
             type="button"
             onClick={() => onSelect(session)}
             aria-current={selectedToken === session.token ? 'page' : undefined}
@@ -147,8 +170,8 @@ export function SessionSidebar({
               </span>
             </span>
           </button>
-        ))}
-      </nav>
+        )}
+      />
 
       {!loading && filteredSessions.length === 0 && sessions.length > 0 && scopeMode === 'current' && (
         <div className="sidebar-empty">
