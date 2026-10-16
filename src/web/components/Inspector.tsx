@@ -7,6 +7,7 @@ import {
   GitCompare,
   Info,
   Layers3,
+  LocateFixed,
   X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -21,6 +22,7 @@ interface InspectorProps {
   event: TimelineEvent | null
   mobileOpen: boolean
   onClose: () => void
+  onJumpToEvent: () => void
 }
 
 type InspectorTab = 'overview' | 'content' | 'composition' | 'diff' | 'raw'
@@ -270,7 +272,7 @@ function EventRawView({ event }: { event: TimelineEvent }) {
   )
 }
 
-export function Inspector({ event, mobileOpen, onClose }: InspectorProps) {
+export function Inspector({ event, mobileOpen, onClose, onJumpToEvent }: InspectorProps) {
   const { t, localizeTitle } = useI18n()
   const [tab, setTab] = useState<InspectorTab>('content')
 
@@ -290,9 +292,16 @@ export function Inspector({ event, mobileOpen, onClose }: InspectorProps) {
           <h2>{t.inspector.heading}</h2>
           <p>{event ? localizeTitle(event.title) : t.inspector.selectEvent}</p>
         </div>
-        <button className="icon-button inspector-close" type="button" onClick={onClose} title={t.header.closeInspector} aria-label={t.header.closeInspector}>
-          <X size={18} />
-        </button>
+        <div className="inspector-heading-actions">
+          {event && (
+            <button className="icon-button" type="button" onClick={onJumpToEvent} title={t.inspector.jumpToEvent} aria-label={t.inspector.jumpToEvent}>
+              <LocateFixed size={16} />
+            </button>
+          )}
+          <button className="icon-button inspector-close" type="button" onClick={onClose} title={t.header.closeInspector} aria-label={t.header.closeInspector}>
+            <X size={18} />
+          </button>
+        </div>
       </div>
 
       {!event ? (

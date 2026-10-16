@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchSession, fetchSessions } from './api'
 import { Inspector } from './components/Inspector'
 import { SessionSidebar } from './components/SessionSidebar'
-import { Timeline } from './components/Timeline'
+import { Timeline, type TimelineAnchor } from './components/Timeline'
 import { allEventKinds } from '../core/event-kinds'
 import { formatDateTime, formatDuration } from '../core/format'
 import { createSessionCatalog } from '../core/session-catalog'
@@ -43,7 +43,14 @@ function measurePerformance<T>(name: string, work: () => T): T {
 export interface RestorePosition {
   eventId: string | null
   scrollTop?: number
+  anchor?: TimelineAnchor
   key: number
+}
+
+interface SessionViewport {
+  scrollTop: number
+  selectedEventId: string | null
+  anchor: TimelineAnchor | null
 }
 
 interface SessionStackFrame {
@@ -56,6 +63,26 @@ interface SessionStackFrame {
   rawContent: string
   title: string
   scrollTop?: number
+  timelineAnchor: TimelineAnchor | null
+}
+
+function captureTimelineAnchor(): TimelineAnchor | null {
+  const scroller = document.querySelector<HTMLElement>('.timeline-scroll')
+  if (!scroller) return null
+
+  const bounds = scroller.getBoundingClientRect()
+  const viewportTop = bounds.top + scroller.clientTop
+  const viewportBottom = viewportTop + scroller.clientHeight
+  const firstVisible = [...scroller.querySelectorAll<HTMLElement>('.event-row')].find((row) => {
+    const rowBounds = row.getBoundingClientRect()
+    return rowBounds.bottom > viewportTop && rowBounds.top < viewportBottom
+  })
+  if (!firstVisible?.dataset.eventId) return null
+
+  return {
+    eventId: firstVisible.dataset.eventId,
+    offset: firstVisible.getBoundingClientRect().top - viewportTop,
+  }
 }
 
 function App() {
@@ -80,7 +107,7 @@ function App() {
   const [sessionStack, setSessionStack] = useState<SessionStackFrame[]>([])
   const [restorePosition, setRestorePosition] = useState<RestorePosition | null>(null)
   const restoreKeyRef = useRef(0)
-  const sessionViewportsRef = useRef<Map<string, { scrollTop: number; selectedEventId: string | null }>>(new Map())
+  const sessionViewportsRef = useRef<Map<string, SessionViewport>>(new Map())
   const currentSelectedTokenRef = useRef<string | null>(null)
   currentSelectedTokenRef.current = selectedToken
   const currentSelectedEventIdRef = useRef<string | null>(null)
@@ -121,6 +148,7 @@ function App() {
     try {
       const payload = await fetchSession(session.token, accessToken)
       applyContent(payload.content, payload.relativePath, session)
+      setRestorePosition({ eventId: null, scrollTop: 0, key: ++restoreKeyRef.current })
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -133,11 +161,13 @@ function App() {
 
     const scrollContainer = document.querySelector('.timeline-scroll')
     const currentScrollTop = scrollContainer ? scrollContainer.scrollTop : undefined
+    const timelineAnchor = captureTimelineAnchor()
 
     if (currentSelectedTokenRef.current && currentScrollTop != null) {
       sessionViewportsRef.current.set(currentSelectedTokenRef.current, {
         scrollTop: currentScrollTop,
         selectedEventId: currentSelectedEventIdRef.current,
+        anchor: timelineAnchor,
       })
     }
 
@@ -152,6 +182,7 @@ function App() {
       rawContent: currentContentRef.current,
       title: parsedSession ? getSessionTitle(parsedSession) : t.header.selectSession,
       scrollTop: currentScrollTop,
+      timelineAnchor,
     }
 
     setSessionLoading(true)
@@ -204,6 +235,7 @@ function App() {
           setRestorePosition({
             eventId: cachedViewport.selectedEventId,
             scrollTop: cachedViewport.scrollTop,
+            anchor: cachedViewport.anchor ?? undefined,
             key: ++restoreKeyRef.current,
           })
         } else {
@@ -226,10 +258,12 @@ function App() {
   const popSessionStack = useCallback((targetIndex?: number) => {
     const scrollContainer = document.querySelector('.timeline-scroll')
     const currentScrollTop = scrollContainer ? scrollContainer.scrollTop : undefined
+    const timelineAnchor = captureTimelineAnchor()
     if (currentSelectedTokenRef.current && currentScrollTop != null) {
       sessionViewportsRef.current.set(currentSelectedTokenRef.current, {
         scrollTop: currentScrollTop,
         selectedEventId: currentSelectedEventIdRef.current,
+        anchor: timelineAnchor,
       })
     }
 
@@ -251,6 +285,7 @@ function App() {
       setRestorePosition({
         eventId: frame.selectedEventId,
         scrollTop: frame.scrollTop,
+        anchor: frame.timelineAnchor ?? undefined,
         key: ++restoreKeyRef.current,
       })
 
@@ -399,6 +434,41 @@ function App() {
     setInspectorOpen(true)
   }
 
+  const ensureEventKindEnabled = useCallback((kind: EventKind) => {
+    setEnabledKinds((current) => {
+      if (current.has(kind)) return current
+      const next = new Set(current)
+      next.add(kind)
+      return next
+    })
+  }, [])
+
+  const acknowledgeRestorePosition = useCallback((key: number) => {
+    setRestorePosition((current) => current?.key === key ? null : current)
+  }, [])
+
+  const jumpToSelectedEvent = useCallback(() => {
+    if (!selectedEvent) return
+    setRestorePosition({ eventId: selectedEvent.id, key: ++restoreKeyRef.current })
+  }, [selectedEvent])
+
+  const selectBranch = useCallback((leafId: string) => {
+    if (!parsedSession) {
+      setSelectedLeafId(leafId)
+      return
+    }
+
+    const nextView = buildSessionView(parsedSession, leafId)
+    setSelectedLeafId(leafId)
+    if (nextView.events.some((event) => event.id === selectedEventId)) return
+
+    const firstEvent = nextView.events[0] ?? null
+    setSelectedEventId(firstEvent?.id ?? null)
+    if (firstEvent) {
+      setRestorePosition({ eventId: firstEvent.id, key: ++restoreKeyRef.current })
+    }
+  }, [parsedSession, selectedEventId])
+
   const displayError = loadError ?? (!accessToken ? t.header.missingToken : null)
   const title = parsedSession ? getSessionTitle(parsedSession) : t.header.selectSession
   const fullJsonlPath = useMemo(() => {
@@ -519,9 +589,11 @@ function App() {
                 selectedLeafId={selectedLeafId}
                 enabledKinds={enabledKinds}
                 onSelectEvent={selectEvent}
-                onSelectBranch={(leafId) => setSelectedLeafId(leafId)}
+                onSelectBranch={selectBranch}
                 onToggleKind={toggleKind}
                 onToggleAllKinds={toggleAllKinds}
+                onEnsureEventKindEnabled={ensureEventKindEnabled}
+                onRestorePositionApplied={acknowledgeRestorePosition}
                 onOpenSubagent={openSubagent}
               />
             </>
@@ -538,6 +610,7 @@ function App() {
           event={selectedEvent}
           mobileOpen={inspectorOpen}
           onClose={() => setInspectorOpen(false)}
+          onJumpToEvent={jumpToSelectedEvent}
         />
       </div>
 

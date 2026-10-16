@@ -23,14 +23,21 @@ interface TimelineProps {
   turns: TimelineTurn[]
   allEvents: TimelineEvent[]
   selectedEventId: string | null
-  restorePosition?: { eventId: string | null; scrollTop?: number; key: number } | null
+  restorePosition?: { eventId: string | null; scrollTop?: number; anchor?: TimelineAnchor; key: number } | null
   selectedLeafId: string | null
   enabledKinds: Set<EventKind>
   onSelectEvent: (event: TimelineEvent) => void
   onSelectBranch: (leafId: string) => void
   onToggleKind: (kind: EventKind) => void
   onToggleAllKinds: () => void
+  onEnsureEventKindEnabled: (kind: EventKind) => void
+  onRestorePositionApplied: (key: number) => void
   onOpenSubagent?: (subagent: SubagentReference, sourceEventId?: string) => void
+}
+
+export interface TimelineAnchor {
+  eventId: string
+  offset: number
 }
 
 interface LlmOutputGroup {
@@ -114,6 +121,11 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
       data-event-id={event.id}
       data-turn-id={turnId}
       aria-label={t.timeline.eventAccessibleLabel(localizeTitle(event.title), index + 1, eventCount, focused, selected)}
+      onPointerDown={(pointerEvent) => {
+        if (pointerEvent.button !== 0
+          || (pointerEvent.target instanceof Element && pointerEvent.target.closest('.event-subagent-tag'))) return
+        onFocusEvent(index)
+      }}
       onClick={() => {
         onFocusEvent(index)
         onSelectEvent(event)
@@ -202,6 +214,8 @@ export function Timeline({
   onSelectBranch,
   onToggleKind,
   onToggleAllKinds,
+  onEnsureEventKindEnabled,
+  onRestorePositionApplied,
   onOpenSubagent,
 }: TimelineProps) {
   const { t, localizeTitle } = useI18n()
@@ -313,6 +327,7 @@ export function Timeline({
   const focusedEventIndexRef = useRef<number | null>(null)
   const pendingFocusEventIdRef = useRef<string | null>(null)
   const focusRequestRef = useRef(0)
+  const restoreFrameRef = useRef<number | null>(null)
   const setScrollContainer = useCallback((element: HTMLElement | Window | null) => {
     scrollContainerRef.current = element instanceof HTMLElement ? element : null
   }, [])
@@ -398,23 +413,98 @@ export function Timeline({
     )
     : ''
 
-  useLayoutEffect(() => {
-    if (!restorePosition) return
+  const correctAnchorOffset = useCallback((anchor: TimelineAnchor) => {
     const container = scrollContainerRef.current
-    if (!container) return
+    if (!container) return null
 
-    if (restorePosition.scrollTop != null) {
-      container.scrollTop = restorePosition.scrollTop
-      requestAnimationFrame(() => {
-        if (container && restorePosition.scrollTop != null) {
-          container.scrollTop = restorePosition.scrollTop
-        }
-      })
-    } else if (restorePosition.eventId) {
-      const index = eventIndexById.get(restorePosition.eventId)
-      if (index != null) virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'auto' })
+    const row = [...container.querySelectorAll<HTMLElement>('.event-row')]
+      .find((element) => element.dataset.eventId === anchor.eventId)
+    if (!row) return null
+
+    const viewportTop = container.getBoundingClientRect().top + container.clientTop
+    const difference = row.getBoundingClientRect().top - viewportTop - anchor.offset
+    if (Math.abs(difference) > 0.5) container.scrollTop += difference
+    return difference
+  }, [])
+
+  useLayoutEffect(() => {
+    if (restoreFrameRef.current != null) {
+      cancelAnimationFrame(restoreFrameRef.current)
+      restoreFrameRef.current = null
     }
-  }, [eventIndexById, restorePosition])
+    if (!restorePosition) return
+
+    const anchor = restorePosition.anchor
+    const targetEventId = anchor?.eventId ?? restorePosition.eventId
+    const target = targetEventId
+      ? allEvents.find((event) => event.id === targetEventId)
+      : undefined
+    if (target && !enabledKinds.has(target.kind)) {
+      onEnsureEventKindEnabled(target.kind)
+      return
+    }
+
+    const index = targetEventId ? eventIndexById.get(targetEventId) : undefined
+    if (restorePosition.scrollTop == null && index == null) return
+
+    let frame = 0
+    let secondFrame = 0
+    let attempts = 0
+    let cancelled = false
+    const restoreWhenReady = () => {
+      if (cancelled) return
+      const container = scrollContainerRef.current
+      const virtuoso = virtuosoRef.current
+      if (!container || !virtuoso) {
+        attempts += 1
+        if (attempts < 30) frame = requestAnimationFrame(restoreWhenReady)
+        return
+      }
+
+      if (anchor && index != null) {
+        virtuoso.scrollToIndex({ index, align: 'start', behavior: 'auto' })
+
+        let frameCount = 0
+        let stableFrames = 0
+        const correctAfterMeasurement = () => {
+          if (cancelled) return
+          frameCount += 1
+          const difference = correctAnchorOffset(anchor)
+          stableFrames = difference != null && Math.abs(difference) <= 0.5 ? stableFrames + 1 : 0
+
+          if (frameCount < 120 && (frameCount < 12 || stableFrames < 8)) {
+            restoreFrameRef.current = requestAnimationFrame(correctAfterMeasurement)
+          } else {
+            restoreFrameRef.current = null
+            onRestorePositionApplied(restorePosition.key)
+          }
+        }
+        restoreFrameRef.current = requestAnimationFrame(correctAfterMeasurement)
+      } else if (restorePosition.scrollTop != null) {
+        const scrollToTop = restorePosition.scrollTop === 0 && restorePosition.eventId == null
+        if (scrollToTop) virtuoso.scrollToIndex({ index: 0, align: 'start', behavior: 'auto' })
+        container.scrollTop = restorePosition.scrollTop
+        secondFrame = requestAnimationFrame(() => {
+          if (cancelled) return
+          container.scrollTop = restorePosition.scrollTop!
+          onRestorePositionApplied(restorePosition.key)
+        })
+      } else if (index != null) {
+        virtuoso.scrollToIndex({ index, align: 'center', behavior: 'auto' })
+        onRestorePositionApplied(restorePosition.key)
+      }
+    }
+    frame = requestAnimationFrame(restoreWhenReady)
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(frame)
+      cancelAnimationFrame(secondFrame)
+      if (restoreFrameRef.current != null) {
+        cancelAnimationFrame(restoreFrameRef.current)
+        restoreFrameRef.current = null
+      }
+    }
+  }, [allEvents, correctAnchorOffset, enabledKinds, eventIndexById, onEnsureEventKindEnabled, onRestorePositionApplied, restorePosition])
 
   return (
     <section className="timeline-panel" aria-label={t.timeline.ariaLabel}>

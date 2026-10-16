@@ -85,6 +85,7 @@ export const en = {
   inspector: {
     heading: 'Details',
     selectEvent: 'Select an event',
+    jumpToEvent: 'Show in timeline',
     emptyHint: 'Select an event from the timeline to inspect content and raw records.',
     tabs: {
       overview: 'Overview',

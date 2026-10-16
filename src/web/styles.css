@@ -476,6 +476,7 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.2; }
 .inspector-heading { height: 60px; flex: 0 0 60px; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
 .inspector-heading > div { min-width: 0; }
 .inspector-heading p { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inspector-heading-actions { display: flex; align-items: center; gap: 6px; }
 .inspector-close { display: none; }
 .inspector-tabs { height: 34px; flex: 0 0 34px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border-bottom: 1px solid var(--line); background: #f8faf9; }
 .inspector-tabs button { position: relative; display: flex; align-items: center; justify-content: center; gap: 5px; height: 34px; padding: 0 6px; border: 0; color: var(--muted); background: transparent; font-size: 12px; cursor: pointer; }
