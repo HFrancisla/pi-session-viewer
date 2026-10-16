@@ -23,6 +23,30 @@ function syntheticSession() {
     const callId = `synthetic-call-${index}`
     const longText = index % 3 === 0 ? ` ${'Additional response detail '.repeat(10)}` : ''
 
+    if (index === 399) {
+      entries.push({
+        type: 'message',
+        id: 'synthetic-alt-user',
+        parentId: 'synthetic-result-398',
+        timestamp,
+        message: { role: 'user', timestamp: Date.parse(timestamp), content: 'Synthetic alternate request' },
+      })
+      entries.push({
+        type: 'message',
+        id: 'synthetic-alt-assistant',
+        parentId: 'synthetic-alt-user',
+        timestamp,
+        message: { role: 'assistant', timestamp: Date.parse(timestamp), content: [{ type: 'text', text: 'Synthetic alternate response' }] },
+      })
+      entries.push({
+        type: 'message',
+        id: 'synthetic-alt-result',
+        parentId: 'synthetic-alt-assistant',
+        timestamp,
+        message: { role: 'toolResult', timestamp: Date.parse(timestamp), toolCallId: 'synthetic-alt-call', toolName: 'bash', content: [{ type: 'text', text: 'Synthetic alternate result' }] },
+      })
+    }
+
     entries.push({
       type: 'message',
       id: userId,
@@ -158,8 +182,60 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   await page.getByLabel('Pi Response', { exact: true }).check()
   await expect(selectedAssistant).toHaveClass(/is-selected/)
 
-  const scrollStartedAt = performance.now()
   const scrollContainer = page.locator('.timeline-scroll')
+  const scrollToEvent = async (eventId: string) => {
+    await scrollContainer.evaluate(async (element, targetId) => {
+      const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      const maxScroll = element.scrollHeight - element.clientHeight
+      for (let scrollTop = 0; scrollTop <= maxScroll; scrollTop += 600) {
+        element.scrollTop = scrollTop
+        await nextFrame()
+        if (element.querySelector(`[data-event-id="${targetId}"]`)) return
+      }
+      element.scrollTop = maxScroll
+      await nextFrame()
+    }, eventId)
+  }
+
+  const selectedThinking = page.locator('.event-row[data-event-id="synthetic-assistant-250:thinking:1"]')
+  await scrollToEvent('synthetic-assistant-250:thinking:1')
+  await expect(selectedThinking).toBeVisible()
+  await selectedThinking.click()
+  await expect(page.locator('.inspector')).toContainText('Synthetic reasoning 251')
+  await scrollContainer.evaluate((element) => { element.scrollTop = 0 })
+  const thinkingFilter = page.getByLabel('Thinking', { exact: true })
+  const toggleAllButton = page.locator('.filter-select-all')
+  await toggleAllButton.click()
+  await expect(selectedThinking).toHaveCount(0)
+  await expect(page.getByText('Select at least one event type.')).toBeVisible()
+  await expect(page.locator('.inspector')).toContainText('Synthetic reasoning 251')
+  await page.getByRole('button', { name: 'Show in timeline', exact: true }).click()
+  await expect(thinkingFilter).toBeChecked()
+  await expect(page.getByText('Select at least one event type.')).toHaveCount(0)
+  await expect(selectedThinking).toBeVisible()
+  await expect(selectedThinking).toHaveClass(/is-selected/)
+
+  const sharedEvent = selectedThinking
+  await page.locator('#branch-select').selectOption({ label: 'Historical branch 1' })
+  await expect(sharedEvent).toHaveClass(/is-selected/)
+  await expect(page.locator('.inspector')).toContainText('Synthetic reasoning 251')
+
+  await page.locator('#branch-select').selectOption({ label: 'Current branch' })
+  await page.getByLabel('Pi Response', { exact: true }).check()
+  const branchOnlyEvent = page.locator('.event-row[data-event-id="synthetic-assistant-399:assistant:0"]')
+  await scrollToEvent('synthetic-assistant-399:assistant:0')
+  await expect(branchOnlyEvent).toBeVisible()
+  await branchOnlyEvent.click()
+  await expect(page.locator('.inspector')).toContainText('Synthetic assistant response 400.')
+  await page.locator('#branch-select').selectOption({ label: 'Historical branch 1' })
+  const firstVisibleEvent = page.locator(`.event-row[data-event-id="${firstEventId}"]`)
+  await expect(firstVisibleEvent).toBeVisible()
+  await expect(firstVisibleEvent).toHaveClass(/is-selected/)
+  await page.locator('#branch-select').selectOption({ label: 'Current branch' })
+  await toggleAllButton.click()
+  await expect(toggleAllButton).toHaveText('Clear')
+
+  const scrollStartedAt = performance.now()
   await page.setViewportSize({ width: 1280, height: 560 })
   await scrollContainer.evaluate((element) => { element.scrollTop = 0 })
   await expect(rows.first()).toBeVisible()
@@ -180,9 +256,18 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
     element.scrollTop = maxScroll
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     collectMountedRows()
-    return { count: eventIds.size, first: eventIds.values().next().value, last: [...eventIds].at(-1) }
+    return { count: eventIds.size, ids: [...eventIds], first: eventIds.values().next().value, last: [...eventIds].at(-1) }
   })
+  const expectedEventIds = ['missing-system-prompt:synthetic-user-0', ...Array.from({ length: 400 }, (_, index) => [
+    `synthetic-user-${index}:user`,
+    `synthetic-assistant-${index}:assistant:0`,
+    `synthetic-assistant-${index}:thinking:1`,
+    `synthetic-assistant-${index}:tool:2`,
+    `synthetic-result-${index}:result`,
+  ]).flat()]
+  const visitedEventIds = new Set(visitedRows.ids)
   expect(visitedRows.count).toBe(2001)
+  expect([...visitedEventIds].sort()).toEqual(expectedEventIds.sort())
   expect(visitedRows.first).toBe(firstEventId)
   expect(visitedRows.last).toBe('synthetic-result-399:result')
   const lastRow = page.locator('.event-row[data-event-id="synthetic-result-399:result"]')
