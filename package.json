@@ -53,12 +53,14 @@
     "test": "vitest run --fileParallelism=false",
     "test:ui": "playwright test",
     "test:package": "node scripts/test-package.mjs",
+    "check:sessions": "tsx scripts/check-real-sessions.ts",
+    "fixtures:refresh": "node scripts/refresh-fixtures.mjs",
     "verify": "npm run test && npm run build && npm run test:package",
     "clean": "node scripts/clean.mjs",
     "prepack": "npm run test && npm run build"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.85.1",
+    "@earendil-works/pi-coding-agent": "^1.2.0",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/ibm-plex-sans": "^5.3.0",
     "@playwright/test": "^1.63.0",

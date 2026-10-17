@@ -51,8 +51,10 @@ describe('tool-provenance', () => {
       const res = resolveToolProvenance(undefined, 'read')
       expect(res.kind).toBe('builtin')
       expect(res.isBuiltin).toBe(true)
-      expect(res.rawPath).toBe('<builtin:read>')
-      expect(res.displayPath).toBe('<builtin:read>')
+      // Pi's built-in paths use `BUILTIN_PATH_PREFIX` (`"builtin:"`); the contract
+      // test asserts this against Pi's own constant.
+      expect(res.rawPath).toBe('builtin:read')
+      expect(res.displayPath).toBe('builtin:read')
     })
 
     it('resolves built-in tool with builtin sourceInfo', () => {

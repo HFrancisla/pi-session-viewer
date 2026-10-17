@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { hasValidBearerToken, isAllowedHost, isAllowedOrigin } from './security'
 import { listSessions, readSessionFile } from './session-discovery'
+import { computeContextProjections } from './context-projection'
 import { readStaticAsset } from './static-assets'
 
 export interface SessionHttpServerOptions {
@@ -88,7 +89,11 @@ async function handleRequest(
       return
     }
     try {
-      sendJson(response, 200, await readSessionFile(options.sessionRoot, token))
+      const sessionFile = await readSessionFile(options.sessionRoot, token)
+      // What the model actually received is computed by Pi itself; when Pi is not
+      // reachable the field stays absent and the UI shows no marks.
+      const contextProjections = await computeContextProjections(sessionFile.content, sessionFile.relativePath)
+      sendJson(response, 200, contextProjections ? { ...sessionFile, contextProjections } : sessionFile)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       sendJson(response, 404, { error: message })

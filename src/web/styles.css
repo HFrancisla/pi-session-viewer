@@ -41,7 +41,10 @@ input { font: inherit; }
 button { letter-spacing: 0; }
 button:focus-visible,
 select:focus-visible,
-input:focus-visible { outline: 2px solid #246b83; outline-offset: 2px; }
+input:focus-visible,
+/* The timeline row is a container with role="button" so it can hold real
+   controls; it needs the same focus affordance as a native button. */
+.event-row:focus-visible { outline: 2px solid #246b83; outline-offset: 2px; }
 
 .app-shell { height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--base); }
 
@@ -368,10 +371,43 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.2; }
 .branch-bar label { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
 .branch-bar select { max-width: 240px; height: 26px; padding: 0 24px 0 8px; border: 1px solid var(--line); border-radius: 4px; color: var(--ink); background: var(--paper); font-size: 12px; }
 .branch-bar > span { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; }
-.timeline-scroll { min-height: 0; flex: 1; overflow: auto; padding: 0; scrollbar-gutter: stable; }
+.branch-bar .context-summary { margin-left: 10px; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+/* A failed action keeps the session on screen and reports itself here. */
+.action-error-strip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 18px;
+  color: #7a3b1d;
+  background: #fdf0e6;
+  border-bottom: 1px solid #f0d5ac;
+  font-size: 12px;
+}
+.action-error-strip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.action-error-strip > button {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid #e6bf8f;
+  border-radius: 4px;
+  color: #7a3b1d;
+  background: transparent;
+  cursor: pointer;
+}
+.action-error-strip > button:hover { background: #fbe6cd; }
+.timeline-scroll { min-height: 0; flex: 1; overflow: auto; padding: 0 0 60px; scrollbar-gutter: stable; }
 .turn-group { border-bottom: 1px solid var(--line-soft); }
 .turn-group > header { position: sticky; top: 0; z-index: 10; height: 26px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; color: var(--muted); background: #f7f9f8; border-bottom: 1px solid var(--line-soft); font-size: 11px; }
 .turn-group > header span:first-child { font-weight: 600; color: #495551; }
+/* The event count stays right-aligned whether or not the turn reports exclusions. */
+.turn-group > header > span:nth-child(2) { margin-left: auto; }
+.turn-events { position: relative; }
+.llm-output-group { position: relative; }
+.llm-output-group::before { content: ''; position: absolute; z-index: 2; top: -1px; right: 0; bottom: 0; left: 164px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); border-left: 2px solid #9889ad; pointer-events: none; }
 .event-row {
   --event-color: #66716d;
   position: relative;
@@ -443,6 +479,43 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.2; }
   font-size: 10px;
   opacity: 0.7;
 }
+/* The two ends of a context edit: the row the model never received, and the edit
+   that removed it. Both are interactive, so both get a pointer cursor and a text
+   affordance instead of relying on colour alone. */
+.event-context-mark {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  /* Deliberately darker than --amber/--amber-soft: that pair measures 3.92:1 on a
+     light background and fails WCAG AA at 11px, while this pair is 6.67:1. */
+  color: #7a4a1d;
+  background: #fdf1e0;
+  border: 1px solid #f0d5ac;
+  cursor: help;
+}
+.event-row:has(.event-context-mark) .event-summary { opacity: 0.72; }
+.event-context-target {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 340px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #2c5470;
+  background: #eaf1f8;
+  border: 1px solid #c6d9ea;
+  cursor: help;
+}
+.event-context-target > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-target-extra { flex: 0 0 auto; color: #4f6b80; }
+.turn-context-note { margin-left: 10px; color: #8a5a1c; }
 .event-char-count {
   margin-left: auto;
   flex: 0 0 auto;
@@ -892,6 +965,7 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.2; }
   .filter-bar { padding-inline: 12px; }
   .branch-bar { padding-inline: 12px; }
   .branch-bar select { min-width: 0; max-width: 160px; }
+  .branch-bar .context-summary { display: none; }
   .event-row { grid-template-columns: 68px 82px minmax(0, 1fr); padding-right: 10px; }
   .event-row::after { left: 150px; }
   .turn-group > header { padding: 0 12px; }

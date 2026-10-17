@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The contract tests compare the parser and the diff baseline against the
+      # @earendil-works/pi-coding-agent build installed here. A Pi release that
+      # changes the system prompt layout fails this job instead of silently
+      # degrading the viewer.
+      - name: Unit and contract tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Package check
+        run: npm run test:package
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: UI end-to-end tests
+        run: npm run test:ui

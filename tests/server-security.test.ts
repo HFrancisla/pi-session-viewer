@@ -163,6 +163,33 @@ describe('production session HTTP server security', () => {
     expect(payload).toMatchObject({ relativePath: 'nested/session.jsonl', content })
   })
 
+  it('reads a subagent transcript by its token, which subagent navigation needs', async () => {
+    // pi-subagents reports `<runId>_<agent>_transcript.jsonl` as the result of a
+    // subagent call, so the viewer must be able to open it. The catalog still
+    // hides these files from the session list (asserted above).
+    const content = '{"version":1,"recordType":"message","runId":"child-1"}\n'
+    const server = await createServerWithSessions({ 'subagent-artifacts/child-1_scout_transcript.jsonl': content })
+
+    const response = await fetch(
+      `${server.url}/api/sessions/${encodeSessionToken('subagent-artifacts/child-1_scout_transcript.jsonl')}`,
+      { headers: { Authorization: `Bearer ${server.token}` } },
+    )
+    const payload = await response.json() as { content: string }
+
+    expect(response.status).toBe(200)
+    expect(payload.content).toBe(content)
+  })
+
+  it('still refuses the sidecar event log', async () => {
+    const server = await createServerWithSessions({ 'events.jsonl': '{"type":"event"}\n' })
+
+    const response = await fetch(`${server.url}/api/sessions/${encodeSessionToken('events.jsonl')}`, {
+      headers: { Authorization: `Bearer ${server.token}` },
+    })
+
+    expect(response.status).toBe(404)
+  })
+
   it('reads a subagent session file under subagent-artifacts by its token', async () => {
     const content = '{"type":"session","version":3,"id":"child-1","timestamp":"2026-01-01T10:05:00.000Z","cwd":"/work/demo","parentSession":"session-1"}\n'
     const server = await createServerWithSessions({ 'subagent-artifacts/child-1.jsonl': content })

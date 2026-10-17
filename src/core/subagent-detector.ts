@@ -289,3 +289,48 @@ export function extractSubagentReference(
   const references = extractSubagentReferences(toolName, args, resultContent, details, parentSourcePath)
   return references[0]
 }
+
+/** pi-subagents transcript mirror: `<runId>_<agent>_transcript.jsonl`. */
+const SUBAGENT_TRANSCRIPT_REGEX = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_(.+)_transcript\.jsonl$/i
+
+/**
+ * Session files a subagent reference may resolve to, most useful first.
+ *
+ * Two spellings appear in tool results: Pi reports the runnable session
+ * (`<parent-session-dir>/<runId>/run-0/session.jsonl`), while pi-subagents
+ * reports its transcript mirror
+ * (`<project-dir>/subagent-artifacts/<runId>_<agent>_transcript.jsonl`). The
+ * viewer prefers the runnable session and falls back to the mirror, which is
+ * only readable inside the session root.
+ *
+ * Returns paths relative to the session root, deduplicated, in priority order:
+ * runnable run sessions first, the transcript mirror last.
+ */
+export function subagentTargetCandidates(targetFile: string, parentSourcePath?: string): string[] {
+  const clean = (value: string): string => value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '')
+  const target = clean(targetFile)
+  if (!target) return []
+
+  const transcript = SUBAGENT_TRANSCRIPT_REGEX.exec(target.split('/').pop() ?? '')
+  // A runnable run session renders as a full Pi session, so it is tried before
+  // the transcript mirror, which is pi-subagents' own format.
+  if (!transcript) return [target]
+  const candidates: string[] = []
+
+  const runId = transcript[1]
+  const artifactDir = target.includes('/') ? target.slice(0, target.lastIndexOf('/')) : ''
+  const projectDir = artifactDir.includes('subagent-artifacts')
+    ? artifactDir.slice(0, artifactDir.lastIndexOf('subagent-artifacts')).replace(/\/+$/, '')
+    : artifactDir
+
+  const parentStem = parentSourcePath
+    ? clean(parentSourcePath).split('/').pop()?.replace(/\.jsonl$/, '')
+    : undefined
+
+  const runSession = (base: string) => (base ? `${base}/${runId}/run-0/session.jsonl` : `${runId}/run-0/session.jsonl`)
+  if (projectDir && parentStem) candidates.push(runSession(`${projectDir}/${parentStem}`))
+  if (projectDir) candidates.push(runSession(projectDir))
+  candidates.push(target)
+
+  return [...new Set(candidates.filter(Boolean))]
+}

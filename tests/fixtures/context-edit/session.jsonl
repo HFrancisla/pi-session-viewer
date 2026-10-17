@@ -1,0 +1,5 @@
+{"type": "session", "version": 3, "id": "ctx-demo", "timestamp": "2026-01-01T10:00:00.000Z", "cwd": "/work/demo"}
+{"type": "message", "id": "u1", "parentId": null, "timestamp": "2026-01-01T10:00:01.000Z", "message": {"role": "user", "timestamp": 1767261601000, "content": "帮我跑一下测试"}}
+{"type": "message", "id": "a-failed", "parentId": "u1", "timestamp": "2026-01-01T10:00:03.000Z", "message": {"role": "assistant", "timestamp": 1767261603000, "stopReason": "error", "errorMessage": "Provider returned 502", "provider": "demo", "model": "model-a", "content": [{"type": "text", "text": "我先跑一遍测试，然后……"}]}}
+{"type": "context_edit", "id": "ctx-edit", "parentId": "a-failed", "timestamp": "2026-01-01T10:00:04.000Z", "targetId": "a-failed", "replacement": null}
+{"type": "message", "id": "a-retry", "parentId": "ctx-edit", "timestamp": "2026-01-01T10:00:06.000Z", "message": {"role": "assistant", "timestamp": 1767261606000, "stopReason": "stop", "provider": "demo", "model": "model-a", "content": [{"type": "text", "text": "测试通过（12 个用例）。"}]}}

@@ -1,12 +1,16 @@
 import type { SystemPromptComposition } from './types'
+import { parseSystemPromptSections } from './prompt-sections'
+import {
+  PI_DEFAULT_PREAMBLE,
+  PI_TOOL_PROMPT_CONTRIBUTIONS,
+  PI_TOOL_SNIPPETS,
+  buildPiRules,
+  joinPiPromptParts,
+  wrapPiSection,
+} from './pi-defaults'
 
-export const DEFAULT_TOOL_SNIPPETS: Record<string, string> = {
-  read: 'Read file contents',
-  bash: 'Execute bash commands (ls, grep, find, etc.)',
-  edit: 'Make precise file edits with exact text replacement, including multiple disjoint edits in one call',
-  write: 'Create or overwrite files',
-  powershell: 'Execute PowerShell commands',
-}
+/** Pi's built-in tool snippets. Kept as an alias of the verified copy in `pi-defaults`. */
+export const DEFAULT_TOOL_SNIPPETS: Record<string, string> = PI_TOOL_SNIPPETS
 
 export type DiffLineType = 'added' | 'removed' | 'unchanged'
 
@@ -36,9 +40,32 @@ export interface VanillaPromptOptions {
   documentation?: string
 }
 
+const TOOLS_FOOTER =
+  'In addition to the tools above, you may have access to other custom tools depending on the project.'
+
+/**
+ * Documentation section used when the compared prompt has no docs section.
+ * Mirrors Pi's own text; `pi-contract.test.ts` compares it against the docs
+ * section Pi really emits, so a reworded bullet fails that test.
+ */
+export const FALLBACK_DOCS = `Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
+- Main documentation: /README.md
+- Additional docs: /docs
+- Examples: /examples (extensions, custom tools, SDK)
+- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
+- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)
+- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
+- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`
+
 /**
  * Builds Pi's native, out-of-the-box system prompt (without project AGENTS.md,
  * skills, custom instructions, or extension-added tools).
+ *
+ * The baseline is emitted in the same layout as `prompt` (Pi's tagged layout for
+ * >= 0.86, its header layout for <= 0.85) so the diff compares like with like.
+ * `pi-contract.test.ts` asserts this reconstruction against the installed Pi's
+ * own `buildSystemPrompt()` output for both layouts, so it cannot silently drift
+ * from what Pi actually sends.
  */
 export function buildVanillaSystemPrompt(
   prompt: string,
@@ -54,86 +81,52 @@ export function buildVanillaSystemPrompt(
     ? ['read', 'powershell', 'edit', 'write']
     : ['read', 'bash', 'edit', 'write']
 
-  const snippets = DEFAULT_TOOL_SNIPPETS
+  const toolsList = tools
+    .filter((name) => Boolean(PI_TOOL_SNIPPETS[name]))
+    .map((name) => `- ${name}: ${PI_TOOL_SNIPPETS[name]}`)
+    .join('\n')
 
-  const visibleTools = tools.filter((name) => Boolean(snippets[name]))
-  const toolsList = visibleTools.length > 0
-    ? visibleTools.map((name) => `- ${name}: ${snippets[name]}`).join('\n')
-    : '(none)'
+  // Keep Pi's exact documentation text (absolute package paths) by taking it
+  // from the prompt being compared.
+  const parsed = parseSystemPromptSections(prompt)
 
-  const hasGrep = tools.includes('grep')
-  const hasFind = tools.includes('find')
-  const hasLs = tools.includes('ls')
+  // Pi only started feeding tool prompt guidelines into a prompt's rules section
+  // after the header layout was gone: the 0.85.1 fixture
+  // (`tests/fixtures/prompts/pi-0.85.1-vanilla.json`) contains the file-operations
+  // rule and the two standard guidelines but no tool guidelines, while the 1.2.0
+  // fixture contains all of them.
+  const toolGuidelines = parsed.format === 'legacy'
+    ? {}
+    : Object.fromEntries(tools.map((name) => [name, PI_TOOL_PROMPT_CONTRIBUTIONS[name]?.guidelines ?? []]))
+  const rules = buildPiRules(tools, toolGuidelines, [])
+  const documentation = parsed.documentation.content === 'None' ? FALLBACK_DOCS : parsed.documentation.content
+  const cwd = (composition?.cwd ?? (parsed.cwd.content === 'None' ? '' : parsed.cwd.content)).replace(/\\/g, '/')
 
-  const guidelinesList: string[] = []
-  const guidelinesSet = new Set<string>()
-  const addGuideline = (g: string) => {
-    if (guidelinesSet.has(g)) return
-    guidelinesSet.add(g)
-    guidelinesList.push(g)
+  const toolsBody = `${toolsList}\n\n${TOOLS_FOOTER}`
+  const rulesBody = rules.map((rule) => `- ${rule}`).join('\n')
+
+  if (parsed.format === 'legacy') {
+    const parts = [
+      PI_DEFAULT_PREAMBLE,
+      `Available tools:\n${toolsBody}`,
+      `Guidelines:\n${rulesBody}`,
+      documentation,
+    ]
+    const base = parts.join('\n\n')
+    return cwd ? `${base}\nCurrent working directory: ${cwd}` : base
   }
 
-  if ((hasBash || hasPowerShell) && !hasGrep && !hasFind && !hasLs) {
-    if (hasBash && hasPowerShell) {
-      addGuideline('Use bash or PowerShell for file operations like listing, searching, and finding files')
-    } else if (hasPowerShell) {
-      addGuideline('Use PowerShell for file operations like listing, searching, and finding files')
-    } else {
-      addGuideline('Use bash for file operations like ls, rg, find')
-    }
-  }
-  addGuideline('Be concise in your responses')
-  addGuideline('Show file paths clearly when working with files')
-
-  const guidelines = guidelinesList.map((g) => `- ${g}`).join('\n')
-
-  // Extract Pi documentation section from prompt if present to preserve exact doc paths
-  let documentation = ''
-  const docMatch = prompt.match(/(?:^|\n)(Pi documentation \(read only [^\n]*:\n[\s\S]*?)(?=\n\n(?:[A-Z<]|Current working directory:|$))/m)
-  if (docMatch) {
-    documentation = docMatch[1].trim()
-  } else {
-    documentation = `Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
-- Main documentation: /docs/README.md
-- Additional docs: /docs
-- Examples: /examples (extensions, custom tools, SDK)
-- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
-- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md)
-- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
-- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`
-  }
-
-  let cwd = composition?.cwd
-  if (!cwd) {
-    const cwdMatch = prompt.match(/(?:^|\n+)Current working directory:\s*([^\n]*)\s*$/)
-    if (cwdMatch && cwdMatch[1]) {
-      cwd = cwdMatch[1].trim()
-    }
-  }
-  const promptCwd = (cwd ?? '').replace(/\\/g, '/')
-
-  let result = `You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
-
-Available tools:
-${toolsList}
-
-In addition to the tools above, you may have access to other custom tools depending on the project.
-
-Guidelines:
-${guidelines}
-
-${documentation}`
-
-  if (promptCwd) {
-    result += `\nCurrent working directory: ${promptCwd}`
-  }
-
-  return result
+  const parts = [
+    PI_DEFAULT_PREAMBLE,
+    wrapPiSection('tools', toolsBody),
+    wrapPiSection('rules', rulesBody),
+    wrapPiSection('docs', documentation),
+  ]
+  if (cwd) parts.push(wrapPiSection('cwd', cwd))
+  return joinPiPromptParts(parts)
 }
 
-/**
- * Computes a line-by-line diff between baseline (old) and target (new).
- */
+
 export function computeLineDiff(oldText: string, newText: string): {
   lines: DiffLine[]
   addedCount: number

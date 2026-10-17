@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractSubagentReference } from './subagent-detector'
+import { extractSubagentReference, subagentTargetCandidates } from './subagent-detector'
 import { decodeSessionToken } from './session-token'
 
 describe('subagent-detector', () => {
@@ -104,5 +104,40 @@ describe('subagent-detector', () => {
     )
     expect(refs).toBeDefined()
     expect(refs?.agentName).toBe('worker-1')
+  })
+})
+
+describe('subagentTargetCandidates', () => {
+  const RUN_ID = 'fc72180c-4214-410d-9a7a-ad43c92f59b4'
+
+  it('prefers the runnable run session over the transcript mirror', () => {
+    const transcript = `--work--/subagent-artifacts/${RUN_ID}_scout_transcript.jsonl`
+    const parent = '--work--/2026-09-18T08-03-24-007Z_01a0b38a.jsonl'
+
+    expect(subagentTargetCandidates(transcript, parent)).toEqual([
+      `--work--/2026-09-18T08-03-24-007Z_01a0b38a/${RUN_ID}/run-0/session.jsonl`,
+      `--work--/${RUN_ID}/run-0/session.jsonl`,
+      transcript,
+    ])
+  })
+
+  it('offers only the transcript when the parent session is unknown', () => {
+    const transcript = `--work--/subagent-artifacts/${RUN_ID}_scout_transcript.jsonl`
+
+    expect(subagentTargetCandidates(transcript)).toEqual([
+      `--work--/${RUN_ID}/run-0/session.jsonl`,
+      transcript,
+    ])
+  })
+
+  it('leaves runnable run sessions and plain sessions untouched', () => {
+    const run = `--work--/2026-09-18T08-03-24-007Z_01a0b38a/${RUN_ID}/run-0/session.jsonl`
+    expect(subagentTargetCandidates(run, '--work--/parent.jsonl')).toEqual([run])
+    expect(subagentTargetCandidates('--work--/plain.jsonl')).toEqual(['--work--/plain.jsonl'])
+  })
+
+  it('ignores unrelated names and empty input', () => {
+    expect(subagentTargetCandidates('')).toEqual([])
+    expect(subagentTargetCandidates('--work--/notes.md')).toEqual(['--work--/notes.md'])
   })
 })

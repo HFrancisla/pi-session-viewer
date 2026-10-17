@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowLeft, Bot, Clock3, Menu, PanelRightOpen, RefreshCw, Rows3 } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Bot, Clock3, Menu, PanelRightOpen, RefreshCw, Rows3, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchSession, fetchSessions } from './api'
 import { Inspector } from './components/Inspector'
@@ -7,10 +7,18 @@ import { Timeline, type TimelineAnchor, type TimelineHandle } from './components
 import { allEventKinds } from '../core/event-kinds'
 import { formatDateTime, formatDuration } from '../core/format'
 import { createSessionCatalog } from '../core/session-catalog'
-import { buildSessionView, getSessionTitle, parseSessionJsonl } from '../core/session-parser'
+import { buildSessionView, getSessionTitle, parseSessionJsonl, primaryEventForEntry } from '../core/session-parser'
+import { subagentTargetCandidates } from '../core/subagent-detector'
 import { encodeSessionToken } from '../core/session-token'
 import { browserAccessToken, browserInitialCwd } from './session-auth'
-import type { EventKind, ParsedSession, SessionListItem, SubagentReference, TimelineEvent } from '../core/types'
+import type {
+  ContextProjection,
+  EventKind,
+  ParsedSession,
+  SessionListItem,
+  SubagentReference,
+  TimelineEvent,
+} from '../core/types'
 import { useI18n } from './i18n'
 
 function PiGlyph({ size = 26 }: { size?: number }) {
@@ -62,6 +70,7 @@ interface SessionStackFrame {
   importedFile: File | null
   rawContent: string
   title: string
+  contextProjections: Record<string, ContextProjection> | null
   scrollTop?: number
   timelineAnchor: TimelineAnchor | null
 }
@@ -78,9 +87,12 @@ function App() {
   const [listLoading, setListLoading] = useState(true)
   const [sessionLoading, setSessionLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  /** A failed action (for example a subagent jump) that must not replace the view. */
+  const [actionError, setActionError] = useState<string | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
   const [selectedMetadata, setSelectedMetadata] = useState<SessionListItem | null>(null)
   const [parsedSession, setParsedSession] = useState<ParsedSession | null>(null)
+  const [contextProjections, setContextProjections] = useState<Record<string, ContextProjection> | null>(null)
   const [selectedLeafId, setSelectedLeafId] = useState<string | null>(null)
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [enabledKinds, setEnabledKinds] = useState<Set<EventKind>>(() => new Set(allEventKinds))
@@ -107,16 +119,19 @@ function App() {
     sourceName: string,
     metadata: SessionListItem | null,
     initialEventId?: string | null,
+    projections?: Record<string, ContextProjection> | null,
   ) => {
     currentContentRef.current = content
     const parsed = measurePerformance('pi-session-viewer:parse-session', () => parseSessionJsonl(content, sourceName))
     setParsedSession(parsed)
+    setContextProjections(projections ?? null)
     setSelectedMetadata(metadata)
     setSelectedLeafId(parsed.currentLeafId)
     setSelectedEventId(initialEventId ?? null)
     setRestorePosition(null)
     setLoadedAt(new Date().toISOString())
     setLoadError(null)
+    setActionError(null)
   }, [])
 
   const openServerSession = useCallback(async (session: SessionListItem) => {
@@ -129,7 +144,7 @@ function App() {
     setSessionStack([])
     try {
       const payload = await fetchSession(session.token, accessToken)
-      applyContent(payload.content, payload.relativePath, session)
+      applyContent(payload.content, payload.relativePath, session, null, payload.contextProjections ?? null)
       setRestorePosition({ eventId: null, scrollTop: 0, key: ++restoreKeyRef.current })
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error))
@@ -162,6 +177,7 @@ function App() {
       importedFile,
       rawContent: currentContentRef.current,
       title: parsedSession ? getSessionTitle(parsedSession) : t.header.selectSession,
+      contextProjections,
       scrollTop: currentScrollTop,
       timelineAnchor,
     }
@@ -171,25 +187,37 @@ function App() {
 
     try {
       let content: string | undefined
+      let nextContextProjections: Record<string, ContextProjection> | null = null
       let resolvedRelativePath = subagent.targetFile
 
       if (accessToken) {
-        try {
-          const payload = await fetchSession(subagent.token, accessToken)
-          content = payload.content
-          resolvedRelativePath = payload.relativePath
-        } catch (primaryErr) {
-          const parentRelative = selectedMetadata?.relativePath ?? parsedSession.sourceName
-          const parentDir = parentRelative.includes('/') ? parentRelative.slice(0, parentRelative.lastIndexOf('/')) : null
-          if (parentDir && !subagent.targetFile.startsWith(parentDir)) {
-            const nestedTarget = `${parentDir}/${subagent.targetFile}`
-            const nestedToken = encodeSessionToken(nestedTarget)
-            const fallbackPayload = await fetchSession(nestedToken, accessToken)
-            content = fallbackPayload.content
-            resolvedRelativePath = fallbackPayload.relativePath
-          } else {
-            throw primaryErr
+        const parentRelative = selectedMetadata?.relativePath ?? parsedSession.sourceName
+        // Prefer the runnable run session, then fall back to the transcript mirror.
+        const attempts = subagentTargetCandidates(subagent.targetFile, parentRelative)
+        let lastError: unknown
+        let sawNonSession = false
+        for (const candidate of attempts) {
+          try {
+            const payload = await fetchSession(encodeSessionToken(candidate), accessToken)
+            // pi-subagents transcripts are not Pi sessions; opening one would show
+            // an empty timeline, so report that instead of navigating.
+            if (!parseSessionJsonl(payload.content, payload.relativePath).header) {
+              sawNonSession = true
+              continue
+            }
+            content = payload.content
+            nextContextProjections = payload.contextProjections ?? null
+            resolvedRelativePath = payload.relativePath
+            break
+          } catch (error) {
+            lastError = error
           }
+        }
+        if (content === undefined) {
+          // "Only a transcript exists" explains the situation better than the 404
+          // of a run-session candidate the user never heard of.
+          if (sawNonSession) throw new Error(t.header.subagentTranscriptOnly)
+          throw lastError ?? new Error(t.header.failedToLoadSubagent(subagent.targetFile))
         }
       } else {
         throw new Error(t.header.missingToken)
@@ -212,7 +240,7 @@ function App() {
 
         const cachedViewport = sessionViewportsRef.current.get(syntheticToken)
         if (cachedViewport) {
-          applyContent(content, resolvedRelativePath, syntheticMetadata, cachedViewport.selectedEventId)
+          applyContent(content, resolvedRelativePath, syntheticMetadata, cachedViewport.selectedEventId, nextContextProjections)
           setRestorePosition({
             eventId: cachedViewport.selectedEventId,
             scrollTop: cachedViewport.scrollTop,
@@ -220,7 +248,7 @@ function App() {
             key: ++restoreKeyRef.current,
           })
         } else {
-          applyContent(content, resolvedRelativePath, syntheticMetadata, null)
+          applyContent(content, resolvedRelativePath, syntheticMetadata, null, nextContextProjections)
           setRestorePosition({
             eventId: null,
             scrollTop: 0,
@@ -229,12 +257,13 @@ function App() {
         }
       }
     } catch (error) {
+      // Keep the current session on screen: only the jump failed, not the view.
       const message = error instanceof Error ? error.message : String(error)
-      setLoadError(t.header.failedToLoadSubagent(message))
+      setActionError(t.header.failedToLoadSubagent(message))
     } finally {
       setSessionLoading(false)
     }
-  }, [accessToken, applyContent, importedFile, parsedSession, selectedEventId, selectedLeafId, selectedMetadata, selectedToken, t.header])
+  }, [accessToken, applyContent, contextProjections, importedFile, parsedSession, selectedEventId, selectedLeafId, selectedMetadata, selectedToken, t.header])
 
   const popSessionStack = useCallback((targetIndex?: number) => {
     const currentViewport = timelineRef.current?.getViewport() ?? null
@@ -256,6 +285,7 @@ function App() {
       setSelectedToken(frame.token)
       setSelectedMetadata(frame.metadata)
       setParsedSession(frame.parsedSession)
+      setContextProjections(frame.contextProjections)
       setSelectedLeafId(frame.selectedLeafId)
       setSelectedEventId(frame.selectedEventId)
       setImportedFile(frame.importedFile)
@@ -307,11 +337,18 @@ function App() {
     return () => { cancelled = true }
   }, [currentCwd, openServerSession, reloadSessions])
 
+  const activeContextProjection = useMemo(() => {
+    if (!contextProjections) return undefined
+    // Absent for leaves beyond the server's projection cap: no marks, never a guess.
+    const leaf = selectedLeafId ?? parsedSession?.currentLeafId
+    return leaf ? contextProjections[leaf] : undefined
+  }, [contextProjections, selectedLeafId, parsedSession])
+
   const view = useMemo(
     () => parsedSession
-      ? measurePerformance('pi-session-viewer:build-session-view', () => buildSessionView(parsedSession, selectedLeafId))
+      ? measurePerformance('pi-session-viewer:build-session-view', () => buildSessionView(parsedSession, selectedLeafId, activeContextProjection))
       : null,
-    [parsedSession, selectedLeafId],
+    [parsedSession, selectedLeafId, activeContextProjection],
   )
 
   useEffect(() => {
@@ -344,7 +381,13 @@ function App() {
           listPromise,
         ])
         const updatedMetadata = payload?.sessions.find((item) => item.token === selectedToken) ?? selectedMetadata
-        applyContent(sessionPayload.content, sessionPayload.relativePath, updatedMetadata)
+        applyContent(
+          sessionPayload.content,
+          sessionPayload.relativePath,
+          updatedMetadata,
+          null,
+          sessionPayload.contextProjections ?? null,
+        )
       } catch (error) {
         setLoadError(error instanceof Error ? error.message : String(error))
       } finally {
@@ -438,7 +481,7 @@ function App() {
       return
     }
 
-    const nextView = buildSessionView(parsedSession, leafId)
+    const nextView = buildSessionView(parsedSession, leafId, contextProjections?.[leafId])
     setSelectedLeafId(leafId)
     if (nextView.events.some((event) => event.id === selectedEventId)) return
 
@@ -447,7 +490,21 @@ function App() {
     if (firstEvent) {
       setRestorePosition({ eventId: firstEvent.id, key: ++restoreKeyRef.current })
     }
-  }, [parsedSession, selectedEventId])
+  }, [contextProjections, parsedSession, selectedEventId])
+
+  /**
+   * Moves the timeline to an entry linked by a context edit, picking the event
+   * that best represents it. The virtual timeline handles scrolling to rows that
+   * are outside the rendered window.
+   */
+  const jumpToEntry = useCallback((entryId: string) => {
+    const events = view?.events.filter((event) => event.entryId === entryId) ?? []
+    const target = primaryEventForEntry(events)
+    if (!target) return
+    setSelectedEventId(target.id)
+    setInspectorOpen(true)
+    setRestorePosition({ eventId: target.id, key: ++restoreKeyRef.current })
+  }, [view])
 
   const displayError = loadError ?? (!accessToken ? t.header.missingToken : null)
   const title = parsedSession ? getSessionTitle(parsedSession) : t.header.selectSession
@@ -554,6 +611,15 @@ function App() {
             </div>
           ) : parsedSession && view ? (
             <>
+              {actionError && (
+                <div className="action-error-strip" role="alert">
+                  <AlertCircle size={14} />
+                  <span>{actionError}</span>
+                  <button type="button" onClick={() => setActionError(null)} aria-label={t.common.dismiss}>
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
               <section className="session-summary" aria-label={t.overview.sessionSummary}>
                 <div><span>{t.overview.entries}</span><strong>{parsedSession.stats.entryCount}</strong></div>
                 <div><span>{t.overview.turns}</span><strong>{parsedSession.stats.turnCount}</strong></div>
@@ -568,6 +634,7 @@ function App() {
                 selectedEventId={selectedEventId}
                 restorePosition={restorePosition}
                 selectedLeafId={selectedLeafId}
+                contextProjection={activeContextProjection}
                 enabledKinds={enabledKinds}
                 onSelectEvent={selectEvent}
                 onSelectBranch={selectBranch}
@@ -592,6 +659,7 @@ function App() {
           mobileOpen={inspectorOpen}
           onClose={() => setInspectorOpen(false)}
           onJumpToEvent={jumpToSelectedEvent}
+          onJumpToEntry={jumpToEntry}
         />
       </div>
 

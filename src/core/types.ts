@@ -87,6 +87,8 @@ export interface SystemPromptCapture {
   capturedAt?: string
   sequence?: number
   model?: { provider?: string; id?: string }
+  /** Version of the Pi process that produced this snapshot. */
+  piVersion?: string
 }
 
 export interface SubagentReference {
@@ -96,6 +98,49 @@ export interface SubagentReference {
   task?: string
   sessionName?: string
   runId?: string
+}
+
+/**
+ * Why an entry contributes nothing to the model's context.
+ *
+ * - `omitted`: a `context_edit` removed it from the context (the raw history keeps
+ *   it, which is exactly why the viewer has to say so).
+ * - `not-in-context`: it produces no message for another reason, such as sitting
+ *   before a compaction boundary.
+ */
+export type ContextExclusionState = 'omitted' | 'not-in-context'
+
+export interface ContextExclusion {
+  state: ContextExclusionState
+  /** The `context_edit` entry responsible, when the state is `omitted`. */
+  editId?: string
+}
+
+/** The link between a `context_edit` entry and the entries it keeps out of context. */
+export interface ContextEditLink {
+  /** Entry this edit points at. */
+  targetEntryId: string
+  /** False when the target is not part of the shown branch. */
+  targetOnBranch: boolean
+  /** Entries (the target included) this edit removes from the model's context. */
+  affectedEntryIds: string[]
+}
+
+/**
+ * What the model actually received on one branch, as computed by Pi's own
+ * `buildSessionProjection`. Absent (not empty) when Pi is unavailable, so the UI
+ * can tell "nothing was excluded" apart from "we could not look".
+ */
+export interface ContextProjection {
+  leafId: string | null
+  /** Model-visible message count on this branch. */
+  messageCount: number
+  /** Number of projected entries on this branch. */
+  contextEntryCount: number
+  /** Context-producing entry ids that reach the model with no message. */
+  excluded: Record<string, ContextExclusion>
+  /** Pi version that produced the projection. */
+  piVersion?: string
 }
 
 export interface TimelineEvent {
@@ -119,6 +164,10 @@ export interface TimelineEvent {
   model?: { provider?: string; id?: string }
   subagent?: SubagentReference
   subagents?: SubagentReference[]
+  /** Set when this entry is not part of the model's context on the shown branch. */
+  contextExclusion?: ContextExclusion
+  /** Set on `context_edit` entries: which entry they affect, and what else they removed. */
+  contextEdit?: ContextEditLink
   raw: unknown
 }
 
@@ -129,6 +178,8 @@ export interface TimelineTurn {
   events: TimelineEvent[]
   startedAt?: string
   endedAt?: string
+  /** Events in this turn that the model never saw. */
+  contextExcludedCount?: number
 }
 
 export interface SessionStats {
@@ -178,4 +229,9 @@ export interface SessionFileResponse {
   relativePath: string
   modifiedAt: string
   content: string
+  /**
+   * Per-branch context projections keyed by leaf id. Omitted when Pi's projection
+   * API is unavailable to the server.
+   */
+  contextProjections?: Record<string, ContextProjection>
 }

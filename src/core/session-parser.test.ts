@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildSessionView, getSessionTitle, parseSessionJsonl } from './session-parser'
+import type { ContextProjection } from './types'
 
 function jsonl(...lines: unknown[]): string {
   return lines.map((line) => typeof line === 'string' ? line : JSON.stringify(line)).join('\n')
@@ -408,5 +409,210 @@ describe('parseSessionJsonl', () => {
     expect(resultEvent?.subagent?.targetFile).toBe('subagent-artifacts/analyzer-run.jsonl')
     expect(resultEvent?.subagent?.agentName).toBe('code-analyzer')
     expect(resultEvent?.subagent?.task).toBe('Check memory leaks')
+  })
+})
+
+describe('parseSessionJsonl: entry types documented by Pi', () => {
+  /**
+   * Shapes below are Pi's own examples from `docs/session-format.md`; the exact
+   * coverage of that document is asserted by `tests/pi-entry-contract.test.ts`.
+   */
+  const contextEdit = (replacement: unknown) => ({
+    type: 'context_edit', id: 'g6h7i8j9', parentId: 'u1', timestamp: '2026-01-01T10:00:11.000Z',
+    targetId: 'a1', replacement,
+  })
+  const usage = {
+    type: 'usage', id: 'f6g7h8i9', parentId: 'u1', timestamp: '2026-01-01T10:00:12.000Z',
+    kind: 'cache_warm', provider: 'anthropic', model: 'claude-sonnet-4-5',
+    usage: {
+      input: 0, output: 0, cacheRead: 50000, cacheWrite: 0, totalTokens: 50000,
+      cost: { input: 0, output: 0, cacheRead: 0.015, cacheWrite: 0, total: 0.015 },
+    },
+  }
+  const userMessage = entry('u1', null, '2026-01-01T10:00:01.000Z', {
+    role: 'user', timestamp: 1_767_261_601_000, content: 'hello',
+  })
+
+  it('models a context edit that omits its target from model context', () => {
+    const parsed = parseSessionJsonl(jsonl(header, userMessage, entry('a1', 'u1', '2026-01-01T10:00:05.000Z', {
+      role: 'assistant', timestamp: 1_767_261_605_000, content: [{ type: 'text', text: 'original' }],
+    }), contextEdit(null)))
+
+    expect(parsed.warnings).toEqual([])
+    const view = buildSessionView(parsed)
+    const event = view.events.find((candidate) => candidate.entryId === 'g6h7i8j9')
+    expect(event?.title).toBe('Context Edit')
+    expect(event?.content).toContain('Target: a1')
+    expect(event?.content).toContain('omitted from model context')
+  })
+
+  it('shows the replacement text of a context edit', () => {
+    const parsed = parseSessionJsonl(jsonl(header, userMessage, contextEdit('replacement text')))
+    const view = buildSessionView(parsed)
+    const event = view.events.find((candidate) => candidate.entryId === 'g6h7i8j9')
+
+    expect(event?.content).toContain('Target: a1')
+    expect(event?.content).toContain('replacement text')
+  })
+
+  it('models a usage entry with its kind, model, and tokens', () => {
+    const parsed = parseSessionJsonl(jsonl(header, userMessage, usage))
+
+    expect(parsed.warnings).toEqual([])
+    const view = buildSessionView(parsed)
+    const event = view.events.find((candidate) => candidate.entryId === 'f6g7h8i9')
+    expect(event?.title).toBe('Usage: cache_warm')
+    expect(event?.content).toContain('anthropic / claude-sonnet-4-5')
+    expect(event?.content).toContain('totalTokens=50000')
+    expect(event?.model).toEqual({ provider: 'anthropic', id: 'claude-sonnet-4-5' })
+  })
+
+  it('does not warn about an unknown entry type it has never seen', () => {
+    const future = { type: 'future_entry', id: 'x1', parentId: 'u1', timestamp: '2026-01-01T10:00:13.000Z' }
+    const parsed = parseSessionJsonl(jsonl(header, userMessage, future))
+
+    expect(parsed.warnings.map((warning) => warning.code)).toEqual(['unknown-type'])
+    const view = buildSessionView(parsed)
+    expect(view.events.find((candidate) => candidate.entryId === 'x1')?.title).toBe('Unknown event: future_entry')
+  })
+})
+
+describe('buildSessionView: what the model actually received', () => {
+  const source = jsonl(
+    header,
+    entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', timestamp: 1_767_261_601_000, content: '跑测试' }),
+    entry('a1', 'u1', '2026-01-01T10:00:02.000Z', {
+      role: 'assistant', timestamp: 1_767_261_602_000, stopReason: 'error', errorMessage: '502',
+      provider: 'demo', model: 'model-a', content: [{ type: 'text', text: '失败的尝试' }],
+    }),
+    { type: 'context_edit', id: 'e1', parentId: 'a1', timestamp: '2026-01-01T10:00:03.000Z', targetId: 'a1', replacement: null },
+  )
+
+  it('marks the events a projection excludes and leaves the rest alone', () => {
+    const parsed = parseSessionJsonl(source)
+    const projection: ContextProjection = {
+      leafId: 'e1',
+      messageCount: 1,
+      contextEntryCount: 3,
+      excluded: { a1: { state: 'omitted', editId: 'e1' } },
+    }
+
+    const view = buildSessionView(parsed, 'e1', projection)
+    const marked = view.events.filter((event) => event.contextExclusion)
+    expect(marked.map((event) => event.entryId)).toEqual(['a1'])
+    expect(marked[0].contextExclusion).toEqual({ state: 'omitted', editId: 'e1' })
+    // The excluded row is still rendered: the raw record is not hidden from view.
+    expect(view.events.some((event) => event.entryId === 'a1')).toBe(true)
+  })
+
+  it('counts excluded events per turn', () => {
+    const parsed = parseSessionJsonl(source)
+    const projection: ContextProjection = {
+      leafId: 'e1',
+      messageCount: 1,
+      contextEntryCount: 3,
+      excluded: { a1: { state: 'omitted', editId: 'e1' } },
+    }
+
+    const turns = buildSessionView(parsed, 'e1', projection).turns
+    const turnWithExcluded = turns.find((turn) => turn.events.some((event) => event.entryId === 'a1'))
+    expect(turnWithExcluded, 'the excluded entry belongs to a turn').toBeDefined()
+    expect(turnWithExcluded?.contextExcludedCount).toBe(1)
+    // Turns that contain nothing excluded carry no count at all.
+    for (const turn of turns) {
+      if (turn === turnWithExcluded) continue
+      expect(turn.contextExcludedCount).toBeUndefined()
+    }
+  })
+
+  it('marks nothing when no projection was provided', () => {
+    const parsed = parseSessionJsonl(source)
+    const view = buildSessionView(parsed, 'e1')
+
+    expect(view.events.every((event) => event.contextExclusion === undefined)).toBe(true)
+    expect(view.turns.every((turn) => turn.contextExcludedCount === undefined)).toBe(true)
+  })
+})
+
+describe('buildSessionView: the two ends of a context edit', () => {
+  const withEdit = jsonl(
+    header,
+    entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', timestamp: 1_767_261_601_000, content: '跑测试' }),
+    entry('a1', 'u1', '2026-01-01T10:00:02.000Z', {
+      role: 'assistant', timestamp: 1_767_261_602_000, stopReason: 'error', errorMessage: '502',
+      provider: 'demo', model: 'model-a', content: [{ type: 'text', text: '失败的尝试：我先跑一遍测试' }],
+    }),
+    { type: 'context_edit', id: 'e1', parentId: 'a1', timestamp: '2026-01-01T10:00:03.000Z', targetId: 'a1', replacement: null },
+  )
+
+  it('links the edit to its target and names what else it removed', () => {
+    const parsed = parseSessionJsonl(withEdit)
+    const projection: ContextProjection = {
+      leafId: 'e1',
+      messageCount: 1,
+      contextEntryCount: 3,
+      excluded: {
+        a1: { state: 'omitted', editId: 'e1' },
+        'tr-1': { state: 'omitted', editId: 'e1' },
+      },
+    }
+
+    const view = buildSessionView(parsed, 'e1', projection)
+    const edit = view.events.find((event) => event.entryId === 'e1')
+
+    expect(edit?.contextEdit).toEqual({
+      targetEntryId: 'a1',
+      targetOnBranch: true,
+      affectedEntryIds: ['a1', 'tr-1'],
+    })
+    // The row summary and the inspector content identify the target by preview.
+    expect(edit?.summary).toContain('失败的尝试：我先跑一遍测试')
+    expect(edit?.content).toContain('Target: a1')
+    expect(edit?.content).toContain('Pi Response — 失败的尝试：我先跑一遍测试')
+    expect(edit?.content).toContain('Also removed from model context: a1, tr-1')
+  })
+
+  it('reports a target that is not on the shown branch instead of guessing', () => {
+    const parsed = parseSessionJsonl(withEdit)
+    const projection: ContextProjection = {
+      leafId: 'e1',
+      messageCount: 1,
+      contextEntryCount: 3,
+      excluded: {},
+    }
+
+    const view = buildSessionView(parsed, 'e1', projection)
+    const edit = view.events.find((event) => event.entryId === 'e1')
+
+    expect(edit?.contextEdit?.targetOnBranch).toBe(true)
+    // With no projection entry there is nothing removed, so the list stays empty.
+    expect(edit?.contextEdit?.affectedEntryIds).toEqual([])
+    expect(edit?.content).toContain('Also removed from model context: none')
+  })
+
+  it('resolves the replacement text of a replacing edit', () => {
+    const replaced = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', timestamp: 1_767_261_601_000, content: 'hi' }),
+      entry('a1', 'u1', '2026-01-01T10:00:02.000Z', {
+        role: 'assistant', timestamp: 1_767_261_602_000, provider: 'demo', model: 'model-a',
+        content: [{ type: 'text', text: 'original answer' }],
+      }),
+      { type: 'context_edit', id: 'e2', parentId: 'a1', timestamp: '2026-01-01T10:00:03.000Z', targetId: 'a1', replacement: 'shortened answer' },
+    )
+
+    const parsed = parseSessionJsonl(replaced)
+    const view = buildSessionView(parsed, 'e2', { leafId: 'e2', messageCount: 2, contextEntryCount: 3, excluded: {} })
+    const edit = view.events.find((event) => event.entryId === 'e2')
+
+    expect(edit?.content).toContain('Effect: model context replaced with:')
+    expect(edit?.content).toContain('shortened answer')
+  })
+
+  it('adds no link when no projection was provided', () => {
+    const parsed = parseSessionJsonl(withEdit)
+    const view = buildSessionView(parsed, 'e1')
+
+    expect(view.events.find((event) => event.entryId === 'e1')?.contextEdit).toBeUndefined()
   })
 })

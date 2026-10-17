@@ -1,6 +1,7 @@
 import type {
   BranchOption,
   CapturedToolDefinition,
+  ContextProjection,
   ParsedEntry,
   ParsedSession,
   ParseWarning,
@@ -14,14 +15,21 @@ import type {
 } from './types'
 import { truncate } from './format'
 import { sanitizeToolForApi } from './tool-provenance'
-import { extractSubagentReference, extractSubagentReferences } from './subagent-detector'
+import { extractSubagentReferences } from './subagent-detector'
 
-const KNOWN_ENTRY_TYPES = new Set([
+/**
+ * Entry types this parser models. Asserted against Pi's own
+ * `docs/session-format.md` by `tests/pi-entry-contract.test.ts`, so a new Pi
+ * entry type cannot silently degrade into an "Unknown event" row.
+ */
+export const KNOWN_ENTRY_TYPES = new Set([
   'message',
   'model_change',
   'thinking_level_change',
   'compaction',
   'branch_summary',
+  'context_edit',
+  'usage',
   'custom',
   'custom_message',
   'label',
@@ -462,6 +470,40 @@ function buildToolDefinitionsEvent(promptEvent: TimelineEvent): TimelineEvent | 
   }
 }
 
+/**
+ * Pi's `context_edit` entry is an append-only edit of one earlier entry's
+ * contribution to model context: `replacement: null` drops the target from the
+ * context, a non-null replacement replaces its content.
+ */
+function contextEditContent(raw: RawObject): string {
+  const targetId = stringValue(raw.targetId) ?? 'unknown target'
+  if (raw.replacement === null || raw.replacement === undefined) {
+    return `Target: ${targetId}\nEffect: omitted from model context`
+  }
+  const replacement = typeof raw.replacement === 'string'
+    ? raw.replacement
+    : contentText(raw.replacement) || JSON.stringify(raw.replacement, null, 2)
+  return `Target: ${targetId}\nEffect: model context replaced with:\n\n${replacement}`
+}
+
+/** Pi's `usage` entry records usage that is not attached to an assistant message. */
+function usageContent(raw: RawObject): string {
+  const lines: string[] = []
+  const model = [stringValue(raw.provider), stringValue(raw.model)].filter(Boolean).join(' / ')
+  if (model) lines.push(`Model: ${model}`)
+
+  const usage = isObject(raw.usage) ? raw.usage : undefined
+  if (usage) {
+    const tokens = ['input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens']
+      .map((key) => (typeof usage[key] === 'number' ? `${key}=${usage[key]}` : undefined))
+      .filter((value): value is string => Boolean(value))
+    if (tokens.length > 0) lines.push(`Tokens: ${tokens.join(', ')}`)
+    if (isObject(usage.cost)) lines.push(`Cost: ${JSON.stringify(usage.cost)}`)
+  }
+
+  return lines.length > 0 ? lines.join('\n') : JSON.stringify(raw, null, 2)
+}
+
 function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotData>): TimelineEvent[] {
   const capturedPrompt = capturedSystemPromptEvent(entry, snapshots)
   if (capturedPrompt) {
@@ -472,11 +514,14 @@ function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotD
   }
 
   const raw = entry.raw
+  const usageKind = entry.type === 'usage' ? stringValue(raw.kind) : undefined
   const labels: Record<string, string> = {
     model_change: 'Model Switch',
     thinking_level_change: 'Thinking Level Switch',
     compaction: 'Context Compaction',
     branch_summary: 'Branch Summary',
+    context_edit: 'Context Edit',
+    usage: usageKind ? `Usage: ${usageKind}` : 'Usage',
     custom: `Custom event: ${stringValue(raw.customType) ?? 'unnamed'}`,
     custom_message: `Custom message: ${stringValue(raw.customType) ?? 'unnamed'}`,
     label: 'Branch label',
@@ -493,6 +538,11 @@ function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotD
   else if (entry.type === 'custom_message') content = contentText(raw.content)
   else if (entry.type === 'session_info') content = stringValue(raw.name) ?? ''
   else if (entry.type === 'label') content = stringValue(raw.label) ?? ''
+  else if (entry.type === 'context_edit') content = contextEditContent(raw)
+  else if (entry.type === 'usage') {
+    content = usageContent(raw)
+    model = { provider: stringValue(raw.provider), id: stringValue(raw.model) }
+  }
   else content = JSON.stringify(raw.data ?? raw, null, 2)
 
   return [{
@@ -728,7 +778,120 @@ function inferMissingPromptTargets(events: TimelineEvent[]): void {
   }
 }
 
-export function buildSessionView(session: ParsedSession, requestedLeafId?: string | null): SessionView {
+/** The entry a `context_edit` points at, read from the raw record. */
+function contextEditTargetId(event: TimelineEvent): string | undefined {
+  if (event.kind !== 'system' || !isObject(event.raw)) return undefined
+  if (stringValue(event.raw.type) !== 'context_edit') return undefined
+  return stringValue(event.raw.targetId)
+}
+
+/** Picks the event that best represents an entry when jumping to it. */
+const JUMP_KIND_PRIORITY: Record<string, number> = {
+  assistant: 5,
+  user: 4,
+  'tool-result': 3,
+  system: 2,
+  'system-prompt': 1,
+  'tool-definitions': 1,
+  thinking: 0,
+  'tool-call': 0,
+}
+
+export function primaryEventForEntry(events: TimelineEvent[]): TimelineEvent | undefined {
+  let best: TimelineEvent | undefined
+  let bestScore = -1
+  for (const event of events) {
+    const score = JUMP_KIND_PRIORITY[event.kind] ?? 1
+    if (score > bestScore) {
+      best = event
+      bestScore = score
+    }
+  }
+  return best
+}
+
+/**
+ * Applies the model-context projection to the timeline.
+ *
+ * The projection is computed by Pi itself (see `server/context-projection.ts`);
+ * without it nothing is marked, because "this message was not in the context" is
+ * not something the raw transcript can tell on its own. Besides marking the
+ * excluded rows, this connects the two ends of the story: each `context_edit`
+ * event learns which entry it affects and what else it removed, so the UI can
+ * offer a jump in both directions.
+ */
+function applyContextProjection(events: TimelineEvent[], projection?: ContextProjection): void {
+  if (!projection) return
+
+  const eventsByEntry = new Map<string, TimelineEvent[]>()
+  for (const event of events) {
+    const list = eventsByEntry.get(event.entryId)
+    if (list) list.push(event)
+    else eventsByEntry.set(event.entryId, [event])
+  }
+
+  for (const event of events) {
+    const exclusion = projection.excluded[event.entryId]
+    if (exclusion) event.contextExclusion = exclusion
+  }
+
+  // Which entries each edit keeps out of context (an edit can affect more than its
+  // target: Pi omits the tool results of a discarded attempt too).
+  const affectedByEdit = new Map<string, string[]>()
+  for (const [entryId, exclusion] of Object.entries(projection.excluded)) {
+    if (!exclusion.editId) continue
+    const list = affectedByEdit.get(exclusion.editId)
+    if (list) list.push(entryId)
+    else affectedByEdit.set(exclusion.editId, [entryId])
+  }
+
+  for (const event of events) {
+    const targetEntryId = contextEditTargetId(event)
+    if (!targetEntryId) continue
+    const targetEvents = eventsByEntry.get(targetEntryId)
+    const target = targetEvents ? primaryEventForEntry(targetEvents) : undefined
+    const affectedEntryIds = (affectedByEdit.get(event.entryId) ?? []).sort()
+
+    event.contextEdit = {
+      targetEntryId,
+      targetOnBranch: Boolean(targetEvents),
+      affectedEntryIds,
+    }
+
+    // The raw content stays factual; the preview makes the target identifiable
+    // without cross-referencing ids by hand.
+    const lines = [`Target: ${targetEntryId}`]
+    if (target) {
+      const label = target.kind === 'system' ? target.title : `${target.title}`
+      lines.push(`  ${label} — ${target.summary}`)
+    } else {
+      lines.push('  (not on this branch)')
+    }
+    const replacement = isObject(event.raw) ? event.raw.replacement : undefined
+    lines.push(
+      replacement === null || replacement === undefined
+        ? 'Effect: omitted from model context'
+        : 'Effect: model context replaced with:'
+    )
+    if (replacement !== null && replacement !== undefined) {
+      lines.push('', typeof replacement === 'string' ? replacement : JSON.stringify(replacement, null, 2))
+    }
+    lines.push(
+      affectedEntryIds.length > 0
+        ? `Also removed from model context: ${affectedEntryIds.join(', ')}`
+        : 'Also removed from model context: none'
+    )
+
+    event.content = lines.join('\n')
+    event.summary = truncate(`Target: ${target ? target.summary : targetEntryId}`)
+  }
+}
+
+export function buildSessionView(
+  session: ParsedSession,
+  requestedLeafId?: string | null,
+  contextProjection?: ContextProjection
+): SessionView {
   const leafId = requestedLeafId && session.entries.some((entry) => entry.id === requestedLeafId)
     ? requestedLeafId
     : session.currentLeafId
@@ -738,7 +901,17 @@ export function buildSessionView(session: ParsedSession, requestedLeafId?: strin
   pairTools(rawEvents, session.sourceName)
   inferMissingPromptTargets(rawEvents)
   const events = placeSystemPromptsBeforeUsers(rawEvents)
-  return { branchEntries, events, turns: groupTurns(events) }
+  applyContextProjection(events, contextProjection)
+  const turns = groupTurns(events)
+  for (const turn of turns) {
+    // Count entries, not rows: one omitted entry can expand into several events
+    // (thinking, text, tool calls), and the branch summary reports entries too.
+    const excluded = new Set(
+      turn.events.filter((event) => event.contextExclusion).map((event) => event.entryId)
+    ).size
+    if (excluded > 0) turn.contextExcludedCount = excluded
+  }
+  return { branchEntries, events, turns }
 }
 
 export function getSessionTitle(session: ParsedSession): string {

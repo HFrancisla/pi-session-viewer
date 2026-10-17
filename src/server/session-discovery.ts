@@ -40,7 +40,12 @@ function isSessionCandidate(entry: import('node:fs').Dirent, name: string): bool
     && !name.endsWith('_transcript.jsonl')
 }
 
-async function walkJsonl(root: string): Promise<string[]> {
+/**
+ * Every JSONL file the catalog treats as a session. Exported so the
+ * real-session checker (`scripts/check-real-sessions.ts`) verifies exactly the
+ * files the viewer shows, not a looser glob.
+ */
+export async function walkSessionFiles(root: string): Promise<string[]> {
   const files: string[] = []
   async function visit(directory: string): Promise<void> {
     const entries = await fs.readdir(directory, { withFileTypes: true })
@@ -103,7 +108,7 @@ export async function listSessions(root: string, currentCwd?: string): Promise<S
   const warnings: string[] = []
   try {
     const rootRealPath = await fs.realpath(root)
-    const files = await walkJsonl(rootRealPath)
+    const files = await walkSessionFiles(rootRealPath)
     const sessions: SessionListItem[] = []
     for (let index = 0; index < files.length; index += 32) {
       const batch = await Promise.all(files.slice(index, index + 32).map(async (filePath) => {
@@ -136,7 +141,11 @@ export async function resolveAllowedSessionFile(root: string, token: string): Pr
     throw new Error('Requested file is outside allowed directory.')
   }
   const name = path.basename(absolute)
-  if (name === 'events.jsonl' || name.endsWith('_transcript.jsonl')) {
+  // Sidecar event logs are not session files. Subagent transcripts are readable:
+  // pi-subagents reports them as the result of a subagent tool call, so refusing
+  // them left the viewer's subagent navigation broken (the catalog still hides
+  // them from the session list).
+  if (name === 'events.jsonl') {
     throw new Error('Reading this session file is not permitted.')
   }
   const stat = await fs.stat(absolute)

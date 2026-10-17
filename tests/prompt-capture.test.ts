@@ -156,3 +156,18 @@ describe('system prompt capture extension', () => {
     expect(pi.entries[1].data.targetUserEntryId).toBeUndefined()
   })
 })
+
+describe('system prompt capture records which Pi produced the snapshot', () => {
+  it('stores the Pi version so an upgrade can be traced back to a prompt', async () => {
+    const pi = fakePi()
+    capturePrompt(pi as never)
+    const prompt = 'final effective system prompt'
+
+    await pi.handlers.get('before_agent_start')?.({ systemPrompt: prompt, systemPromptOptions: {} }, context(prompt))
+    await pi.handlers.get('before_provider_request')?.({}, context(prompt))
+
+    // Resolved from the Pi that is actually installed, not a hardcoded string.
+    const { PI_VERSION } = await import('./helpers/pi-runtime')
+    expect(pi.entries[0].data.piVersion).toBe(PI_VERSION)
+  })
+})

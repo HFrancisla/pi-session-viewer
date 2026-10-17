@@ -42,6 +42,32 @@ export const BUILTIN_TOOL_NAMES = new Set([
 ])
 
 /**
+ * Which synthetic source a path belongs to, mirroring Pi's
+ * `getSyntheticPathSource`: `builtin:` prefixed paths are `builtin`, and any
+ * `<kind:name>` path names `kind` (for example `<sdk:tool>` or `<inline:1>`).
+ * Undefined means the path names a real file.
+ *
+ * `tests/pi-tool-provenance-contract.test.ts` asserts this agrees with Pi's own
+ * implementation, so the copy cannot drift.
+ */
+export function syntheticPathSource(path: string | undefined): string | undefined {
+  if (!path) return undefined
+  if (path.startsWith('builtin:')) return 'builtin'
+  if (path.startsWith('<') && path.endsWith('>')) return path.slice(1, -1).split(':')[0] || undefined
+  return undefined
+}
+
+/**
+ * Pi names built-in tools with `BUILTIN_PATH_PREFIX` (`"builtin:"`, no angle
+ * brackets) and synthetic SDK tools as `<sdk:name>`. Older Pi versions and
+ * hand-written fixtures also used `<builtin:name>`, so accept both spellings.
+ */
+export function isBuiltinToolPath(path: string | undefined): boolean {
+  if (!path) return false
+  return path === 'builtin' || path.startsWith('builtin:') || path === '<builtin>' || path.startsWith('<builtin:')
+}
+
+/**
  * Normalizes user home directories in paths to '~' for clean, readable display.
  */
 export function formatDisplayPath(rawPath: string | undefined): string | undefined {
@@ -118,11 +144,11 @@ export function resolveToolProvenance(
 
   const rawPath = typeof sourceInfo.path === 'string' ? sourceInfo.path : undefined
   const source = typeof sourceInfo.source === 'string' ? sourceInfo.source : undefined
-  const isBuiltinPath = rawPath ? (rawPath.startsWith('<builtin:') || rawPath === '<builtin>') : false
+  const synthetic = syntheticPathSource(rawPath)
 
-  // 1. Explicit Built-in tools: runtime says builtin or path is <builtin:...>
-  if (source === 'builtin' || isBuiltinPath) {
-    const path = rawPath ?? `<builtin:${name}>`
+  // 1. Explicit Built-in tools: runtime says builtin or the path is synthetic builtin
+  if (source === 'builtin' || synthetic === 'builtin' || isBuiltinToolPath(rawPath)) {
+    const path = rawPath ?? `builtin:${name}`
     return {
       kind: 'builtin',
       isBuiltin: true,
@@ -132,7 +158,7 @@ export function resolveToolProvenance(
   }
 
   // 2. SDK tools
-  if (source === 'sdk') {
+  if (source === 'sdk' || synthetic === 'sdk') {
     return {
       kind: 'sdk',
       isBuiltin: false,
@@ -142,7 +168,19 @@ export function resolveToolProvenance(
     }
   }
 
-  // 3. Extension tools with concrete file path (e.g. overriding builtin tools or custom tools)
+  // 3. Other synthetic paths (`<inline:1>`, `<inline:name>`): code-registered, so
+  // the synthetic source is the name and the path must not be parsed as a file.
+  if (synthetic && rawPath) {
+    return {
+      kind: 'extension',
+      isBuiltin: false,
+      extensionName: synthetic,
+      displayPath: formatDisplayPath(rawPath),
+      rawPath,
+    }
+  }
+
+  // 4. Extension tools with concrete file path (e.g. overriding builtin tools or custom tools)
   if (rawPath) {
     const extName =
       extractExtensionName(rawPath) ||
@@ -158,7 +196,7 @@ export function resolveToolProvenance(
     }
   }
 
-  // 4. Source field specified as extension identifier (without file path)
+  // 5. Source field specified as extension identifier (without file path)
   const extFromSource = cleanSourceIdentifier(source)
   if (extFromSource) {
     return {
@@ -168,9 +206,9 @@ export function resolveToolProvenance(
     }
   }
 
-  // 5. Fallback for built-in tools ONLY when there is no file path and no extension source
+  // 6. Fallback for built-in tools ONLY when there is no file path and no extension source
   if (BUILTIN_TOOL_NAMES.has(name)) {
-    const path = `<builtin:${name}>`
+    const path = `builtin:${name}`
     return {
       kind: 'builtin',
       isBuiltin: true,
@@ -179,7 +217,7 @@ export function resolveToolProvenance(
     }
   }
 
-  // 6. Unknown / missing sourceInfo
+  // 7. Unknown / missing sourceInfo
   return {
     kind: 'unknown',
     isBuiltin: false,

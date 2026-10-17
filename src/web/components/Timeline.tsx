@@ -1,10 +1,10 @@
-import { AlertTriangle, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
+import { AlertTriangle, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, CornerDownRight, EyeOff, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
 import { GroupedVirtuoso, type GroupedVirtuosoHandle, type GroupProps } from 'react-virtuoso'
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { buildCausalLayout, causalLaneX, type CausalEventLayout } from '../../core/causal-layout'
 import { allEventKinds } from '../../core/event-kinds'
 import { formatClock, formatDuration } from '../../core/format'
-import type { EventKind, ParsedSession, SubagentReference, TimelineEvent, TimelineTurn } from '../../core/types'
+import type { ContextProjection, EventKind, ParsedSession, SubagentReference, TimelineEvent, TimelineTurn } from '../../core/types'
 import { useI18n } from '../i18n'
 
 const kindMeta: Record<EventKind, { icon: ComponentType<{ size?: number; className?: string }>; color: string }> = {
@@ -25,6 +25,7 @@ interface TimelineProps {
   selectedEventId: string | null
   restorePosition?: { eventId: string | null; scrollTop?: number; anchor?: TimelineAnchor; key: number } | null
   selectedLeafId: string | null
+  contextProjection?: ContextProjection
   enabledKinds: Set<EventKind>
   onSelectEvent: (event: TimelineEvent) => void
   onSelectBranch: (leafId: string) => void
@@ -120,6 +121,12 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
   const llmOutputClasses = llmOutputBoundary
     ? ` is-llm-output-group${llmOutputBoundary.isStart ? ' llm-output-group-start' : ''}${llmOutputBoundary.isEnd ? ' llm-output-group-end' : ''}`
     : ''
+  const contextStateLabel = event.contextExclusion
+    ? event.contextExclusion.state === 'omitted' ? t.timeline.contextOmitted : t.timeline.contextNotInContext
+    : undefined
+  const accessibilityLabel = t.timeline.eventAccessibleLabel(
+    localizeTitle(event.title), clockLabel, index + 1, eventCount, focused, selected,
+  )
 
   return (
     <div
@@ -129,7 +136,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
       id={`event-row-${event.id}`}
       data-event-id={event.id}
       data-turn-id={turnId}
-      aria-label={t.timeline.eventAccessibleLabel(localizeTitle(event.title), clockLabel, index + 1, eventCount, focused, selected)}
+      aria-label={contextStateLabel ? `${accessibilityLabel} · ${contextStateLabel}` : accessibilityLabel}
       onPointerDown={(pointerEvent) => {
         if (pointerEvent.button !== 0
           || (pointerEvent.target instanceof Element && pointerEvent.target.closest('.event-subagent-tag'))) return
@@ -172,37 +179,60 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
                 {event.isError ? t.common.failed : t.common.success}
               </span>
               {event.subagent && (
-                <span
+                <button
+                  type="button"
                   className="event-subagent-tag"
-                  role="button"
-                  tabIndex={0}
+                  aria-label={
+                    event.subagents && event.subagents.length > 1
+                      ? `${t.timeline.openSubagent} (${event.subagents.length})`
+                      : `${t.timeline.openSubagent}: ${event.subagent.agentName ?? t.timeline.subagentTag}`
+                  }
                   onClick={(e) => {
                     e.stopPropagation()
                     onSelectEvent(event)
                     onOpenSubagent?.(event.subagent!, event.id)
                   }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.stopPropagation()
-                      onSelectEvent(event)
-                      onOpenSubagent?.(event.subagent!, event.id)
-                    }
-                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
                   title={event.subagents && event.subagents.length > 1 ? `${event.subagents.length} subagents` : t.timeline.openSubagent}
                 >
-                  <Bot size={12} />
+                  <Bot size={12} aria-hidden="true" />
                   <span>
                     {event.subagents && event.subagents.length > 1
                       ? `${event.subagents.length} ${t.timeline.subagentTag}`
                       : (event.subagent.agentName ?? t.timeline.subagentTag)}
                   </span>
                   <span className="subagent-tag-arrow">→</span>
-                </span>
+                </button>
               )}
             </>
           )}
           {charCount != null && event.kind !== 'system' && (
             <span className="event-char-count">{t.common.chars(charCount)}</span>
+          )}
+          {event.contextExclusion && (
+            <span
+              className="event-context-mark"
+              aria-hidden="true"
+              title={event.contextExclusion.state === 'omitted' ? t.timeline.contextOmittedTitle : t.timeline.contextNotInContextTitle}
+            >
+              <EyeOff size={12} />
+              <span>{t.timeline.contextOmitted}</span>
+            </span>
+          )}
+          {event.contextEdit && (
+            <span className="event-context-target" aria-hidden="true" title={t.timeline.contextTargetTitle}>
+              <CornerDownRight size={12} />
+              <span>
+                {event.contextEdit.targetOnBranch
+                  ? t.timeline.contextTarget(event.summary.replace(/^Target: /, ''))
+                  : t.timeline.contextTargetMissing}
+              </span>
+              {event.contextEdit.affectedEntryIds.length > 1 && (
+                <span className="context-target-extra">
+                  {t.timeline.contextTargetAffected(event.contextEdit.affectedEntryIds.length)}
+                </span>
+              )}
+            </span>
           )}
         </span>
         <span className="event-summary">{event.summary}</span>
@@ -218,6 +248,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
   selectedEventId,
   restorePosition,
   selectedLeafId,
+  contextProjection,
   enabledKinds,
   onSelectEvent,
   onSelectBranch,
@@ -233,6 +264,9 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
     () => allEvents.find((event) => event.id === selectedEventId),
     [allEvents, selectedEventId],
   )
+  const contextSummary = contextProjection
+    ? t.timeline.contextSummary(contextProjection.messageCount, Object.keys(contextProjection.excluded).length)
+    : null
   const highlightedCallId = selectedEvent?.toolCallId
 
   const onSelectEventRef = useRef(onSelectEvent)
@@ -575,6 +609,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
           ))}
         </select>
         <span>{t.timeline.visibleEvents(visibleEventCount)}</span>
+        {contextSummary ? <span className="context-summary">{contextSummary}</span> : null}
       </div>
 
       {session.warnings.length > 0 && (
@@ -615,6 +650,9 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
               <header>
                 <span>{localizeTitle(turn.label)}</span>
                 <span>{t.timeline.turnEvents(turn.events.length)}</span>
+                {turn.contextExcludedCount ? (
+                  <span className="turn-context-note">{t.timeline.turnContextExcluded(turn.contextExcludedCount)}</span>
+                ) : null}
               </header>
             )
           }}

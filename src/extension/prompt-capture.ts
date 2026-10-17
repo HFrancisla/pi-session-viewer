@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { BuildSystemPromptOptions, ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import type { CapturedToolDefinition } from '../core/types'
+import { resolvePiVersion } from '../server/pi-runtime'
 
 export const SYSTEM_PROMPT_ENTRY_TYPE = 'pi-session-viewer.system-prompt'
 
@@ -119,6 +120,7 @@ function recordPrompt(
     sequence: sequence.value,
     capturedAt: new Date().toISOString(),
     model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined,
+    piVersion: resolvePiVersion(),
   })
 
   if (isNewSnapshot) knownPromptHashes.add(hash)

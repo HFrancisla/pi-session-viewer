@@ -50,6 +50,8 @@ export function localizeEventTitle(title: string, locale: Locale): string {
     'Model Switch': '模型切换',
     'Thinking Level Switch': 'Thinking 等级切换',
     'Context Compaction': '上下文压缩',
+    'Context Edit': '上下文编辑',
+    'Usage': '用量',
     'Branch Summary': '分支摘要',
     'Branch label': '分支标签',
     'Session info': '会话信息',
@@ -65,6 +67,7 @@ export function localizeEventTitle(title: string, locale: Locale): string {
     'Project Context': '项目上下文',
     'Skills': 'Skills',
     'Working Directory': '工作目录',
+    'MCP Servers': 'MCP 服务',
   }
 
   if (directMap[title]) return directMap[title]
@@ -93,6 +96,9 @@ export function localizeEventTitle(title: string, locale: Locale): string {
 
   const turnMatch = title.match(/^Turn (\d+)$/)
   if (turnMatch) return `第 ${turnMatch[1]} 轮`
+
+  const usageMatch = title.match(/^Usage: (.+)$/)
+  if (usageMatch) return `用量：${usageMatch[1]}`
 
   const unknownMatch = title.match(/^Unknown event: (.+)$/)
   if (unknownMatch) return `未知事件：${unknownMatch[1]}`

@@ -2,6 +2,7 @@ export const en = {
   common: {
     productName: 'Pi Session Viewer',
     copy: 'Copy',
+    dismiss: 'Dismiss',
     copied: 'Copied',
     copiedTooltip: 'Copied to clipboard',
     close: 'Close',
@@ -28,6 +29,7 @@ export const en = {
     backToParent: 'Back to parent session',
     subagentBadge: 'Subagent',
     loadingSubagent: 'Loading subagent session...',
+    subagentTranscriptOnly: 'only a pi-subagents transcript exists (not a Pi session file).',
     failedToLoadSubagent: (err: string) => `Failed to load subagent session: ${err}`,
   },
   sidebar: {
@@ -81,6 +83,19 @@ export const en = {
     },
     subagentTag: 'Subagent',
     openSubagent: 'View subagent process',
+    contextOmitted: 'Not in model context',
+    contextOmittedTitle: 'A context edit removed this entry from what the model received. The raw record stays in the session file.',
+    contextNotInContext: 'Not in model context',
+    contextNotInContextTitle: 'This entry produces no message for the model on this branch (for example because of a compaction boundary).',
+    contextSummary: (received: number, excluded: number) =>
+      `Model context: ${received} message${received === 1 ? '' : 's'} received \u00b7 ${excluded} entr${excluded === 1 ? 'y' : 'ies'} not in context`,
+    turnContextExcluded: (count: number) => `${count} not in context`,
+    contextTarget: (preview: string) => `targets: ${preview}`,
+    contextTargetMissing: 'target is on another branch',
+    contextTargetAffected: (count: number) => `· removed ${count}`,
+    contextTargetTitle: 'The entry this context edit affects',
+    jumpToTarget: 'Jump to target',
+    jumpToRemovingEdit: 'Jump to the context edit',
   },
   inspector: {
     heading: 'Details',

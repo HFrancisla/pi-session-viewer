@@ -1,5 +1,6 @@
 import {
   Braces,
+  CornerDownRight,
   Check,
   ChevronDown,
   Copy,
@@ -23,9 +24,38 @@ interface InspectorProps {
   mobileOpen: boolean
   onClose: () => void
   onJumpToEvent: () => void
+  /** Jumps the timeline to an entry this event is linked to by a context edit. */
+  onJumpToEntry?: (entryId: string) => void
 }
 
 type InspectorTab = 'overview' | 'content' | 'composition' | 'diff' | 'raw'
+
+/**
+ * Jump to the other end of a context edit. The action lives here rather than on
+ * the timeline row, because the row itself is a button and interactive controls
+ * must not nest inside it.
+ */
+function ContextJumpButton({ entryId, label, disabled, onJump }: {
+  entryId: string
+  label: string
+  disabled?: boolean
+  onJump?: (entryId: string) => void
+}) {
+  if (!onJump) return null
+  return (
+    <button
+      type="button"
+      className="inspector-action-btn"
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      onClick={() => onJump(entryId)}
+    >
+      <CornerDownRight size={13} />
+      <span>{label}</span>
+    </button>
+  )
+}
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
   const { t } = useI18n()
@@ -227,7 +257,7 @@ function EventOverview({ event }: { event: TimelineEvent }) {
   )
 }
 
-function EventContentView({ event }: { event: TimelineEvent }) {
+function EventContentView({ event, onJumpToEntry }: { event: TimelineEvent; onJumpToEntry?: (entryId: string) => void }) {
   const { t } = useI18n()
   const content = event.content ?? ''
   const totalChars = content.length
@@ -238,6 +268,21 @@ function EventContentView({ event }: { event: TimelineEvent }) {
         <span className="content-header-tokens">
           {t.common.chars(totalChars)}
         </span>
+        {event.contextEdit && (
+          <ContextJumpButton
+            entryId={event.contextEdit.targetEntryId}
+            label={t.timeline.jumpToTarget}
+            disabled={!event.contextEdit.targetOnBranch}
+            onJump={onJumpToEntry}
+          />
+        )}
+        {event.contextExclusion?.editId && (
+          <ContextJumpButton
+            entryId={event.contextExclusion.editId}
+            label={t.timeline.jumpToRemovingEdit}
+            onJump={onJumpToEntry}
+          />
+        )}
         <CopyButton text={content} />
       </div>
 
@@ -272,7 +317,7 @@ function EventRawView({ event }: { event: TimelineEvent }) {
   )
 }
 
-export function Inspector({ event, mobileOpen, onClose, onJumpToEvent }: InspectorProps) {
+export function Inspector({ event, mobileOpen, onClose, onJumpToEvent, onJumpToEntry }: InspectorProps) {
   const { t, localizeTitle } = useI18n()
   const [tab, setTab] = useState<InspectorTab>('content')
 
@@ -349,7 +394,7 @@ export function Inspector({ event, mobileOpen, onClose, onJumpToEvent }: Inspect
             ) : isToolDef ? (
               <ToolDefinitionsView tools={tools} />
             ) : (
-              <EventContentView event={event} />
+              <EventContentView event={event} onJumpToEntry={onJumpToEntry} />
             )}
           </div>
         </>

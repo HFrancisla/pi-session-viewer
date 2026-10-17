@@ -1,6 +1,7 @@
 import express from 'express'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer as createViteServer } from 'vite'
+import { computeContextProjections } from '../src/server/context-projection'
 import { configuredSessionRoot, listSessions, readSessionFile } from '../src/server/session-discovery'
 import { hasValidBearerToken, isAllowedHost, isAllowedOrigin } from '../src/server/security'
 
@@ -41,7 +42,10 @@ app.get('/api/sessions', async (request, response) => {
 app.get('/api/sessions/:token', async (request, response) => {
   if (rejectIfUnauthorized(request, response)) return
   try {
-    response.json(await readSessionFile(sessionRoot, request.params.token))
+    const sessionFile = await readSessionFile(sessionRoot, request.params.token)
+    // Mirrors the production server: the context projection comes from Pi itself.
+    const contextProjections = await computeContextProjections(sessionFile.content, sessionFile.relativePath)
+    response.json(contextProjections ? { ...sessionFile, contextProjections } : sessionFile)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     response.status(404).json({ error: message })

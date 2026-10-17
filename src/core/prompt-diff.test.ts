@@ -1,269 +1,196 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   buildVanillaSystemPrompt,
   computeLineDiff,
   formatDiffLineTooltip,
   resolvePromptDiff,
+  type PromptDiffResult,
 } from './prompt-diff'
 import type { SystemPromptComposition } from './types'
+import { buildFixturePrompt } from '../../scripts/generate-prompt-fixtures.mjs'
+import { PI_PACKAGE_DIR } from '../../tests/helpers/pi-runtime'
 
-describe('prompt-diff', () => {
-  describe('computeLineDiff', () => {
-    it('returns all unchanged lines when texts are identical', () => {
-      const text = 'Line 1\nLine 2\nLine 3'
-      const result = computeLineDiff(text, text)
+interface PromptFixture {
+  options: {
+    cwd: string
+    selectedTools: string[]
+    toolSnippets: Record<string, string>
+    promptGuidelines: string[]
+    appendSystemPrompt: string
+    contextFiles: Array<{ path: string; content: string }>
+    skills: Array<{ name: string; description: string; filePath: string }>
+  }
+  prompt: string
+}
 
-      expect(result.addedCount).toBe(0)
-      expect(result.removedCount).toBe(0)
-      expect(result.unchangedCount).toBe(3)
-      expect(result.lines).toEqual([
-        { type: 'unchanged', text: 'Line 1', oldLineNumber: 1, newLineNumber: 1 },
-        { type: 'unchanged', text: 'Line 2', oldLineNumber: 2, newLineNumber: 2 },
-        { type: 'unchanged', text: 'Line 3', oldLineNumber: 3, newLineNumber: 3 },
-      ])
-    })
+function loadFixture(name: string): PromptFixture {
+  return JSON.parse(readFileSync(path.join('tests', 'fixtures', 'prompts', name), 'utf8')) as PromptFixture
+}
 
-    it('identifies added lines with correct new line numbers', () => {
-      const oldText = 'Line 1\nLine 3'
-      const newText = 'Line 1\nLine 2\nLine 3'
-      const result = computeLineDiff(oldText, newText)
+function compositionOf(fixture: PromptFixture): Partial<SystemPromptComposition> {
+  return {
+    selectedTools: fixture.options.selectedTools,
+    toolSnippets: fixture.options.toolSnippets,
+    promptGuidelines: fixture.options.promptGuidelines,
+    appendSystemPrompt: fixture.options.appendSystemPrompt,
+    cwd: fixture.options.cwd,
+    contextFiles: fixture.options.contextFiles,
+    skills: fixture.options.skills,
+  }
+}
 
-      expect(result.addedCount).toBe(1)
-      expect(result.removedCount).toBe(0)
-      expect(result.unchangedCount).toBe(2)
-      expect(result.lines).toEqual([
-        { type: 'unchanged', text: 'Line 1', oldLineNumber: 1, newLineNumber: 1 },
-        { type: 'added', text: 'Line 2', newLineNumber: 2 },
-        { type: 'unchanged', text: 'Line 3', oldLineNumber: 2, newLineNumber: 3 },
-      ])
-    })
+/** A diff is only trustworthy if it can rebuild both sides from the other. */
+function expectDiffIsReversible(result: PromptDiffResult): void {
+  const rebuiltTarget = result.lines
+    .filter((line) => line.type !== 'removed')
+    .map((line) => line.text)
+    .join('\n')
+  const rebuiltBaseline = result.lines
+    .filter((line) => line.type !== 'added')
+    .map((line) => line.text)
+    .join('\n')
 
-    it('identifies removed lines with correct old line numbers', () => {
-      const oldText = 'Line 1\nLine 2\nLine 3'
-      const newText = 'Line 1\nLine 3'
-      const result = computeLineDiff(oldText, newText)
+  expect(rebuiltTarget).toBe(result.targetPrompt)
+  expect(rebuiltBaseline).toBe(result.baselinePrompt)
+  expect(result.addedCount).toBe(result.lines.filter((line) => line.type === 'added').length)
+  expect(result.removedCount).toBe(result.lines.filter((line) => line.type === 'removed').length)
+  expect(result.unchangedCount).toBe(result.lines.filter((line) => line.type === 'unchanged').length)
+}
 
-      expect(result.addedCount).toBe(0)
-      expect(result.removedCount).toBe(1)
-      expect(result.unchangedCount).toBe(2)
-      expect(result.lines).toEqual([
-        { type: 'unchanged', text: 'Line 1', oldLineNumber: 1, newLineNumber: 1 },
-        { type: 'removed', text: 'Line 2', oldLineNumber: 2 },
-        { type: 'unchanged', text: 'Line 3', oldLineNumber: 3, newLineNumber: 2 },
-      ])
-    })
+describe('prompt-diff: the vanilla baseline is Pi\'s real vanilla prompt', () => {
+  it.each([
+    ['legacy-0.85.1', 'legacy'],
+    ['current', 'tagged'],
+  ] as const)('reproduces the %s vanilla fixture byte-for-byte (%s layout)', (fixtureSet, layout) => {
+    const full = loadFixture(`${fixtureSet}-full.json`)
+    const vanilla = loadFixture(`${fixtureSet}-vanilla.json`)
 
-    it('handles modifications as removed followed by added lines', () => {
-      const oldText = 'A\nOld\nB'
-      const newText = 'A\nNew\nB'
-      const result = computeLineDiff(oldText, newText)
-
-      expect(result.addedCount).toBe(1)
-      expect(result.removedCount).toBe(1)
-      expect(result.unchangedCount).toBe(2)
-      expect(result.lines).toEqual([
-        { type: 'unchanged', text: 'A', oldLineNumber: 1, newLineNumber: 1 },
-        { type: 'removed', text: 'Old', oldLineNumber: 2 },
-        { type: 'added', text: 'New', newLineNumber: 2 },
-        { type: 'unchanged', text: 'B', oldLineNumber: 3, newLineNumber: 3 },
-      ])
-    })
-
-    it('handles empty baseline or empty target', () => {
-      const fromEmpty = computeLineDiff('', 'Line 1\nLine 2')
-      expect(fromEmpty.addedCount).toBe(2)
-      expect(fromEmpty.removedCount).toBe(0)
-
-      const toEmpty = computeLineDiff('Line 1', '')
-      expect(toEmpty.removedCount).toBe(1)
-      expect(toEmpty.addedCount).toBe(0)
-    })
+    const rebuilt = buildVanillaSystemPrompt(full.prompt, { cwd: full.options.cwd })
+    expect(rebuilt).toBe(vanilla.prompt)
+    // The baseline must be written in the same layout as the prompt it compares
+    // against, otherwise every line would show up as a change.
+    expect(rebuilt.includes('<tools>')).toBe(layout === 'tagged')
   })
 
-  describe('buildVanillaSystemPrompt', () => {
-    it('builds a vanilla Pi system prompt with standard tools and guidelines', () => {
-      const composition: SystemPromptComposition = {
-        selectedTools: ['read', 'bash', 'edit', 'write'],
-        toolSnippets: {
-          read: 'Read file contents',
-          bash: 'Execute commands',
-          edit: 'Edit files',
-          write: 'Write files',
-        },
-        promptGuidelines: [],
-        cwd: '/home/user/project',
-        contextFiles: [],
-        skills: [],
-      }
+  it('reproduces the vanilla prompt the installed Pi builds right now', async () => {
+    const { prompt, options } = await buildFixturePrompt(PI_PACKAGE_DIR, 'full')
+    const { prompt: vanillaPrompt } = await buildFixturePrompt(PI_PACKAGE_DIR, 'vanilla')
 
-      const dummyPrompt = 'Pi documentation (read only:\n- Main documentation: /docs\n\nCurrent working directory: /home/user/project'
-      const vanilla = buildVanillaSystemPrompt(dummyPrompt, composition)
+    expect(buildVanillaSystemPrompt(prompt, { cwd: options.cwd as string })).toBe(vanillaPrompt)
+  })
+})
 
-      expect(vanilla).toContain('You are an expert coding assistant operating inside pi')
-      expect(vanilla).toContain('Available tools:\n- read: Read file contents')
-      expect(vanilla).toContain('Current working directory: /home/user/project')
-      expect(vanilla).not.toContain('<project_context>')
-      expect(vanilla).not.toContain('<available_skills>')
-    })
+describe('prompt-diff: resolvePromptDiff against real prompts', () => {
+  const full = loadFixture('current-full.json')
+  const composition = compositionOf(full)
 
-    it('produces zero diff when compared against an unmodified vanilla prompt', () => {
-      const composition: SystemPromptComposition = {
-        selectedTools: ['read', 'bash', 'edit', 'write'],
-        toolSnippets: {
-          read: 'Read file contents',
-          bash: 'Execute bash commands (ls, grep, find, etc.)',
-          edit: 'Make precise file edits with exact text replacement, including multiple disjoint edits in one call',
-          write: 'Create or overwrite files',
-        },
-        promptGuidelines: [],
-        cwd: '/workspace/demo',
-        contextFiles: [],
-        skills: [],
-      }
+  it('produces a reversible diff whose baseline is Pi vanilla', () => {
+    const result = resolvePromptDiff(full.prompt, { composition })
 
-      const vanilla = buildVanillaSystemPrompt('', composition)
-      const diff = computeLineDiff(vanilla, vanilla)
-
-      expect(diff.addedCount).toBe(0)
-      expect(diff.removedCount).toBe(0)
-      expect(diff.unchangedCount).toBe(vanilla.split('\n').length)
-    })
+    expect(result.baselineMode).toBe('vanilla')
+    expect(result.baselinePrompt).toBe(buildVanillaSystemPrompt(full.prompt, composition))
+    expectDiffIsReversible(result)
   })
 
-  describe('resolvePromptDiff', () => {
-    const fullCustomPrompt = `You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
+  it('marks the project context, skills and appended instructions as additions', () => {
+    const result = resolvePromptDiff(full.prompt, { composition })
+    const added = result.lines.filter((line) => line.type === 'added').map((line) => line.text)
 
-Available tools:
-- read: Read file contents
-- bash: Execute bash commands (ls, grep, find, etc.)
-- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call
-- write: Create or overwrite files
+    expect(added).toContain('- Never commit secrets')
+    expect(added).toContain('<project_context>')
+    expect(added).toContain('Use tests first.')
+    expect(added).toContain('Answer in Chinese.')
+    expect(added).toContain('    <name>tdd</name>')
+  })
 
-In addition to the tools above, you may have access to other custom tools depending on the project.
+  it('keeps the documentation Pi also sends in the baseline out of the diff', () => {
+    const result = resolvePromptDiff(full.prompt, { composition })
+    const removed = result.lines.filter((line) => line.type === 'removed').map((line) => line.text)
 
-Guidelines:
-- Use bash for file operations like ls, rg, find
-- Be concise in your responses
-- Show file paths clearly when working with files
+    expect(removed.filter((line) => line.startsWith('- When asked about: extensions'))).toEqual([])
+    expect(result.unchangedCount).toBeGreaterThan(10)
+  })
 
-Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
-- Main documentation: /docs/README.md
-- Additional docs: /docs
-- Examples: /examples (extensions, custom tools, SDK)
-- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
-- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md)
-- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
-- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)
+  it('uses promptBeforeFinalExtensions when available and reversibly diffs against it', () => {
+    const beforeExtensions = full.prompt.replace('Answer in Chinese.', 'Answer in English.')
+    const result = resolvePromptDiff(
+      full.prompt,
+      { composition, promptBeforeFinalExtensions: beforeExtensions },
+      'before-extensions'
+    )
 
-<project_context>
-Project-specific instructions and guidelines:
+    expect(result.baselineMode).toBe('before-extensions')
+    expect(result.baselinePrompt).toBe(beforeExtensions)
+    expectDiffIsReversible(result)
+  })
 
-<project_instructions path="/workspace/demo/AGENTS.md">
-Custom project rules
-</project_instructions>
-</project_context>
+  it('falls back to the vanilla baseline when no earlier prompt was recorded', () => {
+    const result = resolvePromptDiff(full.prompt, { composition }, 'before-extensions')
 
-Current working directory: /workspace/demo`
+    expect(result.baselineMode).toBe('vanilla')
+    expectDiffIsReversible(result)
+  })
+})
 
-    it('highlights project context as added lines in vanilla mode', () => {
-      const result = resolvePromptDiff(fullCustomPrompt, {
-        composition: {
-          selectedTools: ['read', 'bash', 'edit', 'write'],
-          cwd: '/workspace/demo',
-          contextFiles: [{ path: '/workspace/demo/AGENTS.md', content: 'Custom project rules' }],
-          skills: [],
-          promptGuidelines: [],
-          toolSnippets: {},
-        },
-      }, 'vanilla')
+describe('computeLineDiff', () => {
+  it('returns all unchanged lines when texts are identical', () => {
+    const text = 'Line 1\nLine 2\nLine 3'
+    const result = computeLineDiff(text, text)
 
-      expect(result.baselineMode).toBe('vanilla')
-      expect(result.addedCount).toBeGreaterThan(0)
-      expect(result.removedCount).toBe(0)
+    expect(result.addedCount).toBe(0)
+    expect(result.removedCount).toBe(0)
+    expect(result.unchangedCount).toBe(3)
+    expect(result.lines.map((line) => line.text)).toEqual(['Line 1', 'Line 2', 'Line 3'])
+  })
 
-      const addedLines = result.lines.filter((l) => l.type === 'added').map((l) => l.text)
-      expect(addedLines).toContain('<project_context>')
-      expect(addedLines).toContain('Custom project rules')
-    })
+  it('identifies added lines with correct new line numbers', () => {
+    const result = computeLineDiff('Line 1\nLine 3', 'Line 1\nLine 2\nLine 3')
 
-    it('uses promptBeforeFinalExtensions when before-extensions mode is requested and available', () => {
-      const promptBeforeExt = 'Prompt before extension modified it'
-      const modifiedPrompt = 'Prompt before extension modified it\nExtra instructions from extension'
+    expect(result.addedCount).toBe(1)
+    expect(result.removedCount).toBe(0)
+    const added = result.lines.find((line) => line.type === 'added')
+    expect(added?.text).toBe('Line 2')
+    expect(added?.newLineNumber).toBe(2)
+    expect(added?.oldLineNumber).toBeUndefined()
+  })
 
-      const result = resolvePromptDiff(modifiedPrompt, {
-        promptBeforeFinalExtensions: promptBeforeExt,
-      }, 'before-extensions')
+  it('identifies removed lines with correct old line numbers', () => {
+    const result = computeLineDiff('Line 1\nLine 2\nLine 3', 'Line 1\nLine 3')
 
-      expect(result.baselineMode).toBe('before-extensions')
-      expect(result.addedCount).toBe(1)
-      expect(result.removedCount).toBe(0)
-      expect(result.lines.find((l) => l.type === 'added')?.text).toBe('Extra instructions from extension')
-    })
+    expect(result.removedCount).toBe(1)
+    const removed = result.lines.find((line) => line.type === 'removed')
+    expect(removed?.text).toBe('Line 2')
+    expect(removed?.oldLineNumber).toBe(2)
+    expect(removed?.newLineNumber).toBeUndefined()
+  })
 
-    it('falls back to vanilla mode if promptBeforeFinalExtensions is missing', () => {
-      const result = resolvePromptDiff(fullCustomPrompt, undefined, 'before-extensions')
-      expect(result.baselineMode).toBe('vanilla')
-    })
+  it('handles modifications as removed followed by added lines', () => {
+    const result = computeLineDiff('Line 1\nold line', 'Line 1\nnew line')
+    const types = result.lines.map((line) => line.type)
 
-    it('marks extension-added tools (websearch, mcp) as added lines in vanilla diff', () => {
-      const promptWithExtTools = `You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
+    expect(types).toEqual(['unchanged', 'removed', 'added'])
+    expect(result.addedCount).toBe(1)
+    expect(result.removedCount).toBe(1)
+  })
 
-Available tools:
-- read: Read file contents
-- bash: Execute bash commands (ls, grep, find, etc.)
-- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call
-- write: Create or overwrite files
-- websearch: Search the web
-- mcp: Run MCP tools
+  it('handles empty baseline or empty target', () => {
+    const added = computeLineDiff('', 'Line 1')
+    expect(added.addedCount).toBe(1)
+    expect(added.removedCount).toBe(0)
 
-In addition to the tools above, you may have access to other custom tools depending on the project.
+    const removed = computeLineDiff('Line 1', '')
+    expect(removed.addedCount).toBe(0)
+    expect(removed.removedCount).toBe(1)
+  })
 
-Guidelines:
-- Use bash for file operations like ls, rg, find
-- Be concise in your responses
-- Show file paths clearly when working with files
+  it('formats tooltips with line numbers and side labels', () => {
+    const result = computeLineDiff('Line 1\nold', 'Line 1\nnew')
+    const added = result.lines.find((line) => line.type === 'added')
+    const removed = result.lines.find((line) => line.type === 'removed')
 
-Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
-- Main documentation: /docs/README.md
-- Additional docs: /docs
-- Examples: /examples (extensions, custom tools, SDK)
-- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
-- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md)
-- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
-- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`
-
-      const result = resolvePromptDiff(promptWithExtTools, {
-        composition: {
-          selectedTools: ['read', 'bash', 'edit', 'write', 'websearch', 'mcp'],
-          toolSnippets: {
-            websearch: 'Search the web',
-            mcp: 'Run MCP tools',
-          },
-        },
-      }, 'vanilla')
-
-      const added = result.lines.filter((l) => l.type === 'added').map((l) => l.text)
-      expect(added).toContain('- websearch: Search the web')
-      expect(added).toContain('- mcp: Run MCP tools')
-    })
-
-
-    it('formats tooltip with line number and baseline/current indicators', () => {
-      const addedLine = { type: 'added' as const, text: 'Hello', newLineNumber: 42 }
-      const removedLine = { type: 'removed' as const, text: 'World', oldLineNumber: 15 }
-      const unchangedLine = { type: 'unchanged' as const, text: 'Same', newLineNumber: 1, oldLineNumber: 1 }
-      const emptyLine = { type: 'unchanged' as const, text: '' }
-
-      // Default labels (Chinese)
-      expect(formatDiffLineTooltip(addedLine)).toBe('Line 42 (当前)')
-      expect(formatDiffLineTooltip(removedLine)).toBe('Line 15 (基准)')
-      expect(formatDiffLineTooltip(unchangedLine)).toBe('Line 1')
-      expect(formatDiffLineTooltip(emptyLine)).toBeUndefined()
-
-      // Custom labels (English)
-      expect(formatDiffLineTooltip(addedLine, { current: 'Current', baseline: 'Baseline' })).toBe('Line 42 (Current)')
-      expect(formatDiffLineTooltip(removedLine, { current: 'Current', baseline: 'Baseline' })).toBe('Line 15 (Baseline)')
-      expect(formatDiffLineTooltip(unchangedLine, { current: 'Current', baseline: 'Baseline' })).toBe('Line 1')
-    })
+    expect(formatDiffLineTooltip(added!, { current: 'current', baseline: 'baseline' })).toContain('current')
+    expect(formatDiffLineTooltip(removed!, { current: 'current', baseline: 'baseline' })).toContain('baseline')
   })
 })
