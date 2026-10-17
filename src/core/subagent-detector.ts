@@ -43,6 +43,11 @@ export function normalizeSessionRelativePath(rawPath: string, parentSourcePath?:
 
 function extractFilePathCandidate(value: unknown, isSubagentTool: boolean): string | undefined {
   if (typeof value !== 'string') return undefined
+  // Both patterns require a literal ('subagent-artifacts/' or '.jsonl'), so a
+  // native substring search can rule out a whole-string regex scan. Tool output
+  // runs to megabytes and almost never names a session file.
+  const mentionsSubagentPath = value.includes('subagent-artifacts')
+  if (!mentionsSubagentPath && (!isSubagentTool || !value.includes('.jsonl'))) return undefined
   const subagentMatch = value.match(SUBAGENT_FILE_PATH_REGEX)
   if (subagentMatch?.[1]) return subagentMatch[1]
 
@@ -80,15 +85,23 @@ function extractTargetFileFromObject(obj: RawObject, isSubagentTool: boolean): s
   return undefined
 }
 
+/**
+ * Strings longer than this are never parsed: a failed `JSON.parse` still reads the
+ * whole string, and tool results of this size are prose, not a session reference.
+ */
+const MAX_JSON_PARSE_LENGTH = 1_000_000
+
 function parsePossibleJson(value: unknown): RawObject | undefined {
   if (isObject(value)) return value
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value)
-      if (isObject(parsed)) return parsed
-    } catch {
-      // ignore
-    }
+  if (typeof value !== 'string' || value.length > MAX_JSON_PARSE_LENGTH) return undefined
+  // Only an object literal can carry a session reference; skipping everything
+  // else avoids parsing (and failing on) arbitrary tool output.
+  if (value.trimStart().charAt(0) !== '{') return undefined
+  try {
+    const parsed = JSON.parse(value)
+    if (isObject(parsed)) return parsed
+  } catch {
+    // Not JSON; nothing to extract.
   }
   return undefined
 }

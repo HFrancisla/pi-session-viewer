@@ -35,8 +35,39 @@ export function formatDuration(milliseconds?: number): string {
   return `${minutes}m ${seconds}s`
 }
 
+const WHITESPACE = /\s/
+
+/**
+ * The leading part of `value.replace(/\s+/g, ' ').trim()` needed to decide the
+ * result, read as a stream.
+ *
+ * Normalizing the whole string cost O(content) on multi-megabyte tool output even
+ * though only `max` characters are kept, and the timeline builds summaries on
+ * every view. Reading stops one character past `max`: that is enough to know
+ * whether the ellipsis is needed. A whitespace run is only materialized when
+ * something follows it, which is what `trim()` did at the end.
+ */
+function compactPrefix(value: string, max: number): string {
+  const length = value.length
+  let index = 0
+  while (index < length && WHITESPACE.test(value[index])) index += 1
+
+  let compact = ''
+  while (index < length) {
+    if (WHITESPACE.test(value[index])) {
+      while (index < length && WHITESPACE.test(value[index])) index += 1
+      if (index < length) compact += ' '
+    } else {
+      compact += value[index]
+      index += 1
+    }
+    if (compact.length > max) return compact
+  }
+  return compact
+}
+
 export function truncate(value: string, max = 92): string {
-  const compact = value.replace(/\s+/g, ' ').trim()
+  const compact = compactPrefix(value, max)
   if (!compact) return 'No text content'
   return compact.length > max ? `${compact.slice(0, max)}…` : compact
 }

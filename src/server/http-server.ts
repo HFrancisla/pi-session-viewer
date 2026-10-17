@@ -1,10 +1,12 @@
 import { createServer, type Server } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { promises as fs } from 'node:fs'
 import { hasValidBearerToken, isAllowedHost, isAllowedOrigin } from './security'
-import { listSessions, readSessionFile } from './session-discovery'
+import { listSessions, resolveAllowedSessionFile } from './session-discovery'
 import { computeContextProjections } from './context-projection'
 import { readStaticAsset } from './static-assets'
+import { createLruCache, type LruCache } from '../core/lru-cache'
 
 export interface SessionHttpServerOptions {
   sessionRoot: string
@@ -39,10 +41,31 @@ function sendJson(response: ServerResponse, statusCode: number, body: unknown): 
   response.end(JSON.stringify(body))
 }
 
+/**
+ * Serialized session payloads, keyed by file identity (path, mtime, size).
+ *
+ * Answering a session request means reading the file, projecting every branch
+ * through Pi, and serializing a body that can run to megabytes — all inside the
+ * Pi process. Switching between sessions is the viewer's main gesture, so the
+ * last few bodies are kept; a changed file changes its key and refetches.
+ *
+ * The weight of one body is its character count, a proxy for the bytes it costs.
+ */
+const SESSION_BODY_CACHE_WEIGHT = 64 * 1024 * 1024
+type SessionBodyCache = LruCache<string>
+
+function sendCachedJson(response: ServerResponse, body: string): void {
+  response.statusCode = 200
+  response.setHeader('Content-Type', 'application/json; charset=utf-8')
+  response.setHeader('Cache-Control', 'no-store')
+  response.end(body)
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
   options: SessionHttpServerOptions,
+  sessionBodies: SessionBodyCache,
 ): Promise<void> {
   setSecurityHeaders(response)
 
@@ -89,11 +112,28 @@ async function handleRequest(
       return
     }
     try {
-      const sessionFile = await readSessionFile(options.sessionRoot, token)
+      const { absolute, relative } = await resolveAllowedSessionFile(options.sessionRoot, token)
+      const stat = await fs.stat(absolute)
+      const cacheKey = `${relative}\u0000${stat.mtimeMs}\u0000${stat.size}`
+      const cached = sessionBodies.get(cacheKey)
+      if (cached !== undefined) {
+        sendCachedJson(response, cached)
+        return
+      }
+      const content = await fs.readFile(absolute, 'utf8')
       // What the model actually received is computed by Pi itself; when Pi is not
       // reachable the field stays absent and the UI shows no marks.
-      const contextProjections = await computeContextProjections(sessionFile.content, sessionFile.relativePath)
-      sendJson(response, 200, contextProjections ? { ...sessionFile, contextProjections } : sessionFile)
+      const contextProjections = await computeContextProjections(content, relative)
+      const payload = {
+        token,
+        relativePath: relative,
+        modifiedAt: stat.mtime.toISOString(),
+        content,
+        ...(contextProjections ? { contextProjections } : {}),
+      }
+      const body = JSON.stringify(payload)
+      sessionBodies.set(cacheKey, body)
+      sendCachedJson(response, body)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       sendJson(response, 404, { error: message })
@@ -141,8 +181,13 @@ function close(server: Server): Promise<void> {
 
 export async function startSessionHttpServer(options: SessionHttpServerOptions): Promise<SessionHttpServer> {
   const host = options.host ?? '127.0.0.1'
+  const sessionBodies = createLruCache<string>({
+    maxEntries: 8,
+    maxWeight: SESSION_BODY_CACHE_WEIGHT,
+    weigh: (body) => body.length,
+  })
   const httpServer = createServer((request, response) => {
-    void handleRequest(request, response, options)
+    void handleRequest(request, response, options, sessionBodies)
   })
   const port = await listen(httpServer, host, options.port ?? 0)
   return {

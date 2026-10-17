@@ -163,6 +163,29 @@ describe('production session HTTP server security', () => {
     expect(payload).toMatchObject({ relativePath: 'nested/session.jsonl', content })
   })
 
+  it('serves a repeat read from cache and refetches after the file changes', async () => {
+    const relative = 'nested/session.jsonl'
+    const first = '{"type":"session","version":3,"id":"session-1","timestamp":"2026-01-01T10:00:00.000Z","cwd":"/work/demo"}\n'
+    const server = await createServerWithSessions({ [relative]: first })
+    const url = `${server.url}/api/sessions/${encodeSessionToken(relative)}`
+    const read = async (): Promise<string> => {
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${server.token}` } })
+      expect(response.status).toBe(200)
+      return (await response.json() as { content: string }).content
+    }
+
+    expect(await read()).toBe(first)
+    // The second read is answered from the body cache; it must still be complete.
+    expect(await read()).toBe(first)
+
+    // Appending changes the file's size, which changes the cache key: a session
+    // another process is writing must never come back stale.
+    const appended = `${first}{"type":"session_info","id":"info","parentId":"session-1","timestamp":"2026-01-01T10:00:01.000Z","name":"Renamed"}\n`
+    const sessionRoot = directories.at(-1) as string
+    await writeFile(path.join(sessionRoot, 'sessions', relative), appended)
+    expect(await read()).toBe(appended)
+  })
+
   it('reads a subagent transcript by its token, which subagent navigation needs', async () => {
     // pi-subagents reports `<runId>_<agent>_transcript.jsonl` as the result of a
     // subagent call, so the viewer must be able to open it. The catalog still

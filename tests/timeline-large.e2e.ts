@@ -511,6 +511,7 @@ test('restores a large parent timeline anchor after subagent navigation', async 
       message: { role: 'user', timestamp: Date.parse(sessionTimestamp), content: 'Synthetic child request' },
     }),
   ].join('\n')
+  const sessionRequests: string[] = []
   const sessions = [
     {
       token: parentToken,
@@ -546,6 +547,7 @@ test('restores a large parent timeline anchor after subagent navigation', async 
   })
   await page.route('**/api/sessions/*', async (route) => {
     const token = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1) ?? '')
+    sessionRequests.push(token)
     const content = token === parentToken
       ? parentContent
       : token === secondToken
@@ -622,6 +624,7 @@ test('restores a large parent timeline anchor after subagent navigation', async 
   await subagentRow.locator('.event-subagent-tag').click()
   await expect(page.getByRole('button', { name: 'Back to parent session' })).toBeVisible()
   await expect(page.locator('.header-session--breadcrumbs')).toContainText('Synthetic child request')
+  expect(sessionRequests.filter((token) => token === childToken)).toHaveLength(1)
   await page.getByRole('button', { name: 'Back to parent session' }).click()
 
   const restoredAnchor = scrollContainer.locator(`.event-row[data-event-id="${parentAnchor!.eventId}"]`)
@@ -632,6 +635,14 @@ test('restores a large parent timeline anchor after subagent navigation', async 
     const row = element.querySelector<HTMLElement>(`.event-row[data-event-id="${anchor.eventId}"]`)
     return row ? Math.abs(row.getBoundingClientRect().top - viewportTop - anchor.offset) : Number.POSITIVE_INFINITY
   }, parentAnchor!)).toBeLessThanOrEqual(2)
+
+  // The child stays in the client cache after going back to its parent.
+  await subagentRow.locator('.event-subagent-tag').click()
+  await expect(page.getByRole('button', { name: 'Back to parent session' })).toBeVisible()
+  await expect(page.locator('.header-session--breadcrumbs')).toContainText('Synthetic child request')
+  expect(sessionRequests.filter((token) => token === childToken)).toHaveLength(1)
+  await page.getByRole('button', { name: 'Back to parent session' }).click()
+
   await expect(page.locator('#branch-select')).toHaveValue('synthetic-historical-branch')
   expect(await page.getByLabel('Thinking', { exact: true }).isChecked()).toBe(false)
 

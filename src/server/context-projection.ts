@@ -24,6 +24,23 @@ const MAX_PROJECTED_LEAVES = 8
 let cachedApi: Promise<PiContextApi | undefined> | undefined
 
 /**
+ * Where Pi keeps the pure projection functions, most specific first.
+ *
+ * `dist/core/session-manager.js` exports both functions the viewer needs and its
+ * transitive imports are small; the package root re-exports the whole CLI and tool
+ * runtime. Measured on Pi 1.3.0: 266 ms / +8 MB against 1884 ms / +50 MB. The root
+ * stays as a fallback for a Pi release that moves or renames the internal module.
+ */
+export const PI_CONTEXT_API_MODULES = ['dist/core/session-manager.js', 'dist/index.js']
+
+function isPiContextApi(module: unknown): module is PiContextApi {
+  if (!module || typeof module !== 'object') return false
+  const candidate = module as Record<string, unknown>
+  return typeof candidate.buildSessionProjection === 'function'
+    && typeof candidate.parseSessionEntries === 'function'
+}
+
+/**
  * Loads Pi's own projection implementation.
  *
  * The viewer never reimplements this: a projection decides what the model saw, so
@@ -33,11 +50,7 @@ let cachedApi: Promise<PiContextApi | undefined> | undefined
  */
 export function loadPiContextApi(): Promise<PiContextApi | undefined> {
   if (!cachedApi) {
-    cachedApi = importFromPi<PiContextApi>('dist/index.js').then((module) =>
-      module && typeof module.buildSessionProjection === 'function' && typeof module.parseSessionEntries === 'function'
-        ? module
-        : undefined
-    )
+    cachedApi = importFromPi<PiContextApi>(PI_CONTEXT_API_MODULES, isPiContextApi)
   }
   return cachedApi
 }

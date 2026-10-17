@@ -61,15 +61,31 @@ export function resolvePiVersion(): string | undefined {
  * Pi's `exports` map only exposes the root, so internal modules (the session
  * projection, for example) are loaded by path. Returning `undefined` when Pi
  * cannot be located is deliberate: callers must degrade instead of guessing.
+ *
+ * Several candidate paths are tried in order, and a module only counts if
+ * `isValid` accepts it. That fallback is the point: Pi's package root pulls in the
+ * CLI, the TUI and the whole tool runtime (measured: 1884 ms and +50 MB of heap,
+ * against 266 ms and +8 MB for the 60 KB module that actually holds the
+ * projection), while the internal layout may move between Pi releases. Asking for
+ * the narrow module first and falling back to the root keeps the win without
+ * making the viewer depend on an undocumented path.
  */
-export async function importFromPi<T>(relativePath: string): Promise<T | undefined> {
+export async function importFromPi<T>(
+  relativePaths: string | string[],
+  isValid: (module: unknown) => module is T,
+): Promise<T | undefined> {
   const directory = resolvePiPackageDir()
   if (!directory) return undefined
-  const target = path.join(directory, relativePath)
-  if (!existsSync(target)) return undefined
-  try {
-    return (await import(pathToFileURL(target).href)) as T
-  } catch {
-    return undefined
+  const candidates = typeof relativePaths === 'string' ? [relativePaths] : relativePaths
+  for (const relativePath of candidates) {
+    const target = path.join(directory, relativePath)
+    if (!existsSync(target)) continue
+    try {
+      const loaded: unknown = await import(pathToFileURL(target).href)
+      if (isValid(loaded)) return loaded
+    } catch {
+      // Try the next candidate.
+    }
   }
+  return undefined
 }

@@ -11,6 +11,7 @@ import { buildSessionView, getSessionTitle, parseSessionJsonl, primaryEventForEn
 import { subagentTargetCandidates } from '../core/subagent-detector'
 import { encodeSessionToken } from '../core/session-token'
 import { browserAccessToken, browserInitialCwd } from './session-auth'
+import { sessionCache, sessionCacheKey } from './session-cache'
 import type {
   ContextProjection,
   EventKind,
@@ -114,15 +115,18 @@ function App() {
 
   const catalog = useMemo(() => createSessionCatalog(sessions, currentCwd), [sessions, currentCwd])
 
-  const applyContent = useCallback((
+  /**
+   * Puts an already-parsed session on screen. Revisiting a session reuses its
+   * cached parse, so this is the path that skips all of the parsing work.
+   */
+  const applyParsedSession = useCallback((
     content: string,
-    sourceName: string,
+    parsed: ParsedSession,
     metadata: SessionListItem | null,
     initialEventId?: string | null,
     projections?: Record<string, ContextProjection> | null,
   ) => {
     currentContentRef.current = content
-    const parsed = measurePerformance('pi-session-viewer:parse-session', () => parseSessionJsonl(content, sourceName))
     setParsedSession(parsed)
     setContextProjections(projections ?? null)
     setSelectedMetadata(metadata)
@@ -134,6 +138,18 @@ function App() {
     setActionError(null)
   }, [])
 
+  const applyContent = useCallback((
+    content: string,
+    sourceName: string,
+    metadata: SessionListItem | null,
+    initialEventId?: string | null,
+    projections?: Record<string, ContextProjection> | null,
+  ): ParsedSession => {
+    const parsed = measurePerformance('pi-session-viewer:parse-session', () => parseSessionJsonl(content, sourceName))
+    applyParsedSession(content, parsed, metadata, initialEventId, projections)
+    return parsed
+  }, [applyParsedSession])
+
   const openServerSession = useCallback(async (session: SessionListItem) => {
     if (!accessToken) return
     sessionViewportsRef.current.clear()
@@ -142,16 +158,37 @@ function App() {
     setImportedFile(null)
     setSidebarOpen(false)
     setSessionStack([])
+    // Cached under the identity the catalog advertised. A session Pi has appended
+    // to since the last scan therefore misses instead of showing stale turns.
+    const cacheKey = sessionCacheKey(session.token, session.modifiedAt)
+    const cached = sessionCache.recall(cacheKey)
+    if (cached) {
+      applyParsedSession(cached.content, cached.parsed, session, null, cached.contextProjections)
+      setRestorePosition({ eventId: null, scrollTop: 0, key: ++restoreKeyRef.current })
+      setSessionLoading(false)
+      return
+    }
     try {
       const payload = await fetchSession(session.token, accessToken)
-      applyContent(payload.content, payload.relativePath, session, null, payload.contextProjections ?? null)
+      const projections = payload.contextProjections ?? null
+      const loadedMetadata = { ...session, modifiedAt: payload.modifiedAt }
+      const parsed = applyContent(payload.content, payload.relativePath, loadedMetadata, null, projections)
+      // Stored under the file's own identity, which is the server's stat: the
+      // catalog's copy may already be older than the content just received.
+      sessionCache.remember(sessionCacheKey(session.token, payload.modifiedAt), {
+        token: session.token,
+        modifiedAt: payload.modifiedAt,
+        content: payload.content,
+        parsed,
+        contextProjections: projections,
+      })
       setRestorePosition({ eventId: null, scrollTop: 0, key: ++restoreKeyRef.current })
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error))
     } finally {
       setSessionLoading(false)
     }
-  }, [accessToken, applyContent])
+  }, [accessToken, applyContent, applyParsedSession])
 
   const openSubagent = useCallback(async (subagent: SubagentReference, sourceEventId?: string) => {
     if (!parsedSession) return
@@ -187,6 +224,8 @@ function App() {
 
     try {
       let content: string | undefined
+      let nextParsed: ParsedSession | undefined
+      let nextModifiedAt: string | undefined
       let nextContextProjections: Record<string, ContextProjection> | null = null
       let resolvedRelativePath = subagent.targetFile
 
@@ -197,15 +236,30 @@ function App() {
         let lastError: unknown
         let sawNonSession = false
         for (const candidate of attempts) {
+          const candidateToken = encodeSessionToken(candidate)
+          // Jumping back to a subagent seen earlier must not refetch: the parent
+          // and its children are the pages you move between.
+          const cachedCandidate = sessionCache.recallByToken(candidateToken)
+          if (cachedCandidate) {
+            content = cachedCandidate.content
+            nextParsed = cachedCandidate.parsed
+            nextModifiedAt = cachedCandidate.modifiedAt
+            nextContextProjections = cachedCandidate.contextProjections
+            resolvedRelativePath = candidate
+            break
+          }
           try {
-            const payload = await fetchSession(encodeSessionToken(candidate), accessToken)
+            const payload = await fetchSession(candidateToken, accessToken)
+            const candidateParsed = parseSessionJsonl(payload.content, payload.relativePath)
             // pi-subagents transcripts are not Pi sessions; opening one would show
             // an empty timeline, so report that instead of navigating.
-            if (!parseSessionJsonl(payload.content, payload.relativePath).header) {
+            if (!candidateParsed.header) {
               sawNonSession = true
               continue
             }
             content = payload.content
+            nextParsed = candidateParsed
+            nextModifiedAt = payload.modifiedAt
             nextContextProjections = payload.contextProjections ?? null
             resolvedRelativePath = payload.relativePath
             break
@@ -223,7 +277,7 @@ function App() {
         throw new Error(t.header.missingToken)
       }
 
-      if (content) {
+      if (content && nextParsed && nextModifiedAt) {
         setSessionStack((prev) => [...prev, currentFrame])
         const syntheticToken = encodeSessionToken(resolvedRelativePath)
         setSelectedToken(syntheticToken)
@@ -233,14 +287,23 @@ function App() {
           id: subagent.targetFile,
           title: subagent.agentName ? `${subagent.agentName} (Subagent)` : `Subagent (${resolvedRelativePath})`,
           cwd: selectedMetadata?.cwd ?? parsedSession.header?.cwd ?? '',
-          modifiedAt: new Date().toISOString(),
+          modifiedAt: nextModifiedAt,
           relativePath: resolvedRelativePath,
           parentSession: parsedSession.header?.id,
         }
+        // Keep the child session parsed too: jumping back and forth between a
+        // parent and its subagents is the same gesture the cache exists for.
+        sessionCache.remember(sessionCacheKey(syntheticToken, syntheticMetadata.modifiedAt), {
+          token: syntheticToken,
+          modifiedAt: syntheticMetadata.modifiedAt,
+          content,
+          parsed: nextParsed,
+          contextProjections: nextContextProjections,
+        })
 
         const cachedViewport = sessionViewportsRef.current.get(syntheticToken)
         if (cachedViewport) {
-          applyContent(content, resolvedRelativePath, syntheticMetadata, cachedViewport.selectedEventId, nextContextProjections)
+          applyParsedSession(content, nextParsed, syntheticMetadata, cachedViewport.selectedEventId, nextContextProjections)
           setRestorePosition({
             eventId: cachedViewport.selectedEventId,
             scrollTop: cachedViewport.scrollTop,
@@ -248,7 +311,7 @@ function App() {
             key: ++restoreKeyRef.current,
           })
         } else {
-          applyContent(content, resolvedRelativePath, syntheticMetadata, null, nextContextProjections)
+          applyParsedSession(content, nextParsed, syntheticMetadata, null, nextContextProjections)
           setRestorePosition({
             eventId: null,
             scrollTop: 0,
@@ -263,12 +326,10 @@ function App() {
     } finally {
       setSessionLoading(false)
     }
-  }, [accessToken, applyContent, contextProjections, importedFile, parsedSession, selectedEventId, selectedLeafId, selectedMetadata, selectedToken, t.header])
+  }, [accessToken, applyParsedSession, contextProjections, importedFile, parsedSession, selectedEventId, selectedLeafId, selectedMetadata, selectedToken, t.header])
 
   const popSessionStack = useCallback((targetIndex?: number) => {
     const currentViewport = timelineRef.current?.getViewport() ?? null
-    const currentScrollTop = currentViewport?.scrollTop
-    const timelineAnchor = currentViewport?.anchor ?? null
     if (currentSelectedTokenRef.current && currentViewport) {
       sessionViewportsRef.current.set(currentSelectedTokenRef.current, {
         ...currentViewport,
@@ -376,18 +437,35 @@ function App() {
     if (selectedToken && selectedMetadata) {
       setSessionLoading(true)
       try {
-        const [sessionPayload, payload] = await Promise.all([
-          accessToken ? fetchSession(selectedToken, accessToken) : Promise.reject(new Error(t.header.missingToken)),
-          listPromise,
-        ])
-        const updatedMetadata = payload?.sessions.find((item) => item.token === selectedToken) ?? selectedMetadata
-        applyContent(
+        const payload = await listPromise
+        const listedMetadata = payload?.sessions.find((item) => item.token === selectedToken)
+        // A refresh still reloads the catalog, but if the currently displayed
+        // version is unchanged, avoid downloading and parsing the session body.
+        if (listedMetadata && listedMetadata.modifiedAt === selectedMetadata.modifiedAt) {
+          setSelectedMetadata(listedMetadata)
+          setLoadError(null)
+          return
+        }
+
+        if (!accessToken) throw new Error(t.header.missingToken)
+        const sessionPayload = await fetchSession(selectedToken, accessToken)
+        const updatedMetadata = listedMetadata ?? selectedMetadata
+        const loadedMetadata = { ...updatedMetadata, modifiedAt: sessionPayload.modifiedAt }
+        const projections = sessionPayload.contextProjections ?? null
+        const parsed = applyContent(
           sessionPayload.content,
           sessionPayload.relativePath,
-          updatedMetadata,
+          loadedMetadata,
           null,
-          sessionPayload.contextProjections ?? null,
+          projections,
         )
+        sessionCache.remember(sessionCacheKey(selectedToken, sessionPayload.modifiedAt), {
+          token: selectedToken,
+          modifiedAt: sessionPayload.modifiedAt,
+          content: sessionPayload.content,
+          parsed,
+          contextProjections: projections,
+        })
       } catch (error) {
         setLoadError(error instanceof Error ? error.message : String(error))
       } finally {
@@ -507,7 +585,13 @@ function App() {
   }, [view])
 
   const displayError = loadError ?? (!accessToken ? t.header.missingToken : null)
-  const title = parsedSession ? getSessionTitle(parsedSession) : t.header.selectSession
+  // Memoized: the title is derived from the parsed session, so recomputing it in
+  // the render body made every render (including each selection change) pay for
+  // scanning the session again.
+  const title = useMemo(
+    () => (parsedSession ? getSessionTitle(parsedSession) : t.header.selectSession),
+    [parsedSession, t.header.selectSession],
+  )
   const fullJsonlPath = useMemo(() => {
     const rel = selectedMetadata?.relativePath || parsedSession?.sourceName || importedFile?.name || ''
     if (!rel) return ''

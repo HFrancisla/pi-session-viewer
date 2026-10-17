@@ -921,6 +921,15 @@ export function getSessionTitle(session: ParsedSession): string {
     if (entry.type === 'session_info') name = stringValue(entry.raw.name)
   }
   if (name) return name
-  const firstUser = buildSessionView(session, session.currentLeafId).events.find((event) => event.kind === 'user')
-  return firstUser?.summary ?? session.sourceName
+  // The first user message on the current branch, read from the entry list. A
+  // title is shown on every render, so it must not build the whole view: that
+  // turned each render into O(session) work on multi-megabyte sessions.
+  if (!session.currentLeafId) return session.sourceName
+  for (const entry of getPath(session.entries, session.currentLeafId)) {
+    if (entry.type !== 'message') continue
+    const message = isObject(entry.raw.message) ? entry.raw.message : {}
+    if (message.role !== 'user') continue
+    return truncate(contentText(message.content))
+  }
+  return session.sourceName
 }

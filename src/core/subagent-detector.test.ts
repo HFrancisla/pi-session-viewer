@@ -105,6 +105,35 @@ describe('subagent-detector', () => {
     expect(refs).toBeDefined()
     expect(refs?.agentName).toBe('worker-1')
   })
+
+  it('parses a JSON result string that carries the reference', () => {
+    // Leading whitespace is still accepted: the object-literal check trims first.
+    const ref = extractSubagentReference(
+      'subagent',
+      undefined,
+      `\n\t ${JSON.stringify({ sessionPath: 'subagent-artifacts/lead-ws.jsonl' })}`,
+    )
+    expect(ref?.targetFile).toBe('subagent-artifacts/lead-ws.jsonl')
+  })
+
+  it('does not parse oversized result strings as JSON', () => {
+    // A failed JSON.parse reads the whole string, so multi-megabyte tool output is
+    // never attempted; the structured `details` path remains the reliable one.
+    // The escaped slash keeps the path out of the raw-text scan, so only a JSON
+    // parser could surface it.
+    const oversized = `{"sessionPath":"subagent-artifacts\\/too-big.jsonl","log":"${'x'.repeat(1_100_000)}"}`
+    const ref = extractSubagentReference('subagent', { prompt: 'run it' }, oversized)
+    expect(ref).toBeUndefined()
+  })
+
+  it('skips prose that only starts with a brace', () => {
+    const ref = extractSubagentReference(
+      'read_file',
+      { path: 'subagent-artifacts/real.jsonl' },
+      `{ not json at all: ${'body '.repeat(1_000)}`,
+    )
+    expect(ref).toBeUndefined()
+  })
 })
 
 describe('subagentTargetCandidates', () => {

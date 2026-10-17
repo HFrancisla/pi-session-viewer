@@ -3,8 +3,16 @@ import os from 'node:os'
 import path from 'node:path'
 import { getSessionTitle, parseSessionJsonl } from '../core/session-parser'
 import type { SessionFileResponse, SessionListItem, SessionListResponse } from '../core/types'
+import { createLruCache } from '../core/lru-cache'
 
 const SESSION_PREFIX_LIMIT = 256 * 1024
+
+/**
+ * Catalog rows survive a rescan as long as the file's identity is unchanged.
+ * The scan is the most expensive thing the viewer does (every session's prefix is
+ * parsed), and it runs inside the Pi process, so a refresh must not repeat it.
+ */
+const metadataCache = createLruCache<SessionListItem | null>({ maxEntries: 4096 })
 
 function expandHome(value: string): string {
   return value === '~' || value.startsWith('~/') ? path.join(os.homedir(), value.slice(2)) : value
@@ -76,6 +84,22 @@ async function readPrefix(filePath: string, limit = SESSION_PREFIX_LIMIT): Promi
 }
 
 async function sessionMetadata(root: string, filePath: string): Promise<SessionListItem | null> {
+  // Stat first: the cache key is the file's identity, so an unchanged file costs
+  // one syscall instead of a 256 KB read and parse.
+  const stat = await fs.stat(filePath)
+  const cacheKey = `${filePath}\u0000${stat.mtimeMs}\u0000${stat.size}`
+  const cached = metadataCache.get(cacheKey)
+  if (cached !== undefined) return cached
+  const item = await readSessionMetadata(root, filePath, stat)
+  metadataCache.set(cacheKey, item)
+  return item
+}
+
+async function readSessionMetadata(
+  root: string,
+  filePath: string,
+  stat: import('node:fs').Stats,
+): Promise<SessionListItem | null> {
   const prefix = await readPrefix(filePath)
   const firstLine = prefix.split(/\r?\n/, 1)[0]
   try {
@@ -88,7 +112,6 @@ async function sessionMetadata(root: string, filePath: string): Promise<SessionL
       return null
     }
     const parsed = parseSessionJsonl(prefix, path.basename(filePath))
-    const stat = await fs.stat(filePath)
     return {
       token: encodeSessionToken(relativePath),
       id: typeof header.id === 'string' ? header.id : relativePath,
@@ -120,6 +143,9 @@ export async function listSessions(root: string, currentCwd?: string): Promise<S
         }
       }))
       sessions.push(...batch.filter((item): item is SessionListItem => item !== null))
+      // The scan runs inside the Pi process: yield between batches so the TUI's
+      // event loop keeps breathing while a large session directory is walked.
+      await new Promise<void>((resolve) => setImmediate(resolve))
     }
     sessions.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt))
     return { root: rootRealPath, currentCwd, sessions, warnings }
