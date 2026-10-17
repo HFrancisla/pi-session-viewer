@@ -7,8 +7,8 @@ import type { ContextProjection, ParsedSession } from '../core/types'
  * Revisiting a session is the viewer's most common expensive gesture: the server
  * ships the whole JSONL (megabytes), the browser receives it, parses the JSON, and
  * builds the timeline. Keeping the parsed result turns that work into a lookup.
- * The raw content is kept too, because parent frames and the raw inspector need
- * it, and because it is what the cache weight is measured from.
+ * Raw content stays inside this bounded cache with its parse, so navigation frames
+ * can keep only the session identity and use the cache to restore exact versions.
  *
  * `token` and `modifiedAt` are the entry's own identity: they are what makes the
  * entry findable again, and they are copied out so a recalled session can be

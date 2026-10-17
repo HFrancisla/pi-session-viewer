@@ -9,12 +9,13 @@ const cwd = '/work/demo'
  */
 let versions: Record<string, string> = {}
 let labels: Record<string, string> = {}
+let titles: Record<string, string> = {}
 
 function session(token: string) {
   return {
     token,
     id: token,
-    title: `Session ${token}`,
+    title: titles[token] ?? `Session ${token}`,
     cwd,
     timestamp: '2026-01-01T00:00:00.000Z',
     modifiedAt: `2026-01-01T00:00:0${versions[token]}.000Z`,
@@ -38,6 +39,7 @@ function content(label: string): string {
 test('a revisited session is served from the client cache', async ({ page }) => {
   versions = { alpha: '1', beta: '2' }
   labels = { alpha: 'Open session A', beta: 'Open session B' }
+  titles = {}
   const requests: string[] = []
 
   await page.route('**/api/sessions', async (route) => {
@@ -78,9 +80,11 @@ test('a revisited session is served from the client cache', async ({ page }) => 
   expect(requests).toEqual(['alpha', 'beta'])
   expect(await parses()).toBe(parsesAfterBoth)
 
-  // A reload with unchanged metadata does not fetch or reparse alpha.
+  // Catalog metadata refreshes independently from an unchanged body version.
+  titles.alpha = 'Session alpha (renamed in catalog)'
   await page.getByRole('button', { name: 'Reload sessions and list' }).click()
   await expect(page.getByRole('button', { name: 'Reload sessions and list' })).toBeEnabled()
+  await expect(page.locator('.session-item').filter({ hasText: 'Session alpha (renamed in catalog)' })).toBeVisible()
   expect(requests).toEqual(['alpha', 'beta'])
   expect(await parses()).toBe(parsesAfterBoth)
 

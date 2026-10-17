@@ -31,7 +31,9 @@ export const zhCN: Translations = {
     backToParent: '返回父会话',
     subagentBadge: '子 Agent',
     loadingSubagent: '正在加载子 Agent 会话...',
+    invalidSessionFile: '此文件不包含 Pi 会话头信息。',
     subagentTranscriptOnly: '只留下 pi-subagents 的转写文件（不是 Pi 会话文件）。',
+    operationFailed: '操作失败。',
     failedToLoadSubagent: (err: string) => `加载子 Agent 会话失败：${err}`,
   },
   sidebar: {

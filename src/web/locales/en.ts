@@ -29,7 +29,9 @@ export const en = {
     backToParent: 'Back to parent session',
     subagentBadge: 'Subagent',
     loadingSubagent: 'Loading subagent session...',
+    invalidSessionFile: 'This file does not contain a Pi Session header.',
     subagentTranscriptOnly: 'only a pi-subagents transcript exists (not a Pi session file).',
+    operationFailed: 'The operation failed.',
     failedToLoadSubagent: (err: string) => `Failed to load subagent session: ${err}`,
   },
   sidebar: {

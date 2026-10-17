@@ -334,8 +334,9 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   await expect(page.locator('.inspector')).toContainText('Synthetic assistant response 400.')
   await page.locator('#branch-select').selectOption({ label: 'Historical branch 1' })
   const firstVisibleEvent = page.locator(`.event-row[data-event-id="${firstEventId}"]`)
-  await expect(firstVisibleEvent).toBeVisible()
-  await expect(firstVisibleEvent).toHaveClass(/is-selected/)
+  await expect(firstVisibleEvent).toHaveCount(0)
+  await expect(page.getByLabel('System Prompt', { exact: true })).not.toBeChecked()
+  await expect(page.locator('.inspector')).toContainText('System prompt unrecorded')
   await page.locator('#branch-select').selectOption({ label: 'Current branch' })
   await toggleAllButton.click()
   await expect(toggleAllButton).toHaveText('Clear')
@@ -352,14 +353,23 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
         if (row.dataset.eventId) eventIds.add(row.dataset.eventId)
       })
     }
-    const maxScroll = element.scrollHeight - element.clientHeight
-    for (let scrollTop = 0; scrollTop < maxScroll; scrollTop += 600) {
-      element.scrollTop = scrollTop
+    let previousMaxScroll = -1
+    let stableBottomFrames = 0
+    for (let frame = 0; frame < 1200; frame += 1) {
+      const maxScroll = Math.max(0, element.scrollHeight - element.clientHeight)
+      element.scrollTop = Math.min(element.scrollTop + 450, maxScroll)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       collectMountedRows()
+      const updatedMaxScroll = Math.max(0, element.scrollHeight - element.clientHeight)
+      if (element.scrollTop >= updatedMaxScroll - 1 && Math.abs(updatedMaxScroll - previousMaxScroll) < 1) {
+        stableBottomFrames += 1
+      } else {
+        stableBottomFrames = 0
+      }
+      if (stableBottomFrames >= 6) break
+      previousMaxScroll = updatedMaxScroll
     }
-    element.scrollTop = maxScroll
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     collectMountedRows()
     return { count: eventIds.size, ids: [...eventIds], first: eventIds.values().next().value, last: [...eventIds].at(-1) }
   })

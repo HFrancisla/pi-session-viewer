@@ -23,10 +23,10 @@ interface TimelineProps {
   turns: TimelineTurn[]
   allEvents: TimelineEvent[]
   selectedEventId: string | null
-  restorePosition?: { eventId: string | null; scrollTop?: number; anchor?: TimelineAnchor; key: number } | null
+  restorePosition?: { eventId: string | null; scrollTop?: number; anchor?: TimelineAnchor; revealEventKind?: boolean; key: number } | null
   selectedLeafId: string | null
   contextProjection?: ContextProjection
-  enabledKinds: Set<EventKind>
+  enabledKinds: ReadonlySet<EventKind>
   onSelectEvent: (event: TimelineEvent) => void
   onSelectBranch: (leafId: string) => void
   onToggleKind: (kind: EventKind) => void
@@ -500,18 +500,25 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
     }
     if (!restorePosition) return
 
-    const anchor = restorePosition.anchor
-    const targetEventId = anchor?.eventId ?? restorePosition.eventId
+    let anchor = restorePosition.anchor
+    let targetEventId = anchor?.eventId ?? restorePosition.eventId
     const target = targetEventId
       ? allEvents.find((event) => event.id === targetEventId)
       : undefined
     if (target && !enabledKinds.has(target.kind)) {
-      onEnsureEventKindEnabled(target.kind)
-      return
+      if (restorePosition.revealEventKind) {
+        onEnsureEventKindEnabled(target.kind)
+        return
+      }
+      anchor = undefined
+      targetEventId = null
     }
 
     const index = targetEventId ? eventIndexById.get(targetEventId) : undefined
-    if (restorePosition.scrollTop == null && index == null) return
+    if (restorePosition.scrollTop == null && index == null) {
+      const acknowledgement = requestAnimationFrame(() => onRestorePositionApplied(restorePosition.key))
+      return () => cancelAnimationFrame(acknowledgement)
+    }
 
     let frame = 0
     let secondFrame = 0
@@ -557,7 +564,25 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
         })
       } else if (index != null) {
         virtuoso.scrollToIndex({ index, align: 'center', behavior: 'auto' })
-        onRestorePositionApplied(restorePosition.key)
+        let stableFrames = 0
+        let previousTop: number | null = null
+        const acknowledgeAfterScroll = () => {
+          if (cancelled) return
+          const row = [...container.querySelectorAll<HTMLElement>('.event-row')]
+            .find((element) => element.dataset.eventId === targetEventId)
+          const top = row?.getBoundingClientRect().top ?? null
+          stableFrames = top != null && previousTop != null && Math.abs(top - previousTop) <= 0.5
+            ? stableFrames + 1
+            : 0
+          previousTop = top
+          attempts += 1
+          if (stableFrames >= 3 || attempts >= 120) {
+            onRestorePositionApplied(restorePosition.key)
+          } else {
+            frame = requestAnimationFrame(acknowledgeAfterScroll)
+          }
+        }
+        frame = requestAnimationFrame(acknowledgeAfterScroll)
       }
     }
     frame = requestAnimationFrame(restoreWhenReady)
