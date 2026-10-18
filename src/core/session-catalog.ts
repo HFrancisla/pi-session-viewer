@@ -110,20 +110,57 @@ export function formatSessionTooltip(session: SessionListItem, rootDir?: string)
   return lines.join('\n')
 }
 
-export function isSubagentSession(session: SessionListItem): boolean {
-  if (session.parentSession) return true
-  const rel = session.relativePath.toLowerCase().replace(/\\/g, '/')
-  return rel.includes('subagent-artifacts/')
-    || rel.includes('/run-')
-    || rel.includes('/subagents/')
-    || session.id.toLowerCase().startsWith('subagent-')
+const SUBAGENT_DIRECTORY_NAMES = new Set(['subagent-artifacts', 'subagents'])
+// Pi run IDs are UUIDs; target paths also use short hex and run-<number> IDs.
+const RUN_IDENTIFIER = /^(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{4,}|run-\d+)$/i
+const RUN_DIRECTORY = /^run-\d+$/
+
+function sessionPathSegments(relativePath: string): string[] {
+  return relativePath.replace(/\\/g, '/').split('/').filter(Boolean)
+}
+
+function isSubagentPathSegment(segment: string): boolean {
+  return SUBAGENT_DIRECTORY_NAMES.has(segment)
+}
+
+function hasSubagentPathSegment(segments: string[]): boolean {
+  return segments.some(isSubagentPathSegment)
+}
+
+export function isSessionCatalogSubtreeExcluded(relativePath: string): boolean {
+  return hasSubagentPathSegment(sessionPathSegments(relativePath))
+}
+
+function isRunnableSubagentSession(segments: string[]): boolean {
+  const runIdentifier = segments.at(-3)
+  return Boolean(runIdentifier && RUN_IDENTIFIER.test(runIdentifier))
+    && segments.at(-1) === 'session.jsonl'
+    && RUN_DIRECTORY.test(segments.at(-2) ?? '')
+}
+
+export function isSessionCatalogPathMember(relativePath: string): boolean {
+  const segments = sessionPathSegments(relativePath)
+  if (hasSubagentPathSegment(segments)) return false
+  if (segments.at(-1)?.endsWith('_transcript.jsonl')) return false
+  return !isRunnableSubagentSession(segments)
+}
+
+/**
+ * The one positive membership rule for standalone Session Catalog entries.
+ * Child Sessions and transcript mirrors may still be opened by an authorized
+ * in-root token; this predicate controls catalog membership only.
+ */
+export function isSessionCatalogMember(session: SessionListItem): boolean {
+  if (session.parentSession?.trim()) return false
+  if (session.id.toLowerCase().startsWith('subagent-')) return false
+  return isSessionCatalogPathMember(session.relativePath)
 }
 
 export function createSessionCatalog(
   sessions: SessionListItem[],
   defaultCwd?: string | null,
 ): SessionCatalog {
-  const mainSessions = sessions.filter((s) => !isSubagentSession(s))
+  const mainSessions = sessions.filter(isSessionCatalogMember)
   const projects = buildProjectSummaries(mainSessions)
   const sessionsByProject = new Map<string, SessionListItem[]>()
   const projectNamesByNormCwd = new Map<string, string>()

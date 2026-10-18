@@ -2,6 +2,11 @@ import { promises as fs, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { getSessionTitle, parseSessionJsonl } from '../core/session-parser'
+import {
+  isSessionCatalogMember,
+  isSessionCatalogPathMember,
+  isSessionCatalogSubtreeExcluded,
+} from '../core/session-catalog'
 import type { SessionFileResponse, SessionListItem, SessionListResponse } from '../core/types'
 import { createLruCache } from '../core/lru-cache'
 
@@ -45,31 +50,33 @@ function isSessionCandidate(entry: import('node:fs').Dirent, name: string): bool
   return entry.isFile()
     && name.endsWith('.jsonl')
     && name !== 'events.jsonl'
-    && !name.endsWith('_transcript.jsonl')
 }
 
-/**
- * Every JSONL file the catalog treats as a session. Exported so the
- * real-session checker (`scripts/check-real-sessions.ts`) verifies exactly the
- * files the viewer shows, not a looser glob.
- */
-export async function walkSessionFiles(root: string): Promise<string[]> {
+async function walkSessionCandidates(root: string): Promise<string[]> {
   const files: string[] = []
   async function visit(directory: string): Promise<void> {
     const entries = await fs.readdir(directory, { withFileTypes: true })
     for (const entry of entries) {
-      if (entry.name === 'subagent-artifacts') continue
-      if (entry.isDirectory() && (/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/.test(entry.name) || /^run-\d+$/.test(entry.name))) continue
       const absolute = path.join(directory, entry.name)
       if (entry.isDirectory()) {
+        if (isSessionCatalogSubtreeExcluded(path.relative(root, absolute))) continue
         await visit(absolute)
-      } else if (isSessionCandidate(entry, entry.name)) {
+      } else if (
+        isSessionCandidate(entry, entry.name)
+        && isSessionCatalogPathMember(path.relative(root, absolute))
+      ) {
         files.push(absolute)
       }
     }
   }
   await visit(root)
   return files
+}
+
+/** Returns the absolute paths of the Sessions admitted by the server catalog. */
+export async function walkSessionFiles(root: string): Promise<string[]> {
+  const catalog = await listSessions(root)
+  return catalog.sessions.map((session) => path.resolve(catalog.root, session.relativePath))
 }
 
 async function readPrefix(filePath: string, limit = SESSION_PREFIX_LIMIT): Promise<string> {
@@ -103,35 +110,52 @@ async function readSessionMetadata(
   const prefix = await readPrefix(filePath)
   const firstLine = prefix.split(/\r?\n/, 1)[0]
   try {
-    const header = JSON.parse(firstLine) as Record<string, unknown>
-    if (header.type !== 'session') return null
-    if (header.parentSession) return null
+    const header = JSON.parse(firstLine) as unknown
+    if (!isValidPiSessionHeader(header)) return null
     const relativePath = path.relative(root, filePath)
-    const normalizedRel = relativePath.replace(/\\/g, '/')
-    if (normalizedRel.includes('subagent-artifacts/') || normalizedRel.includes('/run-') || normalizedRel.includes('/subagents/')) {
-      return null
-    }
-    const parsed = parseSessionJsonl(prefix, path.basename(filePath))
-    return {
+    const item: SessionListItem = {
       token: encodeSessionToken(relativePath),
-      id: typeof header.id === 'string' ? header.id : relativePath,
-      title: getSessionTitle(parsed),
-      cwd: typeof header.cwd === 'string' ? header.cwd : 'Unknown working directory',
-      timestamp: typeof header.timestamp === 'string' ? header.timestamp : undefined,
+      id: header.id,
+      title: '',
+      cwd: header.cwd,
+      timestamp: header.timestamp,
       modifiedAt: stat.mtime.toISOString(),
       relativePath,
-      parentSession: typeof header.parentSession === 'string' ? header.parentSession : undefined,
+      parentSession: header.parentSession,
     }
+    if (!isSessionCatalogMember(item)) return null
+
+    const parsed = parseSessionJsonl(prefix, path.basename(filePath))
+    return { ...item, title: getSessionTitle(parsed) }
   } catch {
     return null
   }
+}
+
+function isValidPiSessionHeader(value: unknown): value is {
+  type: 'session'
+  id: string
+  timestamp: string
+  cwd: string
+  parentSession?: string
+} {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const header = value as Record<string, unknown>
+  return header.type === 'session'
+    && typeof header.id === 'string'
+    && header.id.trim().length > 0
+    && typeof header.timestamp === 'string'
+    && header.timestamp.trim().length > 0
+    && typeof header.cwd === 'string'
+    && (header.version === undefined || typeof header.version === 'number')
+    && (header.parentSession === undefined || typeof header.parentSession === 'string')
 }
 
 export async function listSessions(root: string, currentCwd?: string): Promise<SessionListResponse> {
   const warnings: string[] = []
   try {
     const rootRealPath = await fs.realpath(root)
-    const files = await walkSessionFiles(rootRealPath)
+    const files = await walkSessionCandidates(rootRealPath)
     const sessions: SessionListItem[] = []
     for (let index = 0; index < files.length; index += 32) {
       const batch = await Promise.all(files.slice(index, index + 32).map(async (filePath) => {

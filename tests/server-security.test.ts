@@ -3,8 +3,11 @@ import { request as httpRequest } from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { createSessionCatalog } from '../src/core/session-catalog'
+import type { SessionListResponse } from '../src/core/types'
 import { startSessionHttpServer, type SessionHttpServer } from '../src/server/http-server'
 import { encodeSessionToken } from '../src/server/session-discovery'
+import { piSessionHeader } from './helpers/pi-session'
 
 const servers: SessionHttpServer[] = []
 const directories: string[] = []
@@ -148,6 +151,64 @@ describe('production session HTTP server security', () => {
 
     expect(response.status).toBe(200)
     expect(payload.sessions.map((item) => item.relativePath)).toEqual(['nested/session.jsonl'])
+  })
+
+  it('lists the same standalone Sessions as browser aggregation', async () => {
+    const timestamp = '2026-01-01T10:00:00.000Z'
+    const session = (id: string, extra: Record<string, unknown> = {}) => (
+      `${piSessionHeader(id, timestamp, '/work/demo', extra)}\n`
+    )
+    const server = await createServerWithSessions({
+      'plain.jsonl': session('plain'),
+      'parent/child.jsonl': session('child', { parentSession: 'parent-id' }),
+      'child-id.jsonl': session('SuBaGeNt-child'),
+      'subagent-artifacts/root-child.jsonl': session('artifact-child'),
+      'subagents/root-child.jsonl': session('root-subagents-child'),
+      'nested/subagents/child.jsonl': session('nested-subagents-child'),
+      '11111111-1111-4111-8111-111111111111/run-0/session.jsonl': session('runnable-root-child'),
+      'project/22222222-2222-4222-8222-222222222222/run-2/session.jsonl': session('runnable-nested-child'),
+      'project/parent/7df2/run-0/session.jsonl': session('runnable-short-id-child'),
+      'project/run-notes/session.jsonl': session('run-notes'),
+      'run-0/session.jsonl': session('ordinary-run-directory'),
+      'project/run-0/session.jsonl': session('nested-ordinary-run-directory'),
+      '2026-10-18T10-00-00-000Z/session.jsonl': session('date-directory'),
+      'Subagents/standalone.jsonl': session('case-distinct-directory'),
+      'archive/agent_transcript.jsonl': '{"version":1,"recordType":"message","runId":"mirror"}\n',
+      'archive/agent_Transcript.jsonl': session('case-distinct-transcript'),
+      'invalid/missing-id.jsonl': `${JSON.stringify({ type: 'session', version: 3, timestamp, cwd: '/work/demo' })}\n`,
+      'invalid/missing-timestamp.jsonl': `${JSON.stringify({ type: 'session', version: 3, id: 'missing-timestamp', cwd: '/work/demo' })}\n`,
+      'invalid/wrong-version.jsonl': `${JSON.stringify({ type: 'session', version: '3', id: 'wrong-version', timestamp, cwd: '/work/demo' })}\n`,
+      'invalid/non-session.jsonl': '{"type":"message","id":"entry"}\n',
+    })
+
+    const response = await fetch(`${server.url}/api/sessions`, {
+      headers: { Authorization: `Bearer ${server.token}` },
+    })
+    const payload = await response.json() as SessionListResponse
+    const expected = [
+      'plain.jsonl',
+      'project/run-notes/session.jsonl',
+      'run-0/session.jsonl',
+      'project/run-0/session.jsonl',
+      '2026-10-18T10-00-00-000Z/session.jsonl',
+      'Subagents/standalone.jsonl',
+      'archive/agent_Transcript.jsonl',
+    ].sort()
+
+    expect(response.status).toBe(200)
+    expect(payload.sessions.map((item) => item.relativePath).sort()).toEqual(expected)
+    expect(createSessionCatalog(payload.sessions).allSessions.map((item) => item.relativePath).sort()).toEqual(expected)
+
+    const childResponse = await fetch(`${server.url}/api/sessions/${encodeSessionToken('child-id.jsonl')}`, {
+      headers: { Authorization: `Bearer ${server.token}` },
+    })
+    expect(childResponse.status).toBe(200)
+
+    const mirrorResponse = await fetch(`${server.url}/api/sessions/${encodeSessionToken('archive/agent_transcript.jsonl')}`, {
+      headers: { Authorization: `Bearer ${server.token}` },
+    })
+    expect(mirrorResponse.status).toBe(200)
+    expect((await mirrorResponse.json() as { relativePath: string }).relativePath).toBe('archive/agent_transcript.jsonl')
   })
 
   it('reads a listed session by its opaque file token', async () => {

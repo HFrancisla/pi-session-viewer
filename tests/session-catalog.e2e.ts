@@ -44,11 +44,38 @@ function sessionContent(number: number, cwd: string) {
 
 test('virtualizes the 400-session catalog across scope, filtering, selection, and mobile navigation', async ({ page }) => {
   const sessions = syntheticSessions()
+  const unexpectedCatalogRows = [
+    {
+      token: 'unexpected-child-id',
+      id: 'SUBAGENT-latest',
+      title: 'Hidden child by ID',
+      cwd: projectCwds[0],
+      modifiedAt: '2027-01-01T00:00:00.000Z',
+      relativePath: 'latest-child.jsonl',
+    },
+    {
+      token: 'unexpected-child-path',
+      id: 'child-path',
+      title: 'Hidden child by path',
+      cwd: '/work/child-only',
+      modifiedAt: '2027-02-01T00:00:00.000Z',
+      relativePath: 'subagents/child.jsonl',
+    },
+    {
+      token: 'unexpected-transcript',
+      id: 'transcript',
+      title: 'Hidden transcript mirror',
+      cwd: '/work/child-only',
+      modifiedAt: '2027-03-01T00:00:00.000Z',
+      relativePath: 'archive/child_transcript.jsonl',
+    },
+  ]
+  const catalogSource = [...unexpectedCatalogRows, ...sessions]
   const sessionByToken = new Map(sessions.map((session) => [session.token, session]))
 
   await page.route('**/api/sessions', async (route) => {
     await route.fulfill({
-      json: { root: '/synthetic/sessions', currentCwd: projectCwds[0], sessions, warnings: [] },
+      json: { root: '/synthetic/sessions', currentCwd: projectCwds[0], sessions: catalogSource, warnings: [] },
     })
   })
   await page.route('**/api/sessions/*', async (route) => {
@@ -74,6 +101,7 @@ test('virtualizes the 400-session catalog across scope, filtering, selection, an
   const sessionList = page.locator('.session-list')
   await expect(page.getByRole('tab', { name: 'Current Project (100)' })).toHaveAttribute('aria-selected', 'true')
   await expect(sessionList.locator('.session-item').first()).toContainText('Synthetic session 1')
+  await expect(page.locator('.header-session strong')).toHaveText('Synthetic session 1')
   expect(await sessionList.locator('.session-item').count()).toBeLessThan(40)
 
   await page.getByRole('tab', { name: 'All (400)' }).click()

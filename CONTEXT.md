@@ -17,7 +17,7 @@ A logical collection of sessions sharing the same normalized working directory (
 _Avoid_: workspace, directory, folder, repository
 
 **Session Catalog**:
-The domain index and aggregator of discovered session files and their associated projects.
+The index of top-level Pi Sessions grouped by Project. It excludes child Sessions identified by their parent relationship or known subagent origin, plus transcript mirrors, which are not Sessions. Membership determines standalone listing only; a child Session may still be opened from a reference in its parent Session.
 _Avoid_: session list, session registry, project manager
 
 **Disambiguated Project Name**:
@@ -79,4 +79,4 @@ Expectations come from Pi, not from this repository:
 - `tests/pi-contract.test.ts` also pins the section set: the sections Pi's builder emits for standard options must equal `PI_SECTION_TAG_NAMES`, and the section Pi's MCP extension adds must equal `PI_EXTENSION_SECTION_NAMES` and parse into its own card. Adding a section in Pi fails these tests until the viewer models it.
 - `tests/pi-context-projection-contract.test.ts` compares the viewer's projection against Pi's own `buildSessionProjection` on every branch of up to 200 real sessions (skipped visibly where no sessions exist), and asserts the fixture omissions match Pi's zero-message entries exactly. The viewer never reimplements the projection: `src/server/context-projection.ts` loads Pi's function, and reports nothing when Pi cannot be loaded.
 - The same contract test also groups Pi's exclusions per edit and compares that grouping with the links the viewer renders (`event.contextEdit.affectedEntryIds`), so a link can never point at an entry Pi did not actually remove.
-- `npm run check:sessions` runs the parser over this machine's real sessions: it uses the catalog's own `walkSessionFiles` rule for entry-type checks (so it verifies what the viewer can show), additionally parses every captured system prompt including files the catalog excludes, and exits non-zero on unknown entry types, unknown sections, unclaimed text, or session parse failures. Run it after upgrading Pi.
+- `npm run check:sessions` runs the parser over the Sessions admitted by the shared Session Catalog membership rule used by server listing and client aggregation. Its separate prompt scan still parses captured prompts in files the catalog excludes, and the command exits non-zero on unknown entry types, unknown sections, unclaimed text, or session parse failures. Run it after upgrading Pi.

@@ -88,6 +88,83 @@ describe('SessionCatalog domain module', () => {
       expect(catalog.projects[1].count).toBe(1)
     })
 
+    it('uses one membership rule for subagent paths, mirrors, projects, and initial selection', () => {
+      const makeSession = (
+        token: string,
+        relativePath: string,
+        overrides: Partial<SessionListItem> = {},
+      ): SessionListItem => ({
+        token,
+        id: token,
+        title: token,
+        cwd: '/work/project',
+        modifiedAt: '2026-01-01T00:00:00.000Z',
+        relativePath,
+        ...overrides,
+      })
+      const sessions = [
+        makeSession('plain', 'session.jsonl'),
+        makeSession('parent-linked', 'child.jsonl', {
+          parentSession: 'parent-id',
+          modifiedAt: '2027-01-01T00:00:00.000Z',
+        }),
+        makeSession('known-origin', 'child.jsonl', { id: 'SuBaGeNt-child' }),
+        makeSession('root-artifact', 'subagent-artifacts/child.jsonl'),
+        makeSession('nested-subagent', 'project/subagents/child.jsonl'),
+        makeSession('windows-subagent', 'project\\subagent-artifacts\\child.jsonl'),
+        makeSession('runnable-root', '11111111-1111-4111-8111-111111111111/run-0/session.jsonl'),
+        makeSession('runnable-nested', 'project/parent/22222222-2222-4222-8222-222222222222/run-12/session.jsonl'),
+        makeSession('runnable-short-id', 'project/parent/7df2/run-0/session.jsonl'),
+        makeSession('runnable-named-id', 'project/parent/run-123/run-0/session.jsonl'),
+        makeSession('run-notes', 'project/run-notes/session.jsonl'),
+        makeSession('ordinary-run-dir', 'run-0/session.jsonl'),
+        makeSession('nested-ordinary-run-dir', 'project/run-0/session.jsonl'),
+        makeSession('date-dir', '2026-10-18T10-00-00-000Z/session.jsonl'),
+        makeSession('case-distinct-dir', 'Subagents/standalone.jsonl'),
+        makeSession('transcript-mirror', 'archive/agent_transcript.jsonl'),
+        makeSession('case-distinct-transcript', 'archive/agent_Transcript.jsonl'),
+        makeSession('empty-parent', 'empty-parent.jsonl', { parentSession: '   ' }),
+        makeSession('other-project', 'other.jsonl', {
+          cwd: '/work/other-project',
+          modifiedAt: '2026-02-01T00:00:00.000Z',
+        }),
+        makeSession('child-only-project', 'child.jsonl', {
+          cwd: '/work/child-only',
+          modifiedAt: '2026-12-01T00:00:00.000Z',
+          id: 'subagent-latest',
+        }),
+      ]
+
+      const catalog = createSessionCatalog(sessions)
+
+      expect(catalog.allSessions.map((session) => session.token)).toEqual([
+        'plain',
+        'run-notes',
+        'ordinary-run-dir',
+        'nested-ordinary-run-dir',
+        'date-dir',
+        'case-distinct-dir',
+        'case-distinct-transcript',
+        'empty-parent',
+        'other-project',
+      ])
+      expect(catalog.projects.map(({ cwd, count }) => ({ cwd, count }))).toEqual([
+        { cwd: '/work/other-project', count: 1 },
+        { cwd: '/work/project', count: 8 },
+      ])
+      expect(catalog.findInitialSession('/work/child-only')?.token).toBe('plain')
+      expect(catalog.getSessionsForProject('/work/project').map((session) => session.token)).toEqual([
+        'plain',
+        'run-notes',
+        'ordinary-run-dir',
+        'nested-ordinary-run-dir',
+        'date-dir',
+        'case-distinct-dir',
+        'case-distinct-transcript',
+        'empty-parent',
+      ])
+    })
+
     it('retrieves sessions for a project by normalized cwd', () => {
       const catalog = createSessionCatalog(mockSessions)
       const projectASessions = catalog.getSessionsForProject('/home/user/repo-a/server/')

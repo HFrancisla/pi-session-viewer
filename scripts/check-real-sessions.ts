@@ -18,7 +18,7 @@ import path from 'node:path'
 import { parseSystemPromptSections, type PromptFormat } from '../src/core/prompt-sections'
 import { buildSessionView, parseSessionJsonl } from '../src/core/session-parser'
 import { computeContextProjections, loadPiContextApi } from '../src/server/context-projection'
-import { walkSessionFiles } from '../src/server/session-discovery'
+import { listSessions } from '../src/server/session-discovery'
 import type { ParseWarning, SystemPromptComposition } from '../src/core/types'
 
 interface CaptureEntry {
@@ -100,12 +100,14 @@ function isProblem(finding: Omit<RealSessionFinding, 'session'>): boolean {
 async function main(): Promise<void> {
   const root = process.env.PI_CODING_AGENT_SESSION_DIR ?? path.join(os.homedir(), '.pi', 'agent', 'sessions')
   const limit = Number(process.env.PI_SESSION_SCAN_LIMIT ?? '2000')
-  // `walkSessionFiles` is the catalog's own rule for "this is a session", so the
-  // entry-type checks below cover exactly what the viewer can show.
-  const sessionFiles = new Set(await walkSessionFiles(root))
+  // Use the exact Session Catalog result returned to the viewer, including
+  // validated headers and the shared client/server membership rule.
+  const catalog = await listSessions(root)
+  const scanRoot = catalog.root
+  const sessionFiles = new Set(catalog.sessions.map((session) => path.resolve(scanRoot, session.relativePath)))
   // Prompt checks additionally cover files the catalog excludes (subagent runs),
   // because their prompts are what exposed earlier layout regressions.
-  const files = await collectSessionFiles(root, limit)
+  const files = await collectSessionFiles(scanRoot, limit)
 
   const findings: RealSessionFinding[] = []
   const formats = new Map<PromptFormat, number>()

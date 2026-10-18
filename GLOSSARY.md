@@ -2,6 +2,20 @@
 
 A read-only viewer for Pi sessions that presents a session timeline and details for a selected event.
 
+## Sessions and projects
+
+**Session**:
+A recorded linear or branching execution history of a Pi agent run, stored as a series of JSONL entries.
+_Avoid_: log, trace, run, chat
+
+**Project**:
+A logical collection of Sessions sharing the same normalized working directory (`cwd`).
+_Avoid_: workspace, directory, folder, repository
+
+**Session Catalog**:
+The index of top-level Pi Sessions grouped by Project. It excludes child Sessions identified by their parent relationship or known subagent origin, plus transcript mirrors, which are not Sessions. Membership determines standalone listing only; a child Session may still be opened from a reference in its parent Session.
+_Avoid_: session list, session registry, project manager
+
 ## Timeline and selection
 
 **Visible event**:
