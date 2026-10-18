@@ -33,6 +33,7 @@ describe(`Pi contract: the projection comes from Pi ${PI_VERSION}`, () => {
   })
 
   // Skipped (visibly) where no Pi sessions exist, instead of passing vacuously.
+  // This walks up to 200 local sessions, so it needs more than Vitest's 5s default.
   it.skipIf(!existsSync(SESSIONS_ROOT))('agrees with Pi on every branch of every real session it can read', async () => {
     const api = await loadPiContextApi()
     expect(api).toBeDefined()
@@ -67,7 +68,7 @@ describe(`Pi contract: the projection comes from Pi ${PI_VERSION}`, () => {
       }
     }
     expect(compared, 'no branch was compared against Pi').toBeGreaterThan(0)
-  })
+  }, 30_000)
 })
 
 describe('context projection: fixture sessions', () => {
@@ -201,6 +202,7 @@ describe('context projection: units the UI reports', () => {
 })
 
 describe('context projection: the links the viewer shows', () => {
+  // Like the projection check above, this processes real session files from disk.
   it.skipIf(!existsSync(SESSIONS_ROOT))(
     "groups Pi's exclusions by the edit that caused them, on real sessions",
     async () => {
@@ -239,7 +241,8 @@ describe('context projection: the links the viewer shows', () => {
     }
 
     expect(checkedEdits, 'no context edit was compared against Pi').toBeGreaterThan(0)
-    }
+    },
+    30_000,
   )
 
   it('links an edit to the entry Pi keeps out of context, on the fixture', async () => {

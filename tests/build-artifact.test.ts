@@ -8,6 +8,7 @@ const run = promisify(execFile)
 const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
 
 describe('production build artifacts', () => {
+  // This launches the full production build in a child process.
   it('builds the extension entrypoint and self-contained web assets under dist', async () => {
     await run('npm', ['run', 'build'], { cwd: projectRoot })
 
@@ -19,5 +20,5 @@ describe('production build artifacts', () => {
     expect(extensionBundle).not.toMatch(/(?:from|require\()\s*["']vite["']/)
     expect(extensionBundle).not.toContain('createViteServer')
     expect(extensionBundle).not.toContain('/home/hzf/workspace/projects-mine/pi-session-viewer/src/')
-  })
+  }, 30_000)
 })
