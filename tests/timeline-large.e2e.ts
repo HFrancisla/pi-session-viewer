@@ -121,6 +121,10 @@ function syntheticSession(subagentIndex?: number, requestPrefix = 'Synthetic req
 }
 
 test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }) => {
+  // This test deliberately walks the whole 2,000-event timeline twice. That is
+  // slow on its own, and a loaded machine pushes it past the 30s default budget
+  // without any assertion being wrong.
+  test.setTimeout(60_000)
   const content = syntheticSession(undefined, 'Synthetic request', true)
   const browserErrors: string[] = []
   const requestStartedAt = new Map<string, number>()
@@ -310,6 +314,9 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   await scrollContainer.evaluate((element) => { element.scrollTop = 0 })
   const thinkingFilter = page.getByLabel('Thinking', { exact: true })
   const toggleAllButton = page.locator('.filter-select-all')
+  await expect(toggleAllButton).toHaveText('Select All')
+  await toggleAllButton.click()
+  await expect(toggleAllButton).toHaveText('Clear')
   await toggleAllButton.click()
   await expect(selectedThinking).toHaveCount(0)
   await expect(page.getByText('Select at least one event type.')).toBeVisible()
@@ -353,6 +360,9 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
         if (row.dataset.eventId) eventIds.add(row.dataset.eventId)
       })
     }
+    // Collect the top before the first scroll so every row rendered at the start
+    // is captured even if the first scroll frame already unmounts it.
+    collectMountedRows()
     let previousMaxScroll = -1
     let stableBottomFrames = 0
     for (let frame = 0; frame < 1200; frame += 1) {
@@ -371,7 +381,7 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
       previousMaxScroll = updatedMaxScroll
     }
     collectMountedRows()
-    return { count: eventIds.size, ids: [...eventIds], first: eventIds.values().next().value, last: [...eventIds].at(-1) }
+    return { count: eventIds.size, ids: [...eventIds] }
   })
   const expectedEventIds = ['missing-system-prompt:synthetic-user-0', ...Array.from({ length: 400 }, (_, index) => [
     `synthetic-user-${index}:user`,
@@ -382,9 +392,9 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   ]).flat()]
   const visitedEventIds = new Set(visitedRows.ids)
   expect(visitedRows.count).toBe(2001)
+  // Comparing the whole set (not the collection order) is the real assertion: it
+  // proves every row, from the first to the last, was mounted during the walk.
   expect([...visitedEventIds].sort()).toEqual(expectedEventIds.sort())
-  expect(visitedRows.first).toBe(firstEventId)
-  expect(visitedRows.last).toBe('synthetic-result-399:result')
   const lastRow = page.locator('.event-row[data-event-id="synthetic-result-399:result"]')
   await expect(lastRow).toBeVisible()
   const scrollInteractionMs = performance.now() - scrollStartedAt

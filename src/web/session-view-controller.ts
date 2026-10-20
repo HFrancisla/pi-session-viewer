@@ -1,4 +1,4 @@
-import { allEventKinds } from '../core/event-kinds'
+import { allEventKinds, defaultEventKinds } from '../core/event-kinds'
 import { buildSessionView } from '../core/session-parser'
 import { subagentTargetCandidates } from '../core/subagent-detector'
 import { encodeSessionToken } from '../core/session-token'
@@ -224,7 +224,7 @@ export function createSessionViewController<FileHandle = unknown>(
     contextProjection: undefined,
     selectedLeafId: null,
     selectedEventId: null,
-    enabledKinds: new Set(allEventKinds),
+    enabledKinds: new Set(defaultEventKinds),
     loading: false,
     loadError: null,
     actionError: null,

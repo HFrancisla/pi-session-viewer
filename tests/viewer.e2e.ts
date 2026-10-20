@@ -29,7 +29,11 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   expect(faviconResponse.status()).toBe(200)
   expect(faviconResponse.headers()['content-type']).toContain('image/svg+xml')
   await expect(page.getByText('工具配对演示', { exact: true }).first()).toBeVisible()
-  await expect(page.locator('.event-row')).toHaveCount(14)
+  // Pi's `system` bookkeeping entries (model switch, session info, context edit,
+  // usage) are filtered out when the viewer opens.
+  const systemFilter = page.getByLabel('System', { exact: true })
+  await expect(systemFilter).not.toBeChecked()
+  await expect(page.locator('.event-row')).toHaveCount(10)
   const llmOutputStarts = page.locator('.event-row.llm-output-group-start')
   await expect(llmOutputStarts).toHaveCount(2)
   const firstGroupId = await llmOutputStarts.first().getAttribute('data-llm-output-group')
@@ -76,6 +80,9 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
 
 
   // Entry types Pi documents beyond messages: a context edit and a usage entry.
+  // Both are `system` events, so the filter has to bring them back first.
+  await systemFilter.check()
+  await expect(page.locator('.event-row')).toHaveCount(14)
   const contextEditRow = page.locator('.event-row').filter({ hasText: 'Context Edit' })
   await expect(contextEditRow).toHaveCount(1)
   await contextEditRow.click()
@@ -385,7 +392,7 @@ test('switches language to Chinese via header toggle and persists preference', a
   // Verify UI switched to Chinese
   await expect(page.locator('.warning-strip')).toContainText('1 条解析警告')
   await expect(page.getByRole('tab', { name: '内容' })).toBeVisible()
-  await expect(page.locator('.filter-select-all')).toHaveText('全不选')
+  await expect(page.locator('.filter-select-all')).toHaveText('全\u3000选')
   await expect(page.locator('.content-view').getByRole('button', { name: '复制' })).toHaveText('复制')
 
   // Verify persistence in localStorage
@@ -395,13 +402,14 @@ test('switches language to Chinese via header toggle and persists preference', a
   // Reload page and confirm persisted preference remains Chinese
   await page.reload()
   await expect(page.locator('.warning-strip')).toContainText('1 条解析警告')
-  await expect(page.locator('.filter-select-all')).toHaveText('全不选')
+  await expect(page.locator('.filter-select-all')).toHaveText('全\u3000选')
+  await expect(page.getByLabel('系统', { exact: true })).not.toBeChecked()
   await expect(page.locator('.content-view').getByRole('button', { name: '复制' })).toHaveText('复制')
 
   // Toggle back to English
   await page.getByRole('button', { name: 'EN / 中' }).click()
   await expect(page.locator('.warning-strip')).toContainText('1 parse warning')
-  await expect(page.locator('.filter-select-all')).toHaveText('Clear')
+  await expect(page.locator('.filter-select-all')).toHaveText('Select All')
   const backLocale = await page.evaluate(() => localStorage.getItem('pi_session_viewer_locale'))
   expect(backLocale).toBe('en')
 })

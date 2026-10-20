@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { allEventKinds } from '../core/event-kinds'
+import { defaultEventKinds } from '../core/event-kinds'
 import { parseSessionJsonl } from '../core/session-parser'
 import { decodeSessionToken, encodeSessionToken } from '../core/session-token'
 import type { SessionFileResponse, SessionListItem, SessionListResponse } from '../core/types'
@@ -102,6 +102,17 @@ describe('Session View controller', () => {
     expect(snapshot.selectedLeafId).toBe('user-1')
     expect(snapshot.selectedEventId).toBe('missing-system-prompt:user-1')
     expect(snapshot.loadError).toBe(null)
+  })
+
+  it('starts with the conversation event kinds enabled and system bookkeeping filtered out', async () => {
+    const controller = createController(async (token) => payload(token, content('Alpha request')))
+
+    expect([...controller.getSnapshot().enabledKinds].sort()).toEqual([...defaultEventKinds].sort())
+    expect(controller.getSnapshot().enabledKinds.has('system')).toBe(false)
+
+    await controller.dispatch({ type: 'open', session: session('alpha') })
+
+    expect(controller.getSnapshot().enabledKinds.has('system')).toBe(false)
   })
 
   it('uses the exact cached version without reading or parsing it again', async () => {
@@ -239,7 +250,8 @@ describe('Session View controller', () => {
     expect(reads).toBe(2)
     expect(controller.getSnapshot().active?.source.kind).toBe('file')
     expect(controller.getSnapshot().view?.events.find((event) => event.id === 'user-1:user')?.summary).toBe('Imported version 2')
-    expect(controller.getSnapshot().enabledKinds.size).toBe(allEventKinds.length)
+    expect(controller.getSnapshot().enabledKinds.size).toBe(defaultEventKinds.length)
+    expect(controller.getSnapshot().enabledKinds.has('system')).toBe(false)
   })
 
   it('reveals an explicitly jumped event kind and keeps branch selection independent from filters', async () => {
