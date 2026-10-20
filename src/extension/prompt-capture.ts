@@ -6,6 +6,7 @@ import { resolvePiVersion } from '../server/pi-runtime'
 export const SYSTEM_PROMPT_ENTRY_TYPE = 'pi-session-viewer.system-prompt'
 
 interface PendingCapture {
+  messageType: 'user' | 'custom'
   targetUserEntryId?: string
   options: SerializablePromptOptions
   promptAtCapture: string
@@ -117,6 +118,7 @@ function recordPrompt(
     promptBeforeFinalExtensions: isNewSnapshot && pending.promptAtCapture !== prompt ? pending.promptAtCapture : undefined,
     targetUserEntryId,
     relatedUserEntryId: targetUserEntryId ?? pending.targetUserEntryId,
+    messageType: pending.messageType,
     sequence: sequence.value,
     capturedAt: new Date().toISOString(),
     model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined,
@@ -151,6 +153,7 @@ export default function systemPromptCapture(pi: ExtensionAPI): void {
 
   pi.on('before_agent_start', (event) => {
     pending = {
+      messageType: event.messageType === 'custom' ? 'custom' : 'user',
       options: serializeOptions(event.systemPromptOptions),
       promptAtCapture: event.systemPrompt,
       recordedInitial: false,
@@ -158,14 +161,16 @@ export default function systemPromptCapture(pi: ExtensionAPI): void {
   })
 
   pi.on('agent_start', () => {
-    // Prompt snapshot writing is deferred to before_provider_request once the turn's user entry is persisted.
+    // Prompt snapshot writing is deferred to before_provider_request once the run's starting message is persisted.
   })
 
   pi.on('before_provider_request', (_event, ctx) => {
     if (!pending) return
 
     if (!pending.recordedInitial) {
-      const userEntryId = latestUserEntryId(ctx.sessionManager.getBranch())
+      const userEntryId = pending.messageType === 'user'
+        ? latestUserEntryId(ctx.sessionManager.getBranch())
+        : undefined
       pending.targetUserEntryId = userEntryId
       recordPrompt(
         ctx,

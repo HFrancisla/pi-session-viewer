@@ -428,6 +428,7 @@ function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, Pr
       promptHash: hash,
       recordType,
       captureStage,
+      messageType: data.messageType === 'user' || data.messageType === 'custom' ? data.messageType : undefined,
       promptLength,
       composition,
       promptBeforeFinalExtensions: stringValue(snapshot?.promptBeforeFinalExtensions),
@@ -713,15 +714,37 @@ function groupTurns(events: TimelineEvent[]): TimelineTurn[] {
   const promptPrelude: TimelineEvent[] = []
   let current: TimelineTurn | undefined
   let turnIndex = 0
+  let groupIndex = 0
+  let customRunIndex = 0
 
   for (const event of events) {
     if ((event.kind === 'system-prompt' || event.kind === 'tool-definitions') && event.targetEntryId) {
       promptPrelude.push(event)
       continue
     }
+    if (
+      event.kind === 'system-prompt'
+      && event.systemPrompt?.messageType === 'custom'
+      && (event.systemPrompt.captureStage ?? 'agent_start') === 'agent_start'
+    ) {
+      customRunIndex += 1
+      groupIndex += 1
+      current = {
+        id: `custom-run-${customRunIndex}`,
+        index: groupIndex,
+        label: 'Custom run',
+        events: promptPrelude.splice(0),
+        startedAt: event.timestamp,
+      }
+      turns.push(current)
+      current.events.push(event)
+      current.endedAt = event.timestamp
+      continue
+    }
     if (event.kind === 'user') {
       turnIndex += 1
-      current = { id: `turn-${turnIndex}`, index: turnIndex, label: `Turn ${turnIndex}`, events: [], startedAt: event.timestamp }
+      groupIndex += 1
+      current = { id: `turn-${turnIndex}`, index: groupIndex, label: `Turn ${turnIndex}`, events: [], startedAt: event.timestamp }
       current.events.push(...promptPrelude.splice(0))
       turns.push(current)
     } else if (!current) {
@@ -746,6 +769,7 @@ function inferMissingPromptTargets(events: TimelineEvent[]): void {
   for (let index = 0; index < events.length; index += 1) {
     const event = events[index]
     if ((event.kind !== 'system-prompt' && event.kind !== 'tool-definitions') || event.targetEntryId) continue
+    if (event.systemPrompt?.messageType === 'custom') continue
 
     const captureStage = event.systemPrompt?.captureStage ?? 'agent_start'
     if (captureStage !== 'agent_start') continue

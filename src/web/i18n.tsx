@@ -56,6 +56,7 @@ export function localizeEventTitle(title: string, locale: Locale): string {
     'Branch label': '分支标签',
     'Session info': '会话信息',
     'Session setup': '会话设置',
+    'Custom run': '自定义运行',
     'Current branch': '当前分支',
     'Unknown Project': '未知项目',
     'Unknown working directory': '未知工作目录',

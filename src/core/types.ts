@@ -81,6 +81,8 @@ export interface SystemPromptCapture {
   promptHash?: string
   recordType: 'snapshot' | 'reference' | 'missing'
   captureStage?: 'agent_start' | 'provider_request_update'
+  /** What started the Pi run that produced this capture. */
+  messageType?: 'user' | 'custom'
   promptLength?: number
   composition?: SystemPromptComposition
   promptBeforeFinalExtensions?: string
