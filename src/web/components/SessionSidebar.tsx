@@ -159,7 +159,7 @@ export function SessionSidebar({
             type="button"
             onClick={() => onSelect(session)}
             aria-current={selectedToken === session.token ? 'page' : undefined}
-            title={catalog.formatSessionTooltip(session, root)}
+            title={session.cwd || undefined}
           >
             <MessageSquareText size={17} aria-hidden="true" />
             <span className="session-item-copy">

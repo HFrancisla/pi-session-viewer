@@ -38,7 +38,7 @@ Restart Pi or run `/reload`. The extension loads automatically and begins captur
 - **Local Only**: Listens strictly on `127.0.0.1` with a per-instance random bearer token. No cloud sync, telemetry, or remote access.
 - **Read-Only**: The web interface cannot mutate sessions or execute commands.
 - **Capture Scope**: Saves system prompts, skill metadata, and context file snapshots to local session files. Does **not** record API keys, request headers, or credentials.
-- **Historical Sessions**: Turns recorded prior to package installation display as *unrecorded*; past prompts are never guessed.
+- **Historical Sessions**: Turns without an associated system-prompt capture record display as *unrecorded*; the reason is not inferred, and past prompts are never reconstructed from current configuration.
 
 ## Development
 

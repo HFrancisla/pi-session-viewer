@@ -33,6 +33,7 @@ export const en = {
     subagentTranscriptOnly: 'only a pi-subagents transcript exists (not a Pi session file).',
     operationFailed: 'The operation failed.',
     failedToLoadSubagent: (err: string) => `Failed to load subagent session: ${err}`,
+    copySessionPath: 'Copy session path',
   },
   sidebar: {
     heading: 'Sessions',
@@ -113,7 +114,9 @@ export const en = {
     },
     diff: {
       baselineLabel: 'Baseline',
+      baselinePrevious: 'Previous snapshot',
       baselineVanilla: 'Vanilla Pi',
+      noPreviousPrompt: 'No previous effective prompt snapshot on this branch.',
       noChanges: 'Identical to baseline. No modifications or additions found.',
       addedLines: (count: number) => `+${count} lines`,
       removedLines: (count: number) => `-${count} lines`,

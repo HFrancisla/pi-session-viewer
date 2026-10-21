@@ -58,9 +58,11 @@ describe('parseSessionJsonl', () => {
     ])
     expect(view.events[0]).toMatchObject({
       title: 'System prompt unrecorded',
+      summary: 'No system-prompt capture record is associated with this turn; the reason is unknown.',
       targetEntryId: 'u1',
       systemPrompt: { recordType: 'missing' },
     })
+    expect(view.events[0]?.content).toContain('does not establish whether the run had no system prompt')
     expect(call?.pairedEventId).toBe(result?.id)
     expect(result?.pairedEventId).toBe(call?.id)
     expect(result?.gapMs).toBe(2_500)
@@ -72,6 +74,101 @@ describe('parseSessionJsonl', () => {
     expect(call?.raw).toBe(assistant?.raw)
     expect(thinking?.model).toEqual({ provider: 'demo', id: 'model-a' })
     expect(call?.model).toEqual({ provider: 'demo', id: 'model-a' })
+  })
+
+  it('distinguishes an explicitly captured empty effective prompt', () => {
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', content: 'Run child task' }),
+      {
+        type: 'custom',
+        customType: 'pi-session-viewer.system-prompt',
+        id: 'p1',
+        parentId: 'u1',
+        timestamp: '2026-01-01T10:00:01.100Z',
+        data: {
+          schemaVersion: 1,
+          recordType: 'snapshot',
+          promptHash: 'empty-prompt-hash',
+          prompt: '',
+          promptLength: 0,
+          targetUserEntryId: 'u1',
+        },
+      },
+    )
+
+    const promptEvent = buildSessionView(parseSessionJsonl(source)).events.find((event) => event.kind === 'system-prompt')
+
+    expect(promptEvent).toMatchObject({
+      title: 'System prompt empty',
+      summary: 'Captured empty effective system prompt',
+      content: '',
+      systemPrompt: { recordType: 'snapshot', promptLength: 0 },
+    })
+  })
+
+  it('distinguishes an unresolved snapshot reference from an unrecorded prompt', () => {
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', content: 'Run child task' }),
+      {
+        type: 'custom',
+        customType: 'pi-session-viewer.system-prompt',
+        id: 'p1',
+        parentId: 'u1',
+        timestamp: '2026-01-01T10:00:01.100Z',
+        data: {
+          schemaVersion: 1,
+          recordType: 'reference',
+          promptHash: 'missing-prompt-hash',
+          targetUserEntryId: 'u1',
+        },
+      },
+    )
+
+    const promptEvent = buildSessionView(parseSessionJsonl(source)).events.find((event) => event.kind === 'system-prompt')
+
+    expect(promptEvent).toMatchObject({
+      title: 'System prompt missing',
+      summary: 'Unable to resolve prompt snapshot for hash missing-prompt-hash',
+      systemPrompt: { recordType: 'reference' },
+    })
+    expect(promptEvent?.content).toContain('complete system prompt snapshot')
+  })
+
+  it('renders native Pi system snapshots and append-only prompt/tool patches', () => {
+    const source = jsonl(
+      header,
+      entry('system-0', null, '2026-01-01T10:00:00.500Z', {
+        role: 'system',
+        content: '',
+        sections: { preamble: 'You are a coding agent.', tools: '<tools>read</tools>' },
+        toolsAdded: [{ name: 'read', description: 'Read a file', parameters: { type: 'object' } }],
+      }),
+      entry('u1', 'system-0', '2026-01-01T10:00:01.000Z', { role: 'user', content: 'Inspect this file' }),
+      entry('a1', 'u1', '2026-01-01T10:00:02.000Z', { role: 'assistant', content: [{ type: 'text', text: 'I will inspect it.' }] }),
+      entry('system-1', 'a1', '2026-01-01T10:00:03.000Z', {
+        role: 'system',
+        content: '',
+        sections: { addendum: 'Keep the answer concise.', legacy: null },
+        toolsAdded: [{ name: 'grep', description: 'Search files', parameters: { type: 'object' } }],
+        toolsRemoved: [{ name: 'obsolete_tool' }],
+      }),
+      entry('u2', 'system-1', '2026-01-01T10:00:04.000Z', { role: 'user', content: 'Search for a function' }),
+    )
+
+    const events = buildSessionView(parseSessionJsonl(source)).events
+    const initial = events.find((event) => event.title === 'Pi system context snapshot')
+    const update = events.find((event) => event.title === 'Pi system context update')
+
+    expect(initial?.content).toContain('You are a coding agent.')
+    expect(initial?.content).toContain('"name": "read"')
+    expect(update?.summary).toContain('2 prompt section changes')
+    expect(update?.content).toContain('Section <addendum>')
+    expect(update?.content).toContain('Removed section <legacy>')
+    expect(update?.content).toContain('"name": "grep"')
+    expect(update?.content).toContain('obsolete_tool')
+    expect(events.some((event) => event.title === 'System prompt unrecorded')).toBe(false)
   })
 
   it('keeps historical leaves and builds the requested branch', () => {
@@ -409,6 +506,116 @@ describe('parseSessionJsonl', () => {
     expect(resultEvent?.subagent?.targetFile).toBe('subagent-artifacts/analyzer-run.jsonl')
     expect(resultEvent?.subagent?.agentName).toBe('code-analyzer')
     expect(resultEvent?.subagent?.task).toBe('Check memory leaks')
+  })
+
+  it('links asynchronous subagent notifications to their tool-result by runId', () => {
+    const runId = '7df2a179-13a8-469a-a68a-bad6cbceb09c'
+    const childSession = `/home/user/.pi/agent/sessions/--project--/parent/${runId}/run-0/session.jsonl`
+    const sourceName = '/home/user/.pi/agent/sessions/--project--/parent.jsonl'
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', {
+        role: 'user', content: 'Start an asynchronous subagent',
+      }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [{
+          type: 'toolCall', id: 'call-async', name: 'subagent',
+          arguments: { agent: 'worker', task: 'Inspect the change' },
+        }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'call-async', toolName: 'subagent',
+        content: [{ type: 'text', text: 'Worker launched' }],
+        details: { runId, toolCallId: 'call-async', results: [] },
+      }),
+      {
+        type: 'custom_message', customType: 'subagent-notify', id: 'n1', parentId: 'r1',
+        timestamp: '2026-01-01T10:00:03.000Z',
+        content: `Worker session: ${childSession}`,
+        details: {
+          runs: [{
+            agent: 'worker', status: 'completed', runId,
+            sessionLabel: 'worker: Inspect the change', sessionValue: childSession,
+          }],
+        },
+      },
+      {
+        type: 'custom_message', customType: 'unrelated-event', id: 'n2', parentId: 'n1',
+        timestamp: '2026-01-01T10:00:04.000Z',
+        content: 'An unrelated path is not a subagent reference.',
+        details: {
+          runs: [{
+            agent: 'unrelated', runId,
+            sessionValue: `/home/user/.pi/agent/sessions/--project--/unrelated/${runId}/session.jsonl`,
+          }],
+        },
+      },
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source, sourceName))
+    const resultEvent = view.events.find((event) => event.kind === 'tool-result')
+
+    expect(resultEvent?.subagent).toMatchObject({
+      targetFile: `--project--/parent/${runId}/run-0/session.jsonl`,
+      agentName: 'worker',
+      sessionName: 'worker: Inspect the change',
+      runId,
+    })
+    expect(resultEvent?.subagents).toBeUndefined()
+  })
+
+  it('does not link an asynchronous notice when its runId matches multiple results', () => {
+    const runId = '7df2a179-13a8-469a-a68a-bad6cbceb09c'
+    const childSession = `/home/user/.pi/agent/sessions/--project--/parent/${runId}/run-0/session.jsonl`
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', { role: 'user', content: 'Start workers' }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant', content: [{ type: 'toolCall', id: 'call-1', name: 'subagent', arguments: {} }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'call-1', toolName: 'subagent', content: 'Worker launched',
+        details: { runId, toolCallId: 'call-1', results: [] },
+      }),
+      entry('a2', 'r1', '2026-01-01T10:00:03.000Z', {
+        role: 'assistant', content: [{ type: 'toolCall', id: 'call-2', name: 'subagent', arguments: {} }],
+      }),
+      entry('r2', 'a2', '2026-01-01T10:00:04.000Z', {
+        role: 'toolResult', toolCallId: 'call-2', toolName: 'subagent', content: 'Worker launched',
+        details: { runId, toolCallId: 'call-2', results: [] },
+      }),
+      {
+        type: 'custom_message', customType: 'subagent-notify', id: 'n1', parentId: 'r2',
+        timestamp: '2026-01-01T10:00:05.000Z', content: `Worker session: ${childSession}`,
+        details: { runs: [{ agent: 'worker', runId, sessionValue: childSession }] },
+      },
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source))
+    const results = view.events.filter((event) => event.kind === 'tool-result')
+
+    expect(results).toHaveLength(2)
+    expect(results.every((result) => result.subagent === undefined)).toBe(true)
+  })
+
+  it('does not treat a grep match for a subagent artifact path as a child Session reference', () => {
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', { role: 'user', content: 'Search for paths' }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'grep-1', name: 'grep', arguments: { pattern: 'session path' } }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'grep-1', toolName: 'grep',
+        content: [{ type: 'text', text: 'docs/example.md: subagent-artifacts/not-a-session.jsonl' }],
+      }),
+    )
+
+    const result = buildSessionView(parseSessionJsonl(source)).events.find((event) => event.kind === 'tool-result')
+
+    expect(result?.subagent).toBeUndefined()
   })
 })
 

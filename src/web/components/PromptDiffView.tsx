@@ -1,19 +1,24 @@
 import { Check, Copy, Info } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { formatDiffLineTooltip, resolvePromptDiff } from '../../core/prompt-diff'
+import { formatDiffLineTooltip, resolvePromptDiff, type DiffBaselineMode } from '../../core/prompt-diff'
 import type { TimelineEvent } from '../../core/types'
 import { useI18n } from '../i18n'
 
-export function PromptDiffView({ event }: { event: TimelineEvent }) {
+export function PromptDiffView({ event, previousPrompt }: { event: TimelineEvent; previousPrompt?: string }) {
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
+  const hasPreviousPrompt = previousPrompt !== undefined
+  const [baselineMode, setBaselineMode] = useState<DiffBaselineMode>(hasPreviousPrompt ? 'previous' : 'vanilla')
 
-  const diffResult = useMemo(() => {
-    return resolvePromptDiff(
-      event.content,
-      event.systemPrompt
-    )
-  }, [event.content, event.systemPrompt])
+  const diffResult = useMemo(() => resolvePromptDiff(
+    event.content,
+    {
+      composition: event.systemPrompt?.composition,
+      promptBeforeFinalExtensions: event.systemPrompt?.promptBeforeFinalExtensions,
+      previousPrompt,
+    },
+    baselineMode,
+  ), [event.content, event.systemPrompt?.composition, event.systemPrompt?.promptBeforeFinalExtensions, previousPrompt, baselineMode])
 
   const handleCopy = async () => {
     try {
@@ -55,11 +60,26 @@ export function PromptDiffView({ event }: { event: TimelineEvent }) {
 
           <span className="diff-header-divider" aria-hidden="true" />
 
-          <div className="prompt-diff-baseline-control">
+          <div className="prompt-diff-baseline-control" role="group" aria-label={t.inspector.diff.baselineLabel}>
             <span className="prompt-diff-baseline-label">{t.inspector.diff.baselineLabel}:</span>
-            <span className="prompt-diff-baseline-pill">
+            <button
+              type="button"
+              className={`prompt-diff-baseline-pill${baselineMode === 'previous' ? ' is-active' : ''}`}
+              aria-pressed={baselineMode === 'previous'}
+              disabled={!hasPreviousPrompt}
+              title={!hasPreviousPrompt ? t.inspector.diff.noPreviousPrompt : undefined}
+              onClick={() => setBaselineMode('previous')}
+            >
+              {t.inspector.diff.baselinePrevious}
+            </button>
+            <button
+              type="button"
+              className={`prompt-diff-baseline-pill${baselineMode === 'vanilla' ? ' is-active' : ''}`}
+              aria-pressed={baselineMode === 'vanilla'}
+              onClick={() => setBaselineMode('vanilla')}
+            >
               {t.inspector.diff.baselineVanilla}
-            </span>
+            </button>
           </div>
         </div>
 

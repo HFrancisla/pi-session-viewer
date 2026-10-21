@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowLeft, Bot, Clock3, Menu, PanelRightOpen, RefreshCw, Rows3, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Bot, Clock3, Copy, Menu, PanelRightOpen, RefreshCw, Rows3, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { fetchSession, fetchSessions } from './api'
 import { Inspector } from './components/Inspector'
@@ -7,6 +7,7 @@ import { Timeline, type TimelineHandle } from './components/Timeline'
 import { formatDateTime, formatDuration } from '../core/format'
 import { createSessionCatalog } from '../core/session-catalog'
 import { buildSessionView, getSessionTitle, parseSessionJsonl, primaryEventForEntry } from '../core/session-parser'
+import { findPreviousPromptSnapshot } from '../core/prompt-diff'
 import { browserAccessToken, browserInitialCwd } from './session-auth'
 import { sessionCache } from './session-cache'
 import { createSessionViewController } from './session-view-controller'
@@ -17,6 +18,54 @@ import type {
   TimelineEvent,
 } from '../core/types'
 import { useI18n } from './i18n'
+
+async function copyTextToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return
+    } catch {
+      // Fall back for browsers that expose the API but deny access in this context.
+    }
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  textarea.remove()
+  if (!copied) throw new Error('Clipboard access is unavailable')
+}
+
+function CopySessionPathButton({ path }: { path: string }) {
+  const { t } = useI18n()
+
+  const copyPath = async () => {
+    if (!path) return
+    try {
+      await copyTextToClipboard(path)
+    } catch {
+      // The browser may deny clipboard access; keep the control available without claiming success.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className="icon-button header-path-copy"
+      onClick={() => void copyPath()}
+      disabled={!path}
+      title={path || t.header.copySessionPath}
+      aria-label={t.header.copySessionPath}
+    >
+      <Copy size={14} />
+    </button>
+  )
+}
 
 function PiGlyph({ size = 26 }: { size?: number }) {
   return (
@@ -122,6 +171,10 @@ function App() {
     () => view?.events.find((event) => event.id === selectedEventId) ?? null,
     [view, selectedEventId],
   )
+  const previousPrompt = useMemo(() => {
+    if (!view || selectedEvent?.kind !== 'system-prompt') return undefined
+    return findPreviousPromptSnapshot(view.events, selectedEvent.id)
+  }, [view, selectedEvent])
   const filteredTurns = useMemo(() => (
     view?.turns
       .map((turn) => ({ ...turn, events: turn.events.filter((event) => enabledKinds.has(event.kind)) }))
@@ -252,6 +305,7 @@ function App() {
         </div>
         {sessionStack.length > 0 ? (
           <div className="header-session header-session--breadcrumbs">
+            <CopySessionPathButton path={fullJsonlPath} />
             <div className="breadcrumb-trail">
               <button
                 type="button"
@@ -263,16 +317,19 @@ function App() {
                 <ArrowLeft size={15} />
                 <span>{t.header.backToParent}</span>
               </button>
-              <div className="breadcrumb-current" title={fullJsonlPath || title}>
+              <div className="breadcrumb-current">
                 <span className="breadcrumb-badge"><Bot size={13} /> {t.header.subagentBadge}</span>
-                <strong title={fullJsonlPath || title}>{title}</strong>
+                <strong>{title}</strong>
               </div>
             </div>
           </div>
         ) : (
-          <div className="header-session" title={fullJsonlPath || undefined}>
-            <strong title={fullJsonlPath || title}>{title}</strong>
-            <span>{selectedMetadata?.cwd ?? parsedSession?.header?.cwd ?? t.header.noSessionLoaded}</span>
+          <div className="header-session">
+            <CopySessionPathButton path={fullJsonlPath} />
+            <div className="header-session-info">
+              <strong>{title}</strong>
+              <span>{selectedMetadata?.cwd ?? parsedSession?.header?.cwd ?? t.header.noSessionLoaded}</span>
+            </div>
           </div>
         )}
         <div className="header-actions">
@@ -376,6 +433,7 @@ function App() {
 
         <Inspector
           event={selectedEvent}
+          previousPrompt={previousPrompt}
           mobileOpen={inspectorOpen}
           onClose={() => setInspectorOpen(false)}
           onJumpToEvent={jumpToSelectedEvent}

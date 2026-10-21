@@ -35,6 +35,7 @@ export const zhCN: Translations = {
     subagentTranscriptOnly: '只留下 pi-subagents 的转写文件（不是 Pi 会话文件）。',
     operationFailed: '操作失败。',
     failedToLoadSubagent: (err: string) => `加载子 Agent 会话失败：${err}`,
+    copySessionPath: '复制会话路径',
   },
   sidebar: {
     heading: '会话',
@@ -114,7 +115,9 @@ export const zhCN: Translations = {
     },
     diff: {
       baselineLabel: '基准',
+      baselinePrevious: '上一份有效提示词',
       baselineVanilla: '原生 Pi',
+      noPreviousPrompt: '此分支没有更早的有效提示词快照。',
       noChanges: '与对比基准完全一致，未发现任何修改或追加。',
       addedLines: (count: number) => `+${count} 行`,
       removedLines: (count: number) => `-${count} 行`,

@@ -12,6 +12,54 @@ test('requires an instance token before requesting session data', async ({ page 
   expect(apiRequests).toEqual([])
 })
 
+test('keeps the path-copy button in place while sessions load', async ({ page }) => {
+  let resumeSessions!: () => void
+  const sessionsGate = new Promise<void>((resolve) => { resumeSessions = resolve })
+  await page.route('**/api/sessions', async (route) => {
+    await sessionsGate
+    await route.continue()
+  })
+
+  await page.goto('/#token=dev-token')
+  const copyButton = page.getByRole('button', { name: 'Copy session path' })
+  await expect(copyButton).toBeVisible()
+  await expect(copyButton).toBeDisabled()
+
+  resumeSessions()
+  await expect(copyButton).toBeEnabled()
+})
+
+test('copies the full JSONL path from the session header', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async (text: string) => sessionStorage.setItem('copied-text', text) },
+    })
+  })
+
+  await page.goto('/#token=dev-token')
+  const header = page.locator('.header-session:not(.header-session--breadcrumbs)')
+  const copyButton = page.getByRole('button', { name: 'Copy session path' })
+  await expect(copyButton).toBeEnabled()
+  const fullPath = await copyButton.getAttribute('title')
+  expect(fullPath).toMatch(/\.jsonl$/)
+  expect(await header.getAttribute('title')).toBeNull()
+  expect(await header.locator('.header-session-info span').getAttribute('title')).toBeNull()
+  await expect(page.locator('.session-item.is-selected')).toHaveAttribute('title', '/work/demo')
+
+  const buttonWidth = await copyButton.evaluate((element) => element.getBoundingClientRect().width)
+  await copyButton.hover()
+  await page.mouse.down()
+  await expect.poll(() => copyButton.evaluate((element) => getComputedStyle(element).boxShadow)).toContain('inset')
+  await page.mouse.up()
+  await copyButton.click()
+
+  expect(await page.evaluate(() => sessionStorage.getItem('copied-text'))).toBe(fullPath)
+  await expect(copyButton).toHaveAttribute('aria-label', 'Copy session path')
+  await expect(copyButton.locator('svg.lucide-copy')).toHaveCount(1)
+  await expect(copyButton).toHaveCSS('width', `${buttonWidth}px`)
+})
+
 test('browses a Pi session end to end on desktop and narrow screens', async ({ page }) => {
   // Keep the URL with each console error so a deliberately provoked 404 can be
   // told apart from an unexpected one.

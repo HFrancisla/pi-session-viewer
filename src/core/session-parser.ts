@@ -239,7 +239,62 @@ export function parseSessionJsonl(content: string, sourceName = 'Local file'): P
   return parsed
 }
 
-function messageEvents(entry: ParsedEntry, sourceName?: string): TimelineEvent[] {
+function piSystemContextEvent(
+  entry: ParsedEntry,
+  message: RawObject,
+  timestamp: string | undefined,
+  isInitialSystemMessage: boolean,
+): TimelineEvent {
+  const sections = isObject(message.sections) ? Object.entries(message.sections) : []
+  const toolsAdded = Array.isArray(message.toolsAdded) ? message.toolsAdded.filter(isObject) : []
+  const toolsRemoved = Array.isArray(message.toolsRemoved) ? message.toolsRemoved : []
+  const hasFullSnapshot = isInitialSystemMessage
+    && (typeof message.content === 'string' && message.content.length > 0
+      || sections.some(([name, value]) => name === 'preamble' && typeof value === 'string'))
+  const contentParts: string[] = []
+
+  if (sections.length > 0) {
+    contentParts.push(hasFullSnapshot ? 'Prompt sections in this Pi system snapshot:' : 'Prompt section changes:')
+    for (const [name, value] of sections) {
+      if (value === null) {
+        contentParts.push(`Removed section <${name}>`)
+      } else {
+        const sectionContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+        contentParts.push(`Section <${name}>:\n${sectionContent}`)
+      }
+    }
+  }
+
+  if (toolsAdded.length > 0) {
+    contentParts.push('Tools added:', ...toolsAdded.map((tool) => JSON.stringify(tool, null, 2)))
+  }
+  if (toolsRemoved.length > 0) {
+    contentParts.push('Tools removed:', ...toolsRemoved.map((tool) => (
+      isObject(tool) ? stringValue(tool.name) ?? JSON.stringify(tool) : stringValue(tool) ?? JSON.stringify(tool)
+    )))
+  }
+
+  const summaryParts: string[] = []
+  if (sections.length > 0) {
+    const removedSections = sections.filter(([, value]) => value === null).length
+    summaryParts.push(hasFullSnapshot
+      ? `${sections.length} prompt sections`
+      : `${sections.length} prompt section changes (${removedSections} removed)`)
+  }
+  if (toolsAdded.length > 0 || toolsRemoved.length > 0) {
+    summaryParts.push(`Tools: +${toolsAdded.length} / -${toolsRemoved.length}`)
+  }
+  const content = contentParts.length > 0 ? contentParts.join('\n\n') : contentText(message.content)
+
+  return {
+    id: `${entry.id}:system-context`, entryId: entry.id, kind: 'system',
+    title: hasFullSnapshot ? 'Pi system context snapshot' : 'Pi system context update',
+    summary: summaryParts.join(' · ') || truncate(content),
+    content, timestamp, raw: entry.raw,
+  }
+}
+
+function messageEvents(entry: ParsedEntry, sourceName?: string, isInitialSystemMessage = false): TimelineEvent[] {
   const message = isObject(entry.raw.message) ? entry.raw.message : {}
   const role = stringValue(message.role) ?? 'unknown'
   const timestamp = timestampValue(entry, message)
@@ -264,6 +319,16 @@ function messageEvents(entry: ParsedEntry, sourceName?: string): TimelineEvent[]
       timestamp, durationMs: durationValue(message), toolCallId: stringValue(message.toolCallId), toolName,
       isError, subagent, subagents: subagents.length > 1 ? subagents : undefined, raw: entry.raw,
     }]
+  }
+
+  if (role === 'system') {
+    const hasSystemContextPatch = (isObject(message.sections) && Object.keys(message.sections).length > 0)
+      || (Array.isArray(message.toolsAdded) && message.toolsAdded.length > 0)
+      || (Array.isArray(message.toolsRemoved) && message.toolsRemoved.length > 0)
+      || (typeof message.content === 'string' && message.content.length > 0)
+    if (hasSystemContextPatch) {
+      return [piSystemContextEvent(entry, message, timestamp, isInitialSystemMessage)]
+    }
   }
 
   if (role !== 'assistant') {
@@ -404,7 +469,7 @@ function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, Pr
   const data = entry.raw.data
   const hash = stringValue(data.promptHash)
   const snapshot = typeof data.prompt === 'string' ? data : hash ? snapshots.get(hash) : undefined
-  const prompt = snapshot ? stringValue(snapshot.prompt) : undefined
+  const prompt = typeof snapshot?.prompt === 'string' ? snapshot.prompt : undefined
   const composition = promptComposition(snapshot?.composition)
   const promptLength = typeof data.promptLength === 'number' ? data.promptLength : prompt?.length
   const modelValue = isObject(data.model) ? data.model : undefined
@@ -414,13 +479,23 @@ function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, Pr
   if (composition?.skills.length) summaryParts.push(`Mounted ${composition.skills.length} ${composition.skills.length === 1 ? 'skill' : 'skills'}`)
   if (composition?.contextFiles.length) summaryParts.push(`${composition.contextFiles.length} context ${composition.contextFiles.length === 1 ? 'file' : 'files'}`)
   const defaultSummary = recordType === 'snapshot' ? 'Full snapshot' : recordType === 'reference' ? 'Snapshot reference' : 'System prompt'
+  const title = prompt === undefined
+    ? 'System prompt missing'
+    : prompt.length === 0
+      ? 'System prompt empty'
+      : captureStage === 'provider_request_update' ? 'System prompt update' : 'System prompt'
+  const summary = prompt === undefined
+    ? `Unable to resolve prompt snapshot for hash ${hash ?? 'unknown'}`
+    : prompt.length === 0
+      ? 'Captured empty effective system prompt'
+      : summaryParts.length ? summaryParts.join(' · ') : defaultSummary
 
   return {
     id: `${entry.id}:system-prompt`,
     entryId: entry.id,
     kind: 'system-prompt',
-    title: prompt ? (captureStage === 'provider_request_update' ? 'System prompt update' : 'System prompt') : 'System prompt missing',
-    summary: prompt ? (summaryParts.length ? summaryParts.join(' · ') : defaultSummary) : `Unable to resolve prompt snapshot for hash ${hash ?? 'unknown'}`,
+    title,
+    summary,
     content: prompt ?? 'The complete system prompt snapshot for this reference is not in the current session file.',
     timestamp: entry.timestamp,
     targetEntryId: stringValue(data.targetUserEntryId),
@@ -617,14 +692,75 @@ function pairTools(events: TimelineEvent[], sourceName?: string): void {
   }
 }
 
+function attachSubagentReference(event: TimelineEvent, reference: NonNullable<TimelineEvent['subagent']>): void {
+  const references = event.subagents ?? (event.subagent ? [event.subagent] : [])
+  if (references.some((existing) => existing.targetFile === reference.targetFile
+    || (existing.runId && existing.runId === reference.runId))) return
+
+  const combined = [...references, reference]
+  event.subagent = combined[0]
+  if (combined.length > 1) event.subagents = combined
+}
+
+/**
+ * Link pi-subagents' asynchronous completion notices to the tool result that
+ * launched the run. The notice is a separate custom_message entry, not a
+ * toolResult, so pairTools cannot see its sessionValue while pairing calls.
+ */
+function linkAsyncSubagentNotifications(events: TimelineEvent[], sourceName?: string): void {
+  const resultsByRunId = new Map<string, TimelineEvent[]>()
+
+  for (const event of events) {
+    if (event.kind !== 'tool-result' || event.toolName !== 'subagent' || !isObject(event.raw)) continue
+    const message = isObject(event.raw.message) ? event.raw.message : undefined
+    const details = message && isObject(message.details) ? message.details : undefined
+    const runId = stringValue(details?.runId)
+    if (!runId) continue
+    const results = resultsByRunId.get(runId) ?? []
+    results.push(event)
+    resultsByRunId.set(runId, results)
+  }
+
+  for (const event of events) {
+    if (event.kind !== 'system' || !isObject(event.raw)
+      || event.raw.type !== 'custom_message' || event.raw.customType !== 'subagent-notify') continue
+    const details = isObject(event.raw.details) ? event.raw.details : undefined
+    if (!Array.isArray(details?.runs)) continue
+
+    for (const run of details.runs) {
+      if (!isObject(run)) continue
+      const runId = stringValue(run.runId)
+      const sessionValue = stringValue(run.sessionValue)
+      if (!runId || !sessionValue?.toLowerCase().endsWith('.jsonl')) continue
+
+      const matches = resultsByRunId.get(runId)
+      if (matches?.length !== 1) continue
+      const result = matches[0]
+      const resultMessage = isObject(result.raw) && isObject(result.raw.message) ? result.raw.message : undefined
+      const resultDetails = resultMessage && isObject(resultMessage.details) ? resultMessage.details : undefined
+      const detailToolCallId = stringValue(resultDetails?.toolCallId)
+      if (detailToolCallId && detailToolCallId !== result.toolCallId) continue
+
+      const reference = extractSubagentReferences('subagent', {
+        sessionFile: sessionValue,
+        agent: run.agent,
+        task: run.task,
+        sessionName: run.sessionLabel,
+        runId,
+      }, undefined, undefined, sourceName)[0]
+      if (reference) attachSubagentReference(result, reference)
+    }
+  }
+}
+
 function missingSystemPromptEvent(user: TimelineEvent): TimelineEvent {
   return {
     id: `missing-system-prompt:${user.entryId}`,
     entryId: `missing-system-prompt:${user.entryId}`,
     kind: 'system-prompt',
     title: 'System prompt unrecorded',
-    summary: 'This turn occurred before the capture extension was loaded and cannot be restored.',
-    content: 'This session JSONL does not contain the system prompt for this turn. To maintain accuracy, historical prompts are never guessed from current configuration.',
+    summary: 'No system-prompt capture record is associated with this turn; the reason is unknown.',
+    content: 'This Pi session contains no captured system prompt associated with this turn. This does not establish whether the run had no system prompt or why capture is absent. Historical prompts are never reconstructed from current configuration.',
     timestamp: user.timestamp,
     targetEntryId: user.entryId,
     systemPrompt: { recordType: 'missing' },
@@ -633,6 +769,9 @@ function missingSystemPromptEvent(user: TimelineEvent): TimelineEvent {
 }
 
 function placeSystemPromptsBeforeUsers(events: TimelineEvent[]): TimelineEvent[] {
+  const hasNativeSystemPromptSnapshot = events.some(
+    (event) => event.kind === 'system' && event.title === 'Pi system context snapshot'
+  )
   const promptsByUser = new Map<string, TimelineEvent[]>()
   for (const event of events) {
     if ((event.kind !== 'system-prompt' && event.kind !== 'tool-definitions') || !event.targetEntryId) continue
@@ -662,7 +801,7 @@ function placeSystemPromptsBeforeUsers(events: TimelineEvent[]): TimelineEvent[]
 
       if (isFirstUser) {
         isFirstUser = false
-        const prompts = candidatePrompts ?? [missingSystemPromptEvent(event)]
+        const prompts = candidatePrompts ?? (hasNativeSystemPromptSnapshot ? [] : [missingSystemPromptEvent(event)])
         prompts.forEach((prompt, index) => {
           prompt.timestamp = event.timestamp
           prompt.gapMs = index === 0 ? event.gapMs : 0
@@ -921,8 +1060,16 @@ export function buildSessionView(
     : session.currentLeafId
   const branchEntries = leafId ? getPath(session.entries, leafId) : []
   const snapshots = collectPromptSnapshots(session.entries)
-  const rawEvents = branchEntries.flatMap((entry) => entry.type === 'message' ? messageEvents(entry, session.sourceName) : systemEvents(entry, snapshots))
+  const firstSystemMessageId = branchEntries.find((entry) => (
+    entry.type === 'message'
+    && isObject(entry.raw.message)
+    && entry.raw.message.role === 'system'
+  ))?.id
+  const rawEvents = branchEntries.flatMap((entry) => entry.type === 'message'
+    ? messageEvents(entry, session.sourceName, entry.id === firstSystemMessageId)
+    : systemEvents(entry, snapshots))
   pairTools(rawEvents, session.sourceName)
+  linkAsyncSubagentNotifications(rawEvents, session.sourceName)
   inferMissingPromptTargets(rawEvents)
   const events = placeSystemPromptsBeforeUsers(rawEvents)
   applyContextProjection(events, contextProjection)

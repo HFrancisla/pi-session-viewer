@@ -5,10 +5,11 @@ import {
   buildVanillaSystemPrompt,
   computeLineDiff,
   formatDiffLineTooltip,
+  findPreviousPromptSnapshot,
   resolvePromptDiff,
   type PromptDiffResult,
 } from './prompt-diff'
-import type { SystemPromptComposition } from './types'
+import type { SystemPromptComposition, TimelineEvent } from './types'
 import { buildFixturePrompt } from '../../scripts/generate-prompt-fixtures.mjs'
 import { PI_PACKAGE_DIR } from '../../tests/helpers/pi-runtime'
 
@@ -111,6 +112,34 @@ describe('prompt-diff: resolvePromptDiff against real prompts', () => {
 
     expect(removed.filter((line) => line.startsWith('- When asked about: extensions'))).toEqual([])
     expect(result.unchangedCount).toBeGreaterThan(10)
+  })
+
+  it('uses the previous effective prompt as a reversible incremental baseline', () => {
+    const previousPrompt = 'Base prompt\nExisting rule'
+    const currentPrompt = `${previousPrompt}\nNewly appended rule`
+    const result = resolvePromptDiff(currentPrompt, { previousPrompt }, 'previous')
+
+    expect(result.baselineMode).toBe('previous')
+    expect(result.baselinePrompt).toBe(previousPrompt)
+    expect(result.lines.filter((line) => line.type === 'added').map((line) => line.text)).toEqual(['Newly appended rule'])
+    expectDiffIsReversible(result)
+  })
+
+  it('falls back to Vanilla Pi when a previous baseline is unavailable', () => {
+    const result = resolvePromptDiff(full.prompt, { composition }, 'previous')
+
+    expect(result.baselineMode).toBe('vanilla')
+    expect(result.baselinePrompt).toBe(buildVanillaSystemPrompt(full.prompt, composition))
+  })
+
+  it('finds the preceding resolved snapshot and skips missing prompt records', () => {
+    const events = [
+      { id: 'initial', entryId: 'initial', kind: 'system-prompt', title: 'System prompt', summary: '', content: 'Initial prompt', systemPrompt: { recordType: 'snapshot' }, raw: {} },
+      { id: 'missing', entryId: 'missing', kind: 'system-prompt', title: 'System prompt missing', summary: '', content: 'unresolved', systemPrompt: { recordType: 'reference' }, raw: {} },
+      { id: 'update', entryId: 'update', kind: 'system-prompt', title: 'System prompt update', summary: '', content: 'Updated prompt', systemPrompt: { recordType: 'snapshot' }, raw: {} },
+    ] as TimelineEvent[]
+
+    expect(findPreviousPromptSnapshot(events, 'update')).toBe('Initial prompt')
   })
 
   it('uses promptBeforeFinalExtensions when available and reversibly diffs against it', () => {

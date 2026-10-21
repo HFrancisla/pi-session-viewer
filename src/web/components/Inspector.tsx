@@ -21,6 +21,7 @@ import { useI18n } from '../i18n'
 
 interface InspectorProps {
   event: TimelineEvent | null
+  previousPrompt?: string
   mobileOpen: boolean
   onClose: () => void
   onJumpToEvent: () => void
@@ -317,7 +318,7 @@ function EventRawView({ event }: { event: TimelineEvent }) {
   )
 }
 
-export function Inspector({ event, mobileOpen, onClose, onJumpToEvent, onJumpToEntry }: InspectorProps) {
+export function Inspector({ event, previousPrompt, mobileOpen, onClose, onJumpToEvent, onJumpToEntry }: InspectorProps) {
   const { t, localizeTitle } = useI18n()
   const [tab, setTab] = useState<InspectorTab>('content')
 
@@ -327,7 +328,11 @@ export function Inspector({ event, mobileOpen, onClose, onJumpToEvent, onJumpToE
 
   const tools = event?.toolDefinitions ?? []
   const isSystemPrompt = event?.kind === 'system-prompt'
-  const hasComposition = isSystemPrompt || (event?.kind !== 'tool-definitions' && Boolean(event?.systemPrompt?.composition))
+  const hasResolvedSystemPrompt = isSystemPrompt
+    && event?.systemPrompt?.recordType !== 'missing'
+    && event?.title !== 'System prompt missing'
+    && event?.title !== 'System prompt unrecorded'
+  const hasComposition = hasResolvedSystemPrompt || (event?.kind !== 'tool-definitions' && Boolean(event?.systemPrompt?.composition))
   const isToolDef = event?.kind === 'tool-definitions'
 
   return (
@@ -368,7 +373,7 @@ export function Inspector({ event, mobileOpen, onClose, onJumpToEvent, onJumpToE
             <button type="button" role="tab" aria-selected={tab === 'content'} onClick={() => setTab('content')}>
               <FileText size={15} />{t.inspector.tabs.content}
             </button>
-            {isSystemPrompt && (
+            {hasResolvedSystemPrompt && (
               <button type="button" role="tab" aria-selected={tab === 'diff'} onClick={() => setTab('diff')}>
                 <GitCompare size={15} />{t.inspector.tabs.diff}
               </button>
@@ -388,7 +393,7 @@ export function Inspector({ event, mobileOpen, onClose, onJumpToEvent, onJumpToE
                 composition={event.systemPrompt?.composition}
               />
             ) : tab === 'diff' && event ? (
-              <PromptDiffView key={event.id} event={event} />
+              <PromptDiffView key={event.id} event={event} previousPrompt={previousPrompt} />
             ) : tab === 'raw' ? (
               <EventRawView event={event} />
             ) : isToolDef ? (

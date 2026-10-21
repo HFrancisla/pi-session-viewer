@@ -1,4 +1,4 @@
-import type { SystemPromptComposition } from './types'
+import type { SystemPromptComposition, TimelineEvent } from './types'
 import { parseSystemPromptSections } from './prompt-sections'
 import {
   PI_DEFAULT_PREAMBLE,
@@ -31,7 +31,24 @@ export interface PromptDiffResult {
   baselineMode: DiffBaselineMode
 }
 
-export type DiffBaselineMode = 'vanilla' | 'before-extensions'
+export type DiffBaselineMode = 'vanilla' | 'before-extensions' | 'previous'
+
+/** Finds the preceding resolved system-prompt snapshot on the selected branch. */
+export function findPreviousPromptSnapshot(events: TimelineEvent[], eventId: string): string | undefined {
+  const currentIndex = events.findIndex((event) => event.id === eventId)
+  for (let index = currentIndex - 1; index >= 0; index -= 1) {
+    const candidate = events[index]
+    if (
+      candidate.kind === 'system-prompt'
+      && candidate.systemPrompt?.recordType !== 'missing'
+      && candidate.title !== 'System prompt missing'
+      && candidate.title !== 'System prompt unrecorded'
+    ) {
+      return candidate.content
+    }
+  }
+  return undefined
+}
 
 export interface VanillaPromptOptions {
   cwd?: string
@@ -284,17 +301,23 @@ export function resolvePromptDiff(
   systemPromptData?: {
     composition?: Partial<SystemPromptComposition>
     promptBeforeFinalExtensions?: string
+    previousPrompt?: string
   },
   baselineMode: DiffBaselineMode = 'vanilla'
 ): PromptDiffResult {
   const hasExtensionsBaseline = Boolean(systemPromptData?.promptBeforeFinalExtensions)
-  const effectiveMode: DiffBaselineMode = baselineMode === 'before-extensions' && hasExtensionsBaseline
-    ? 'before-extensions'
-    : 'vanilla'
+  const hasPreviousBaseline = systemPromptData?.previousPrompt !== undefined
+  const effectiveMode: DiffBaselineMode = baselineMode === 'previous' && hasPreviousBaseline
+    ? 'previous'
+    : baselineMode === 'before-extensions' && hasExtensionsBaseline
+      ? 'before-extensions'
+      : 'vanilla'
 
-  const baselinePrompt = effectiveMode === 'before-extensions' && systemPromptData?.promptBeforeFinalExtensions
-    ? systemPromptData.promptBeforeFinalExtensions
-    : buildVanillaSystemPrompt(targetPrompt, systemPromptData?.composition)
+  const baselinePrompt = effectiveMode === 'previous'
+    ? systemPromptData?.previousPrompt ?? ''
+    : effectiveMode === 'before-extensions' && systemPromptData?.promptBeforeFinalExtensions
+      ? systemPromptData.promptBeforeFinalExtensions
+      : buildVanillaSystemPrompt(targetPrompt, systemPromptData?.composition)
 
   const diff = computeLineDiff(baselinePrompt, targetPrompt)
 

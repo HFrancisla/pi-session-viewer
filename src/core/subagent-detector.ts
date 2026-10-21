@@ -46,8 +46,12 @@ function extractFilePathCandidate(value: unknown, isSubagentTool: boolean): stri
   // Both patterns require a literal ('subagent-artifacts/' or '.jsonl'), so a
   // native substring search can rule out a whole-string regex scan. Tool output
   // runs to megabytes and almost never names a session file.
+  // A path quoted in arbitrary tool output (for example a grep match) is not
+  // evidence that the tool launched a subagent. Structured session fields are
+  // handled separately; free-text paths are only trusted for known subagent tools.
+  if (!isSubagentTool) return undefined
   const mentionsSubagentPath = value.includes('subagent-artifacts')
-  if (!mentionsSubagentPath && (!isSubagentTool || !value.includes('.jsonl'))) return undefined
+  if (!mentionsSubagentPath && !value.includes('.jsonl')) return undefined
   const subagentMatch = value.match(SUBAGENT_FILE_PATH_REGEX)
   if (subagentMatch?.[1]) return subagentMatch[1]
 
