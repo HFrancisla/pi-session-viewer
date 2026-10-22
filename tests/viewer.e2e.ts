@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { decodeSessionToken, encodeSessionToken } from '../src/core/session-token'
 
 test('requires an instance token before requesting session data', async ({ page }) => {
   const apiRequests: string[] = []
@@ -58,6 +59,78 @@ test('copies the full JSONL path from the session header', async ({ page }) => {
   await expect(copyButton).toHaveAttribute('aria-label', 'Copy session path')
   await expect(copyButton.locator('svg.lucide-copy')).toHaveCount(1)
   await expect(copyButton).toHaveCSS('width', `${buttonWidth}px`)
+})
+
+test('opens a single subagent directly without showing a chooser', async ({ page }) => {
+  const cwd = '/work/demo'
+  const parentPath = 'demo/single-parent.jsonl'
+  const childPath = 'demo/subagent-artifacts/single-child.jsonl'
+  const parentToken = encodeSessionToken(parentPath)
+  const modifiedAt = '2026-01-01T10:00:00.000Z'
+  const content = (entries: unknown[]) => entries.map((entry) => JSON.stringify(entry)).join('\n')
+  const parentContent = content([
+    { type: 'session', version: 3, id: 'single-parent', timestamp: modifiedAt, cwd },
+    {
+      type: 'message', id: 'single-user', parentId: null, timestamp: modifiedAt,
+      message: { role: 'user', timestamp: Date.parse(modifiedAt), content: 'Open one child session' },
+    },
+    {
+      type: 'message', id: 'single-assistant', parentId: 'single-user', timestamp: modifiedAt,
+      message: {
+        role: 'assistant', timestamp: Date.parse(modifiedAt),
+        content: [{ type: 'toolCall', id: 'single-call', name: 'subagent', arguments: { agent: 'single-worker' } }],
+      },
+    },
+    {
+      type: 'message', id: 'single-result', parentId: 'single-assistant', timestamp: modifiedAt,
+      message: {
+        role: 'toolResult', timestamp: Date.parse(modifiedAt), toolCallId: 'single-call', toolName: 'subagent',
+        content: [{ type: 'text', text: 'Child session created' }],
+        details: { results: [{ targetFile: childPath, agent: 'single-worker', task: 'Complete the task' }] },
+      },
+    },
+  ])
+  const childContent = content([
+    { type: 'session', version: 3, id: 'single-child', timestamp: modifiedAt, cwd },
+    {
+      type: 'message', id: 'child-user', parentId: null, timestamp: modifiedAt,
+      message: { role: 'user', timestamp: Date.parse(modifiedAt), content: 'Single child session content' },
+    },
+  ])
+
+  await page.route('**/api/sessions', async (route) => {
+    await route.fulfill({
+      json: {
+        root: '/synthetic/sessions',
+        currentCwd: cwd,
+        sessions: [{
+          token: parentToken, id: 'single-parent', title: 'Single subagent parent', cwd,
+          timestamp: modifiedAt, modifiedAt, relativePath: parentPath,
+        }],
+        warnings: [],
+      },
+    })
+  })
+  await page.route('**/api/sessions/*', async (route) => {
+    const token = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1) ?? '')
+    const relativePath = decodeSessionToken(token)
+    if (relativePath === parentPath) {
+      await route.fulfill({ json: { token, relativePath, modifiedAt, content: parentContent } })
+    } else if (relativePath === childPath) {
+      await route.fulfill({ json: { token, relativePath, modifiedAt, content: childContent } })
+    } else {
+      await route.fulfill({ status: 404, json: { error: 'not found' } })
+    }
+  })
+
+  await page.goto('/#token=dev-token&cwd=/work/demo')
+  await expect(page.locator('.header-session strong')).toHaveText('Open one child session')
+  const opener = page.locator('.event-subagent-tag')
+  await expect(opener).toHaveCount(1)
+  await expect(opener).not.toHaveAttribute('aria-expanded')
+  await opener.click()
+  await expect(page.locator('.event-subagent-options')).toHaveCount(0)
+  await expect(page.locator('.header-session strong')).toHaveText('Single child session content')
 })
 
 test('browses a Pi session end to end on desktop and narrow screens', async ({ page }) => {
@@ -291,7 +364,7 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   await expect(page.locator('.event-context-mark').first()).toHaveCSS('cursor', 'help')
 
   // Timeline rows are options in the virtual listbox, with concise accessible
-  // names. The subagent opener is the only native action inside a row.
+  // names. A batch subagent result starts with one aggregate action in its row.
   const rowA11y = await page.evaluate(() => {
     const rows = [...document.querySelectorAll('.event-row')] as HTMLElement[]
     return {
@@ -384,17 +457,28 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   await expect(userFilter).toBeChecked()
   await expect(page.locator('.event--user')).toHaveCount(1)
 
-  // A subagent reference whose artifacts are gone must not wipe the timeline: the
-  // jump reports itself in a dismissible strip and the session stays on screen.
-  const subagentTag = page.locator('.event-subagent-tag')
-  await expect(subagentTag).toHaveCount(1)
-  const rowsBeforeFailedJump = await page.locator('.event-row').count()
+  // A batch result offers each child Session separately. Opening one keeps the
+  // parent available, and a missing sibling reports an action error in place.
+  const subagentTag = page.locator('.event-subagent-tag').first()
+  await expect(page.locator('.event-subagent-tag')).toHaveCount(1)
+  const rowsBeforeChildNavigation = await page.locator('.event-row').count()
   await subagentTag.click()
+  const subagentOptions = page.locator('.event-subagent-options')
+  await expect(subagentOptions.getByRole('button', { name: /worker-a/ })).toBeVisible()
+  await expect(subagentOptions.getByRole('button', { name: /worker-b/ })).toBeVisible()
+  await subagentOptions.getByRole('button', { name: /worker-a/ }).click()
+  await expect(page.locator('.event-row.event--user .event-summary').filter({ hasText: 'Worker A child session' })).toBeVisible()
+  await page.locator('.breadcrumb-back-btn').click()
+  await expect(page.getByText('工具配对演示', { exact: true }).first()).toBeVisible()
+  await expect(page.locator('.event-row')).toHaveCount(rowsBeforeChildNavigation)
+
+  await page.locator('.event-subagent-tag').first().click()
   const actionError = page.locator('.action-error-strip')
+  await page.locator('.event-subagent-options').getByRole('button', { name: /worker-b/ }).click()
   await expect(actionError).toBeVisible()
   await expect(actionError).toContainText('Failed to load subagent session')
   await expect(actionError).toContainText('The operation failed.')
-  await expect(page.locator('.event-row')).toHaveCount(rowsBeforeFailedJump)
+  await expect(page.locator('.event-row')).toHaveCount(rowsBeforeChildNavigation)
   await expect(page.locator('.load-state.is-error')).toHaveCount(0)
   await page.getByRole('button', { name: 'EN / 中' }).click()
   await expect(actionError).toContainText('加载子 Agent 会话失败')
@@ -403,7 +487,7 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   await expect(actionError).toContainText('Failed to load subagent session')
   await actionError.locator('button').click()
   await expect(actionError).toHaveCount(0)
-  await expect(page.locator('.event-row')).toHaveCount(rowsBeforeFailedJump)
+  await expect(page.locator('.event-row')).toHaveCount(rowsBeforeChildNavigation)
 
   const columns = await page.locator('.session-sidebar, .main-stage, .inspector').evaluateAll((elements) => elements.map((element) => {
     const box = element.getBoundingClientRect()

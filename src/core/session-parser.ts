@@ -431,7 +431,7 @@ function promptComposition(value: unknown): SystemPromptComposition | undefined 
         disableModelInvocation: skill.disableModelInvocation === true,
       }))
     : []
-  const toolDefinitions: CapturedToolDefinition[] = Array.isArray(value.toolDefinitions)
+  const toolDefinitions: CapturedToolDefinition[] | undefined = Array.isArray(value.toolDefinitions)
     ? value.toolDefinitions.filter(isObject).map((tool) => ({
         ...tool,
         name: stringValue(tool.name) ?? 'Unnamed tool',
@@ -440,12 +440,12 @@ function promptComposition(value: unknown): SystemPromptComposition | undefined 
         promptGuidelines: stringArray(tool.promptGuidelines),
         sourceInfo: isObject(tool.sourceInfo) ? (tool.sourceInfo as ToolSourceInfo) : undefined,
       }))
-    : []
+    : undefined
   return {
     customPrompt: stringValue(value.customPrompt),
     selectedTools: stringArray(value.selectedTools),
     toolSnippets: stringRecord(value.toolSnippets),
-    toolDefinitions: toolDefinitions.length > 0 ? toolDefinitions : undefined,
+    toolDefinitions,
     promptGuidelines: stringArray(value.promptGuidelines),
     appendSystemPrompt: stringValue(value.appendSystemPrompt),
     cwd: stringValue(value.cwd) ?? '',
@@ -470,7 +470,11 @@ function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, Pr
   const hash = stringValue(data.promptHash)
   const snapshot = typeof data.prompt === 'string' ? data : hash ? snapshots.get(hash) : undefined
   const prompt = typeof snapshot?.prompt === 'string' ? snapshot.prompt : undefined
-  const composition = promptComposition(snapshot?.composition)
+  const snapshotComposition = isObject(snapshot?.composition) ? snapshot.composition : undefined
+  const recordComposition = isObject(data.composition) ? data.composition : undefined
+  const composition = snapshotComposition || recordComposition
+    ? promptComposition({ ...snapshotComposition, ...recordComposition })
+    : undefined
   const promptLength = typeof data.promptLength === 'number' ? data.promptLength : prompt?.length
   const modelValue = isObject(data.model) ? data.model : undefined
   const recordType = data.recordType === 'reference' ? 'reference' : 'snapshot'
@@ -518,7 +522,7 @@ function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, Pr
 
 function buildToolDefinitionsEvent(promptEvent: TimelineEvent): TimelineEvent | undefined {
   const composition = promptEvent.systemPrompt?.composition
-  if (!composition?.toolDefinitions?.length) return undefined
+  if (!composition || composition.toolDefinitions === undefined) return undefined
 
   const tools = composition.toolDefinitions
   const apiTools = tools.map(sanitizeToolForApi)
@@ -531,7 +535,7 @@ function buildToolDefinitionsEvent(promptEvent: TimelineEvent): TimelineEvent | 
     entryId: promptEvent.entryId,
     kind: 'tool-definitions',
     title: 'Tool Definitions',
-    summary: `Mounted ${tools.length} API tools`,
+    summary: tools.length > 0 ? `Mounted ${tools.length} API tools` : 'No active API tools',
     content: jsonContent,
     timestamp: promptEvent.timestamp,
     targetEntryId: promptEvent.targetEntryId,
@@ -544,6 +548,14 @@ function buildToolDefinitionsEvent(promptEvent: TimelineEvent): TimelineEvent | 
       estimatedTokens,
     },
   }
+}
+
+function toolDefinitionsFingerprint(event: TimelineEvent): string | undefined {
+  if (event.kind !== 'tool-definitions') return undefined
+  const apiTools = (event.toolDefinitions ?? [])
+    .map(sanitizeToolForApi)
+    .sort((a, b) => a.name.localeCompare(b.name))
+  return JSON.stringify(apiTools)
 }
 
 /**
@@ -783,16 +795,25 @@ function placeSystemPromptsBeforeUsers(events: TimelineEvent[]): TimelineEvent[]
   const placed = new Set<string>()
   const ordered: TimelineEvent[] = []
   let activePromptHash: string | undefined
+  let activeToolDefinitionsFingerprint: string | undefined
   let isFirstUser = true
 
   for (const event of events) {
     if (event.kind === 'system-prompt' || event.kind === 'tool-definitions') {
       if (event.targetEntryId) continue
-      // Mid-turn prompt update (no targetEntryId): keep it inline and track hash
-      if (event.systemPrompt?.promptHash) {
-        activePromptHash = event.systemPrompt.promptHash
+      if (event.kind === 'system-prompt') {
+        const hash = event.systemPrompt?.promptHash
+        if (!hash || hash !== activePromptHash) {
+          if (hash) activePromptHash = hash
+          ordered.push(event)
+        }
+      } else {
+        const fingerprint = toolDefinitionsFingerprint(event)
+        if (fingerprint !== activeToolDefinitionsFingerprint) {
+          activeToolDefinitionsFingerprint = fingerprint
+          ordered.push(event)
+        }
       }
-      ordered.push(event)
       continue
     }
 
@@ -808,14 +829,28 @@ function placeSystemPromptsBeforeUsers(events: TimelineEvent[]): TimelineEvent[]
           if (prompt.systemPrompt?.promptHash) {
             activePromptHash = prompt.systemPrompt.promptHash
           }
+          if (prompt.kind === 'tool-definitions') {
+            activeToolDefinitionsFingerprint = toolDefinitionsFingerprint(prompt)
+          }
           placed.add(prompt.id)
           ordered.push(prompt)
         })
         event.gapMs = 0
+      } else if (!candidatePrompts?.length) {
+        if (!hasNativeSystemPromptSnapshot) {
+          const prompt = missingSystemPromptEvent(event)
+          prompt.timestamp = event.timestamp
+          prompt.gapMs = event.gapMs
+          ordered.push(prompt)
+          event.gapMs = 0
+        }
       } else {
-        // Subsequent turns: only place system prompts if the prompt has changed!
-        if (candidatePrompts && candidatePrompts.length > 0) {
+        // Reuse prompt text by hash, but surface API tool schemas when they change.
+        if (candidatePrompts.length > 0) {
           const changedPrompts = candidatePrompts.filter((prompt) => {
+            if (prompt.kind === 'tool-definitions') {
+              return toolDefinitionsFingerprint(prompt) !== activeToolDefinitionsFingerprint
+            }
             const hash = prompt.systemPrompt?.promptHash
             return !hash || hash !== activePromptHash
           })
@@ -829,6 +864,9 @@ function placeSystemPromptsBeforeUsers(events: TimelineEvent[]): TimelineEvent[]
               }
               if (prompt.systemPrompt?.promptHash) {
                 activePromptHash = prompt.systemPrompt.promptHash
+              }
+              if (prompt.kind === 'tool-definitions') {
+                activeToolDefinitionsFingerprint = toolDefinitionsFingerprint(prompt)
               }
               placed.add(prompt.id)
               ordered.push(prompt)

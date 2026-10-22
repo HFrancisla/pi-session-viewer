@@ -109,7 +109,35 @@ describe('system prompt capture extension', () => {
     expect(pi.entries[0].data.promptHash).toMatch(/^[0-9a-f]{64}$/)
   })
 
-  it('stores a reference instead of repeating an already captured prompt', async () => {
+  it('treats an available empty active tool set as authoritative', async () => {
+    const pi = fakePi()
+    pi.activeTools = []
+    capturePrompt(pi as never)
+    const prompt = 'prompt with no active tools'
+    const options = { cwd: '/work/demo', selectedTools: [], toolSnippets: {}, promptGuidelines: [], contextFiles: [], skills: [] }
+
+    await pi.handlers.get('before_agent_start')?.({ systemPrompt: prompt, systemPromptOptions: options }, context(prompt))
+    await pi.handlers.get('before_provider_request')?.({}, context(prompt))
+
+    expect(pi.entries[0].data.composition.selectedTools).toEqual([])
+    expect(pi.entries[0].data.composition.toolDefinitions).toEqual([])
+  })
+
+  it('falls back to all configured tools only when the active-tool API is unavailable', async () => {
+    const pi = fakePi()
+    Reflect.deleteProperty(pi, 'getActiveTools')
+    capturePrompt(pi as never)
+    const prompt = 'prompt with unknown active tools'
+    const options = { cwd: '/work/demo', selectedTools: [], toolSnippets: {}, promptGuidelines: [], contextFiles: [], skills: [] }
+
+    await pi.handlers.get('before_agent_start')?.({ systemPrompt: prompt, systemPromptOptions: options }, context(prompt))
+    await pi.handlers.get('before_provider_request')?.({}, context(prompt))
+
+    expect(pi.entries[0].data.composition.selectedTools).toEqual(['bash'])
+    expect(pi.entries[0].data.composition.toolDefinitions?.map((tool: { name: string }) => tool.name)).toEqual(['bash'])
+  })
+
+  it('stores current API tool definitions on a prompt reference without repeating the prompt', async () => {
     const pi = fakePi()
     capturePrompt(pi as never)
     const options = { cwd: '/work/demo', selectedTools: [], toolSnippets: {}, promptGuidelines: [], contextFiles: [], skills: [] }
@@ -121,6 +149,12 @@ describe('system prompt capture extension', () => {
     }
 
     await run()
+    const getOriginalTools = pi.getAllTools.bind(pi)
+    pi.getAllTools = () => [
+      ...getOriginalTools(),
+      { name: 'read', description: 'Read files', parameters: { type: 'object', properties: { path: { type: 'string' } } } },
+    ]
+    pi.activeTools.push('read')
     await run()
 
     expect(pi.entries).toHaveLength(2)
@@ -129,7 +163,35 @@ describe('system prompt capture extension', () => {
       data: { schemaVersion: 1, recordType: 'reference', promptHash: pi.entries[0].data.promptHash },
     })
     expect(pi.entries[1].data.prompt).toBeUndefined()
-    expect(pi.entries[1].data.composition).toBeUndefined()
+    expect(pi.entries[1].data.composition?.toolDefinitions?.map((tool: { name: string }) => tool.name)).toEqual(['bash', 'read'])
+    expect(pi.entries[1].data.composition).not.toHaveProperty('selectedTools')
+  })
+
+  it('captures API tool schema updates during a run without changing the prompt text', async () => {
+    const pi = fakePi()
+    capturePrompt(pi as never)
+    const options = { cwd: '/work/demo', selectedTools: ['bash'], toolSnippets: {}, promptGuidelines: [], contextFiles: [], skills: [] }
+    const prompt = 'same effective prompt'
+
+    await pi.handlers.get('before_agent_start')?.({ systemPrompt: prompt, systemPromptOptions: options }, context(prompt))
+    await pi.handlers.get('before_provider_request')?.({}, context(prompt))
+
+    const getOriginalTools = pi.getAllTools.bind(pi)
+    pi.getAllTools = () => [
+      ...getOriginalTools(),
+      { name: 'read', description: 'Read files', parameters: { type: 'object', properties: { path: { type: 'string' } } } },
+    ]
+    pi.activeTools.push('read')
+    await pi.handlers.get('before_provider_request')?.({}, context(prompt))
+    await pi.handlers.get('before_provider_request')?.({}, context(prompt))
+
+    expect(pi.entries).toHaveLength(2)
+    expect(pi.entries[1]).toMatchObject({
+      customType: 'pi-session-viewer.system-prompt',
+      data: { recordType: 'reference', promptHash: pi.entries[0].data.promptHash },
+    })
+    expect(pi.entries[1].data.prompt).toBeUndefined()
+    expect(pi.entries[1].data.composition?.toolDefinitions?.map((tool: { name: string }) => tool.name)).toEqual(['bash', 'read'])
   })
 
   it('records a new snapshot when the effective prompt changes before a provider request', async () => {

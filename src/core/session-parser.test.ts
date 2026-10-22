@@ -76,6 +76,25 @@ describe('parseSessionJsonl', () => {
     expect(call?.model).toEqual({ provider: 'demo', id: 'model-a' })
   })
 
+  it('marks every user turn without an associated system-prompt capture as unrecorded', () => {
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', content: 'First turn' }),
+      entry('a1', 'u1', '2026-01-01T10:00:02.000Z', {
+        role: 'assistant', content: [{ type: 'text', text: 'First reply' }],
+      }),
+      entry('u2', 'a1', '2026-01-01T10:00:03.000Z', { role: 'user', content: 'Later turn without a capture' }),
+      entry('a2', 'u2', '2026-01-01T10:00:04.000Z', {
+        role: 'assistant', content: [{ type: 'text', text: 'Later reply' }],
+      }),
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source))
+    const markers = view.events.filter((event) => event.title === 'System prompt unrecorded')
+
+    expect(markers.map((event) => event.targetEntryId)).toEqual(['u1', 'u2'])
+  })
+
   it('distinguishes an explicitly captured empty effective prompt', () => {
     const source = jsonl(
       header,
@@ -255,6 +274,125 @@ describe('parseSessionJsonl', () => {
     expect(promptEvents[1].title).toBe('System prompt update')
     expect(promptEvents[1].content).toBe('Updated prompt with bash tool')
     expect(promptEvents[1].systemPrompt?.composition?.selectedTools).toEqual(['read', 'bash'])
+  })
+
+  it('shows API tool schema changes separately when the system prompt hash is unchanged', () => {
+    const readTool = {
+      name: 'read', description: 'Read files',
+      parameters: { type: 'object', properties: { path: { type: 'string' } } },
+    }
+    const bashTool = {
+      name: 'bash', description: 'Run commands',
+      parameters: { type: 'object', properties: { command: { type: 'string' } } },
+    }
+    const promptHash = 'same-prompt-hash'
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', content: 'First turn' }),
+      {
+        type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p1', parentId: 'u1',
+        timestamp: '2026-01-01T10:00:01.100Z',
+        data: {
+          schemaVersion: 1, recordType: 'snapshot', promptHash, prompt: 'Same effective system prompt',
+          promptLength: 28, targetUserEntryId: 'u1',
+          composition: {
+            selectedTools: ['read'], toolDefinitions: [readTool], toolSnippets: {}, promptGuidelines: [],
+            cwd: '/work/demo', contextFiles: [], skills: [],
+          },
+        },
+      },
+      entry('a1', 'p1', '2026-01-01T10:00:02.000Z', { role: 'assistant', content: [{ type: 'text', text: 'First reply' }] }),
+      entry('u2', 'a1', '2026-01-01T10:00:03.000Z', { role: 'user', content: 'Tools changed' }),
+      {
+        type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p2', parentId: 'u2',
+        timestamp: '2026-01-01T10:00:03.100Z',
+        data: {
+          schemaVersion: 1, recordType: 'reference', promptHash, promptLength: 28, targetUserEntryId: 'u2',
+          composition: { toolDefinitions: [readTool, bashTool] },
+        },
+      },
+      entry('a2', 'p2', '2026-01-01T10:00:04.000Z', { role: 'assistant', content: [{ type: 'text', text: 'Second reply' }] }),
+      entry('u3', 'a2', '2026-01-01T10:00:05.000Z', { role: 'user', content: 'Same tools' }),
+      {
+        type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p3', parentId: 'u3',
+        timestamp: '2026-01-01T10:00:05.100Z',
+        data: {
+          schemaVersion: 1, recordType: 'reference', promptHash, promptLength: 28, targetUserEntryId: 'u3',
+          composition: { toolDefinitions: [bashTool, readTool] },
+        },
+      },
+      entry('a3', 'p3', '2026-01-01T10:00:06.000Z', { role: 'assistant', content: [{ type: 'text', text: 'Third reply' }] }),
+      entry('u4', 'a3', '2026-01-01T10:00:07.000Z', { role: 'user', content: 'Tools disabled' }),
+      {
+        type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p4', parentId: 'u4',
+        timestamp: '2026-01-01T10:00:07.100Z',
+        data: {
+          schemaVersion: 1, recordType: 'reference', promptHash, promptLength: 28, targetUserEntryId: 'u4',
+          composition: { toolDefinitions: [] },
+        },
+      },
+      entry('a4', 'p4', '2026-01-01T10:00:08.000Z', { role: 'assistant', content: [{ type: 'text', text: 'Fourth reply' }] }),
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source), 'a4')
+    const promptEvents = view.events.filter((event) => event.kind === 'system-prompt')
+    const toolDefinitionEvents = view.events.filter((event) => event.kind === 'tool-definitions')
+
+    expect(promptEvents).toHaveLength(1)
+    expect(toolDefinitionEvents).toHaveLength(3)
+    expect(toolDefinitionEvents[1]?.toolDefinitions?.map((tool) => tool.name)).toEqual(['read', 'bash'])
+    expect(toolDefinitionEvents[2]?.summary).toBe('No active API tools')
+    expect(toolDefinitionEvents[2]?.toolDefinitions).toEqual([])
+    expect(view.turns[1].events.map((event) => event.kind)).toEqual(['tool-definitions', 'user', 'assistant'])
+    expect(view.turns[2].events.map((event) => event.kind)).toEqual(['user', 'assistant'])
+    expect(view.turns[3].events.map((event) => event.kind)).toEqual(['tool-definitions', 'user', 'assistant'])
+  })
+
+  it('surfaces mid-turn tool schema changes without claiming the prompt text changed', () => {
+    const readTool = {
+      name: 'read', description: 'Read files',
+      parameters: { type: 'object', properties: { path: { type: 'string' } } },
+    }
+    const bashTool = {
+      name: 'bash', description: 'Run commands',
+      parameters: { type: 'object', properties: { command: { type: 'string' } } },
+    }
+    const promptHash = 'same-prompt-hash'
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', content: 'Run the task' }),
+      {
+        type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p1', parentId: 'u1',
+        timestamp: '2026-01-01T10:00:01.100Z',
+        data: {
+          schemaVersion: 1, recordType: 'snapshot', captureStage: 'agent_start', promptHash,
+          prompt: 'Same effective system prompt', promptLength: 28, targetUserEntryId: 'u1',
+          composition: {
+            selectedTools: ['read'], toolDefinitions: [readTool], toolSnippets: {}, promptGuidelines: [],
+            cwd: '/work/demo', contextFiles: [], skills: [],
+          },
+        },
+      },
+      entry('a1', 'p1', '2026-01-01T10:00:02.000Z', { role: 'assistant', content: [{ type: 'text', text: 'Thinking' }] }),
+      {
+        type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p2', parentId: 'a1',
+        timestamp: '2026-01-01T10:00:03.000Z',
+        data: {
+          schemaVersion: 1, recordType: 'reference', captureStage: 'provider_request_update', promptHash,
+          promptLength: 28, sequence: 2, composition: { toolDefinitions: [readTool, bashTool] },
+        },
+      },
+      entry('a2', 'p2', '2026-01-01T10:00:04.000Z', { role: 'assistant', content: [{ type: 'text', text: 'Final reply' }] }),
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source))
+    const promptEvents = view.events.filter((event) => event.kind === 'system-prompt')
+    const toolDefinitionEvents = view.events.filter((event) => event.kind === 'tool-definitions')
+
+    expect(promptEvents).toHaveLength(1)
+    expect(promptEvents[0]?.title).toBe('System prompt')
+    expect(toolDefinitionEvents).toHaveLength(2)
+    expect(toolDefinitionEvents[1]?.toolDefinitions?.map((tool) => tool.name)).toEqual(['read', 'bash'])
   })
 
   it('inserts tool-definitions card with parameter schemas right after system-prompt when captured in session', () => {
@@ -464,6 +602,36 @@ describe('parseSessionJsonl', () => {
     })
   })
 
+  it('keeps distinct child Sessions when result items share an outer runId', () => {
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', { role: 'user', content: 'Start a worker group' }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'call-1', name: 'subagent', arguments: { task: 'Parallel work' } }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'call-1', toolName: 'subagent', content: 'Workers completed',
+        details: {
+          runId: 'batch-1',
+          results: [
+            { agent: 'worker-a', sessionFile: 'subagent-artifacts/worker-a.jsonl' },
+            { agent: 'worker-b', sessionFile: 'subagent-artifacts/worker-b.jsonl' },
+            { agent: 'worker-a-duplicate', sessionFile: 'subagent-artifacts/worker-a.jsonl' },
+          ],
+        },
+      }),
+    )
+
+    const result = buildSessionView(parseSessionJsonl(source)).events.find((event) => event.kind === 'tool-result')
+
+    expect(result?.subagent?.targetFile).toBe('subagent-artifacts/worker-a.jsonl')
+    expect(result?.subagents?.map((reference) => reference.targetFile)).toEqual([
+      'subagent-artifacts/worker-a.jsonl',
+      'subagent-artifacts/worker-b.jsonl',
+    ])
+  })
+
   it('detects subagent references and attaches them to tool-result events', () => {
     const source = jsonl(
       entry('s1', null, '2026-01-01T10:00:00.000Z', {
@@ -597,6 +765,25 @@ describe('parseSessionJsonl', () => {
 
     expect(results).toHaveLength(2)
     expect(results.every((result) => result.subagent === undefined)).toBe(true)
+  })
+
+  it('does not infer a child Session from a generic sessionId in an ordinary tool result', () => {
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', { role: 'user', content: 'Run ordinary work' }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'call-1', name: 'grep', arguments: { pattern: 'session' } }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'call-1', toolName: 'grep', content: 'Search complete',
+        details: { sessionId: 'ordinary-job-42' },
+      }),
+    )
+
+    const result = buildSessionView(parseSessionJsonl(source)).events.find((event) => event.kind === 'tool-result')
+
+    expect(result?.subagent).toBeUndefined()
   })
 
   it('does not treat a grep match for a subagent artifact path as a child Session reference', () => {

@@ -88,6 +88,7 @@ export const zhCN: Translations = {
     },
     subagentTag: '子 Agent',
     openSubagent: '查看子 Agent 执行过程',
+    chooseSubagent: '选择要查看的子 Agent 会话',
     contextOmitted: '未进入上下文',
     contextOmittedTitle: '有 context_edit 把这条从模型收到的内容里移除；原始记录仍保留在会话文件中。',
     contextNotInContext: '未进入上下文',

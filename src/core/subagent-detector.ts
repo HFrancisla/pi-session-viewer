@@ -76,6 +76,7 @@ function extractTargetFileFromObject(obj: RawObject, isSubagentTool: boolean): s
   ]
 
   for (const field of directFields) {
+    if (field === 'sessionId' && !isSubagentTool) continue
     const val = obj[field]
     if (typeof val === 'string') {
       const candidate = extractFilePathCandidate(val, isSubagentTool || field.toLowerCase().includes('subagent'))
@@ -117,7 +118,7 @@ function createReferenceFromItem(
   parentSourcePath?: string,
   fallbackRunId?: string,
 ): SubagentReference | undefined {
-  const isSubagentTool = toolName ? SUBAGENT_TOOL_REGEX.test(toolName) : true
+  const isSubagentTool = Boolean(toolName && SUBAGENT_TOOL_REGEX.test(toolName))
 
   let rawFile = stringValue(item.sessionFile)
     ?? stringValue(item.sessionPath)
@@ -130,7 +131,7 @@ function createReferenceFromItem(
   if (!rawFile && typeof item.jsonlPath === 'string') {
     rawFile = stringValue(item.jsonlPath)
   }
-  if (!rawFile && stringValue(item.sessionId)) {
+  if (!rawFile && isSubagentTool && stringValue(item.sessionId)) {
     rawFile = `subagent-artifacts/${item.sessionId}.jsonl`
   }
 
@@ -187,14 +188,10 @@ export function extractSubagentReferences(
 
   const results: SubagentReference[] = []
   const seenFiles = new Set<string>()
-  const seenRunIds = new Set<string>()
 
   const addReference = (ref?: SubagentReference) => {
-    if (!ref) return
-    if (seenFiles.has(ref.targetFile)) return
-    if (ref.runId && seenRunIds.has(ref.runId)) return
+    if (!ref || seenFiles.has(ref.targetFile)) return
     seenFiles.add(ref.targetFile)
-    if (ref.runId) seenRunIds.add(ref.runId)
     results.push(ref)
   }
 

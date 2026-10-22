@@ -86,6 +86,7 @@ export const en = {
     },
     subagentTag: 'Subagent',
     openSubagent: 'View subagent process',
+    chooseSubagent: 'Choose a subagent session',
     contextOmitted: 'Not in model context',
     contextOmittedTitle: 'A context edit removed this entry from what the model received. The raw record stays in the session file.',
     contextNotInContext: 'Not in model context',

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { BuildSystemPromptOptions, ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 import type { CapturedToolDefinition } from '../core/types'
+import { sanitizeToolForApi } from '../core/tool-provenance'
 import { resolvePiVersion } from '../server/pi-runtime'
 
 export const SYSTEM_PROMPT_ENTRY_TYPE = 'pi-session-viewer.system-prompt'
@@ -33,6 +34,11 @@ interface SerializablePromptOptions {
 
 function promptHash(prompt: string): string {
   return createHash('sha256').update(prompt).digest('hex')
+}
+
+function toolDefinitionsHash(tools: CapturedToolDefinition[]): string {
+  const apiTools = tools.map(sanitizeToolForApi).sort((a, b) => a.name.localeCompare(b.name))
+  return createHash('sha256').update(JSON.stringify(apiTools)).digest('hex')
 }
 
 function serializeOptions(options: BuildSystemPromptOptions): SerializablePromptOptions {
@@ -80,32 +86,45 @@ function recordPrompt(
   forceReference: boolean,
   knownPromptHashes: Set<string>,
   sequence: { value: number },
-  lastRecordedHash: { value?: string },
+  lastRecordedHash: { value?: string; toolDefinitionsHash?: string },
   targetUserEntryId?: string,
 ): void {
   if (!pending) return
   const prompt = ctx.getSystemPrompt()
   const hash = promptHash(prompt)
-  if (!forceReference && hash === lastRecordedHash.value) return
+  const hasAllToolsApi = typeof pi.getAllTools === 'function'
+  const allTools = hasAllToolsApi ? pi.getAllTools() : []
+  const activeToolNames = typeof pi.getActiveTools === 'function' ? pi.getActiveTools() : undefined
+  const activeToolNameSet = new Set(activeToolNames ?? [])
+  const activeTools = activeToolNames === undefined
+    ? allTools
+    : allTools.filter((tool) => activeToolNameSet.has(tool.name))
+  const selectedTools = activeToolNames ?? allTools.map((tool) => tool.name)
+  const hasToolDefinitions = hasAllToolsApi || activeToolNames?.length === 0
+  const toolDefinitions: CapturedToolDefinition[] | undefined = hasToolDefinitions
+    ? activeTools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        promptGuidelines: tool.promptGuidelines,
+        sourceInfo: (tool as any).sourceInfo,
+      }))
+    : undefined
+  const definitionsHash = toolDefinitions === undefined ? undefined : toolDefinitionsHash(toolDefinitions)
+  if (!forceReference && hash === lastRecordedHash.value && definitionsHash === lastRecordedHash.toolDefinitionsHash) return
+
   const isNewSnapshot = !knownPromptHashes.has(hash)
   sequence.value += 1
-  const allTools = typeof pi.getAllTools === 'function' ? pi.getAllTools() : []
-  const activeToolNames = new Set(typeof pi.getActiveTools === 'function' ? pi.getActiveTools() : [])
-  const activeTools = activeToolNames.size > 0
-    ? allTools.filter((tool) => activeToolNames.has(tool.name))
-    : allTools
-  const toolDefinitions: CapturedToolDefinition[] = activeTools.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.parameters,
-    promptGuidelines: tool.promptGuidelines,
-    sourceInfo: (tool as any).sourceInfo,
-  }))
   const composition = {
     ...pending.options,
-    selectedTools: [...pi.getActiveTools()],
-    toolDefinitions: toolDefinitions.length > 0 ? toolDefinitions : undefined,
+    selectedTools: [...selectedTools],
+    toolDefinitions,
   }
+  // Prompt text is deduplicated by promptHash, but API tool schemas can change
+  // independently and must remain specific to this capture record.
+  const capturedComposition = isNewSnapshot
+    ? composition
+    : toolDefinitions !== undefined ? { toolDefinitions } : undefined
 
   pi.appendEntry(SYSTEM_PROMPT_ENTRY_TYPE, {
     schemaVersion: 1,
@@ -114,7 +133,7 @@ function recordPrompt(
     promptHash: hash,
     prompt: isNewSnapshot ? prompt : undefined,
     promptLength: prompt.length,
-    composition: isNewSnapshot ? composition : undefined,
+    composition: capturedComposition,
     promptBeforeFinalExtensions: isNewSnapshot && pending.promptAtCapture !== prompt ? pending.promptAtCapture : undefined,
     targetUserEntryId,
     relatedUserEntryId: targetUserEntryId ?? pending.targetUserEntryId,
@@ -127,12 +146,13 @@ function recordPrompt(
 
   if (isNewSnapshot) knownPromptHashes.add(hash)
   lastRecordedHash.value = hash
+  lastRecordedHash.toolDefinitionsHash = definitionsHash
 }
 
 export default function systemPromptCapture(pi: ExtensionAPI): void {
   const knownPromptHashes = new Set<string>()
   const sequence = { value: 0 }
-  const lastRecordedHash: { value?: string } = {}
+  const lastRecordedHash: { value?: string; toolDefinitionsHash?: string } = {}
   let pending: PendingCapture | undefined
 
   pi.on('session_start', (_event, ctx) => {
@@ -140,6 +160,7 @@ export default function systemPromptCapture(pi: ExtensionAPI): void {
     sequence.value = 0
     pending = undefined
     lastRecordedHash.value = undefined
+    lastRecordedHash.toolDefinitionsHash = undefined
     for (const entry of ctx.sessionManager.getEntries()) {
       if (entry.type !== 'custom' || entry.customType !== SYSTEM_PROMPT_ENTRY_TYPE) continue
       const data = entry.data
@@ -203,5 +224,6 @@ export default function systemPromptCapture(pi: ExtensionAPI): void {
   pi.on('agent_end', () => {
     pending = undefined
     lastRecordedHash.value = undefined
+    lastRecordedHash.toolDefinitionsHash = undefined
   })
 }

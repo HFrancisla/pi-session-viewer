@@ -460,6 +460,7 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.2; }
 .event-status { flex: 0 0 auto; padding: 1px 6px; border-radius: 3px; font-size: 10px; }
 .event-status.is-success { color: var(--green); background: var(--green-soft); }
 .event-status.is-error { color: var(--red); background: var(--red-soft); }
+.event-subagent-control { position: relative; flex: 0 0 auto; display: inline-flex; }
 .event-subagent-tag {
   flex: 0 0 auto;
   display: inline-flex;
@@ -480,6 +481,24 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.2; }
   background: #d4ecf5;
   border-color: #8acde4;
 }
+.event-subagent-options {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 170px;
+  max-width: min(280px, calc(100vw - 40px));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(24, 33, 30, 0.18);
+}
+.event-subagent-choice { justify-content: flex-start; max-width: 100%; }
+.event-subagent-choice > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .subagent-tag-arrow {
   font-size: 10px;
   opacity: 0.7;

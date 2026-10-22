@@ -1,0 +1,3 @@
+{"type":"session","version":3,"id":"worker-a-session","timestamp":"2026-01-01T10:01:00.000Z","cwd":"/work/demo"}
+{"type":"message","id":"worker-a-user","parentId":null,"timestamp":"2026-01-01T10:01:01.000Z","message":{"role":"user","content":"Worker A child session"}}
+{"type":"message","id":"worker-a-assistant","parentId":"worker-a-user","timestamp":"2026-01-01T10:01:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Child A opened successfully"}]}}
