@@ -15,7 +15,7 @@ import type {
 } from './types'
 import { truncate } from './format'
 import { sanitizeToolForApi } from './tool-provenance'
-import { extractSubagentReferences } from './subagent-detector'
+import { extractSubagentReferences, normalizeSessionRelativePath, subagentReferencesAlias, workflowChildTranscriptPath } from './subagent-detector'
 
 /**
  * Entry types this parser models. Asserted against Pi's own
@@ -692,35 +692,42 @@ function pairTools(events: TimelineEvent[], sourceName?: string): void {
         const effectiveSubagents = subagents.length > 0
           ? subagents
           : (event.subagents ?? (event.subagent ? [event.subagent] : undefined) ?? call.subagents ?? (call.subagent ? [call.subagent] : undefined))
-        const effectiveSubagent = effectiveSubagents?.[0] ?? event.subagent ?? call.subagent
-        if (effectiveSubagent) {
-          event.subagent = effectiveSubagent
-          if (effectiveSubagents && effectiveSubagents.length > 1) {
-            event.subagents = effectiveSubagents
-          }
+        if (effectiveSubagents?.length) {
+          call.subagent = effectiveSubagents[0]
+          call.subagents = effectiveSubagents.length > 1 ? effectiveSubagents : undefined
+          delete event.subagent
+          delete event.subagents
         }
       }
     }
   }
 }
 
-function attachSubagentReference(event: TimelineEvent, reference: NonNullable<TimelineEvent['subagent']>): void {
+function attachSubagentReference(
+  event: TimelineEvent,
+  reference: NonNullable<TimelineEvent['subagent']>,
+  parentSourcePath?: string,
+): void {
   const references = event.subagents ?? (event.subagent ? [event.subagent] : [])
-  if (references.some((existing) => existing.targetFile === reference.targetFile
-    || (existing.runId && existing.runId === reference.runId))) return
+  const alreadyLinked = references.some((existing) => subagentReferencesAlias(existing, reference, parentSourcePath))
+  if (alreadyLinked) return
 
   const combined = [...references, reference]
   event.subagent = combined[0]
-  if (combined.length > 1) event.subagents = combined
+  event.subagents = combined.length > 1 ? combined : undefined
 }
 
 /**
- * Link pi-subagents' asynchronous completion notices to the tool result that
- * launched the run. The notice is a separate custom_message entry, not a
- * toolResult, so pairTools cannot see its sessionValue while pairing calls.
+ * Link pi-subagents' asynchronous completion notices and workflow children to
+ * the tool call that launched them. Notices are separate custom_message entries,
+ * so pairTools cannot associate their session references with the invocation.
  */
 function linkAsyncSubagentNotifications(events: TimelineEvent[], sourceName?: string): void {
+  const relativeSourceName = sourceName ? normalizeSessionRelativePath(sourceName) : undefined
   const resultsByRunId = new Map<string, TimelineEvent[]>()
+  const callsById = new Map(events
+    .filter((event) => event.kind === 'tool-call' && event.toolCallId)
+    .map((event) => [event.id, event]))
 
   for (const event of events) {
     if (event.kind !== 'tool-result' || event.toolName !== 'subagent' || !isObject(event.raw)) continue
@@ -742,25 +749,59 @@ function linkAsyncSubagentNotifications(events: TimelineEvent[], sourceName?: st
     for (const run of details.runs) {
       if (!isObject(run)) continue
       const runId = stringValue(run.runId)
-      const sessionValue = stringValue(run.sessionValue)
-      if (!runId || !sessionValue?.toLowerCase().endsWith('.jsonl')) continue
+      if (!runId) continue
 
       const matches = resultsByRunId.get(runId)
       if (matches?.length !== 1) continue
       const result = matches[0]
+      const invocation = result.pairedEventId ? callsById.get(result.pairedEventId) : undefined
+      if (!invocation) continue
       const resultMessage = isObject(result.raw) && isObject(result.raw.message) ? result.raw.message : undefined
       const resultDetails = resultMessage && isObject(resultMessage.details) ? resultMessage.details : undefined
       const detailToolCallId = stringValue(resultDetails?.toolCallId)
       if (detailToolCallId && detailToolCallId !== result.toolCallId) continue
 
-      const reference = extractSubagentReferences('subagent', {
-        sessionFile: sessionValue,
-        agent: run.agent,
-        task: run.task,
-        sessionName: run.sessionLabel,
-        runId,
-      }, undefined, undefined, sourceName)[0]
-      if (reference) attachSubagentReference(result, reference)
+      const sessionValue = stringValue(run.sessionValue)
+      if (sessionValue?.toLowerCase().endsWith('.jsonl')) {
+        const reference = extractSubagentReferences('subagent', {
+          sessionFile: sessionValue,
+          agent: run.agent,
+          task: run.task,
+          sessionName: run.sessionLabel,
+          runId,
+        }, undefined, undefined, relativeSourceName)[0]
+        if (reference) attachSubagentReference(invocation, reference, relativeSourceName)
+      }
+
+      if (!Array.isArray(run.childRuns)) continue
+      const outputsByRunId = new Map(
+        (Array.isArray(run.childOutputs) ? run.childOutputs : [])
+          .filter(isObject)
+          .map((child) => [stringValue(child.runId), child] as const)
+          .filter((item): item is readonly [string, RawObject] => Boolean(item[0])),
+      )
+      for (const childRun of run.childRuns) {
+        if (!isObject(childRun)) continue
+        const childRunId = stringValue(childRun.runId)
+        const output = childRunId ? outputsByRunId.get(childRunId) : undefined
+        const agentName = stringValue(childRun.agent) ?? stringValue(output?.agent)
+        if (!childRunId || !agentName) continue
+
+        const childSessionValue = stringValue(childRun.sessionValue) ?? stringValue(childRun.sessionFile)
+        const sessionFile = childSessionValue?.toLowerCase().endsWith('.jsonl')
+          ? childSessionValue
+          : workflowChildTranscriptPath(childRunId, agentName, stringValue(output?.outputArtifactPath), relativeSourceName)
+        if (!sessionFile) continue
+
+        const reference = extractSubagentReferences('subagent', {
+          sessionFile,
+          agent: agentName,
+          task: childRun.task,
+          sessionName: childRun.sessionName ?? childRun.workflowKey,
+          runId: childRunId,
+        }, undefined, undefined, relativeSourceName)[0]
+        if (reference) attachSubagentReference(invocation, reference, relativeSourceName)
+      }
     }
   }
 }

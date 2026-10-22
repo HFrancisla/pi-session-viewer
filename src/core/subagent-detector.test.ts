@@ -166,6 +166,16 @@ describe('subagentTargetCandidates', () => {
     ])
   })
 
+  it('includes root-level parent and direct runnable candidates for a transcript mirror', () => {
+    const transcript = `subagent-artifacts/${RUN_ID}_scout_transcript.jsonl`
+
+    expect(subagentTargetCandidates(transcript, 'parent.jsonl')).toEqual([
+      `parent/${RUN_ID}/run-0/session.jsonl`,
+      `${RUN_ID}/run-0/session.jsonl`,
+      transcript,
+    ])
+  })
+
   it('offers only the transcript when the parent session is unknown', () => {
     const transcript = `--work--/subagent-artifacts/${RUN_ID}_scout_transcript.jsonl`
 

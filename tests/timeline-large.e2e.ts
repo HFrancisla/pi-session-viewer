@@ -605,7 +605,7 @@ test('restores a large parent timeline anchor after subagent navigation', async 
 
   await page.getByLabel('Thinking', { exact: true }).uncheck()
   const scrollContainer = page.locator('.timeline-scroll')
-  const anchorRowId = 'synthetic-result-220:result'
+  const anchorRowId = 'synthetic-assistant-220:tool:2'
   const reachedSubagent = await scrollContainer.evaluate(async (element, targetId) => {
     const selector = `.event-row[data-event-id="${targetId}"]`
     const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))

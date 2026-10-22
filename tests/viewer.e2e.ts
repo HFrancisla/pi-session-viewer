@@ -125,12 +125,117 @@ test('opens a single subagent directly without showing a chooser', async ({ page
 
   await page.goto('/#token=dev-token&cwd=/work/demo')
   await expect(page.locator('.header-session strong')).toHaveText('Open one child session')
-  const opener = page.locator('.event-subagent-tag')
+  const invocationRow = page.locator('.event-row[data-event-id="single-assistant:tool:0"]')
+  const resultRow = page.locator('.event-row[data-event-id="single-result:result"]')
+  const opener = invocationRow.locator('.event-subagent-tag')
   await expect(opener).toHaveCount(1)
+  await expect(resultRow.locator('.event-subagent-tag')).toHaveCount(0)
   await expect(opener).not.toHaveAttribute('aria-expanded')
   await opener.click()
   await expect(page.locator('.event-subagent-options')).toHaveCount(0)
   await expect(page.locator('.header-session strong')).toHaveText('Single child session content')
+})
+
+test('opens workflow children from the invoking subagent call', async ({ page }) => {
+  const cwd = '/work/demo'
+  const parentPath = 'demo/workflow-parent.jsonl'
+  const workflowRunId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const children = [
+    { runId: '11111111-1111-4111-8111-111111111111', agent: 'scout', workflowKey: 'inspect-readme' },
+    { runId: '22222222-2222-4222-8222-222222222222', agent: 'delegate', workflowKey: 'inspect-package' },
+  ]
+  const childPaths = children.map((child) => `${parentPath.replace(/\.jsonl$/, '')}/${child.runId}/run-0/session.jsonl`)
+  const parentToken = encodeSessionToken(parentPath)
+  const modifiedAt = '2026-01-01T10:00:00.000Z'
+  const content = (entries: unknown[]) => entries.map((entry) => JSON.stringify(entry)).join('\n')
+  const parentContent = content([
+    { type: 'session', version: 3, id: 'workflow-parent', timestamp: modifiedAt, cwd },
+    {
+      type: 'message', id: 'workflow-user', parentId: null, timestamp: modifiedAt,
+      message: { role: 'user', timestamp: Date.parse(modifiedAt), content: 'Run two workers' },
+    },
+    {
+      type: 'message', id: 'workflow-assistant', parentId: 'workflow-user', timestamp: modifiedAt,
+      message: {
+        role: 'assistant', timestamp: Date.parse(modifiedAt),
+        content: [{ type: 'toolCall', id: 'workflow-call', name: 'subagent', arguments: { workflow: true } }],
+      },
+    },
+    {
+      type: 'message', id: 'workflow-result', parentId: 'workflow-assistant', timestamp: modifiedAt,
+      message: {
+        role: 'toolResult', timestamp: Date.parse(modifiedAt), toolCallId: 'workflow-call', toolName: 'subagent',
+        content: [{ type: 'text', text: 'Workflow completed' }],
+        details: { mode: 'workflow', runId: workflowRunId, toolCallId: 'workflow-call', results: [], workflowChildren: { children: [] } },
+      },
+    },
+    {
+      type: 'custom_message', customType: 'subagent-notify', id: 'workflow-notice', parentId: 'workflow-result',
+      timestamp: modifiedAt, content: 'Workflow completed',
+      details: {
+        runs: [{
+          agent: 'workflow', status: 'completed', runId: workflowRunId, workflowRunId,
+          childRuns: children.map((child) => ({ ...child, status: 'completed' })),
+          childOutputs: children.map((child) => ({
+            ...child,
+            status: 'completed',
+            outputArtifactPath: `/synthetic/sessions/demo/subagent-artifacts/${child.runId}_${child.agent}_output.md`,
+          })),
+        }],
+      },
+    },
+    {
+      type: 'message', id: 'workflow-finished', parentId: 'workflow-notice', timestamp: modifiedAt,
+      message: { role: 'assistant', content: [{ type: 'text', text: 'Workers finished' }] },
+    },
+  ])
+  const childContents = children.map((child, index) => [childPaths[index], content([
+    { type: 'session', version: 3, id: child.runId, timestamp: modifiedAt, cwd, parentSession: 'workflow-parent' },
+    {
+      type: 'message', id: `${child.runId}-user`, parentId: null, timestamp: modifiedAt,
+      message: { role: 'user', timestamp: Date.parse(modifiedAt), content: `Workflow child session: ${child.agent}` },
+    },
+  ])] as const)
+  const sessionContents = new Map<string, string>([[parentPath, parentContent], ...childContents])
+  const requestedPaths: string[] = []
+
+  await page.route('**/api/sessions', async (route) => {
+    await route.fulfill({
+      json: {
+        root: '/synthetic/sessions', currentCwd: cwd,
+        sessions: [{ token: parentToken, id: 'workflow-parent', title: 'Workflow parent', cwd, timestamp: modifiedAt, modifiedAt, relativePath: parentPath }],
+        warnings: [],
+      },
+    })
+  })
+  await page.route('**/api/sessions/*', async (route) => {
+    const token = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1) ?? '')
+    const relativePath = decodeSessionToken(token)
+    const sessionContent = sessionContents.get(relativePath)
+    if (!sessionContent) {
+      await route.fulfill({ status: 404, json: { error: 'Synthetic session not found' } })
+      return
+    }
+    requestedPaths.push(relativePath)
+    await route.fulfill({ json: { token, relativePath, modifiedAt, content: sessionContent } })
+  })
+
+  await page.goto('/#token=dev-token&cwd=/work/demo')
+  const invocationRow = page.locator('.event-row[data-event-id="workflow-assistant:tool:0"]')
+  const resultRow = page.locator('.event-row[data-event-id="workflow-result:result"]')
+  const opener = invocationRow.locator('.event-subagent-tag')
+  await expect(opener).toHaveCount(1)
+  await expect(opener).toContainText('2 Subagent')
+  await expect(resultRow.locator('.event-subagent-tag')).toHaveCount(0)
+  await opener.click()
+
+  const choices = invocationRow.locator('.event-subagent-options')
+  await expect(choices.getByRole('button', { name: 'View subagent process: scout' })).toBeVisible()
+  await expect(choices.getByRole('button', { name: 'View subagent process: delegate' })).toBeVisible()
+  await choices.getByRole('button', { name: 'View subagent process: scout' }).click()
+
+  await expect(page.locator('.header-session--breadcrumbs')).toContainText('Workflow child session: scout')
+  expect(requestedPaths).toContain(childPaths[0])
 })
 
 test('browses a Pi session end to end on desktop and narrow screens', async ({ page }) => {
@@ -457,8 +562,8 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   await expect(userFilter).toBeChecked()
   await expect(page.locator('.event--user')).toHaveCount(1)
 
-  // A batch result offers each child Session separately. Opening one keeps the
-  // parent available, and a missing sibling reports an action error in place.
+  // A batch invocation offers each child Session separately. Opening one keeps
+  // the parent available, and a missing sibling reports an action error in place.
   const subagentTag = page.locator('.event-subagent-tag').first()
   await expect(page.locator('.event-subagent-tag')).toHaveCount(1)
   const rowsBeforeChildNavigation = await page.locator('.event-row').count()

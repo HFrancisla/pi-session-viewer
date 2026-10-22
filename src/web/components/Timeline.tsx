@@ -179,83 +179,81 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
           <strong>{localizeTitle(event.title)}</strong>
           {causal.eventLane != null && <span className="lane-label">#{causal.eventLane + 1}</span>}
           {event.kind === 'tool-result' && (
-            <>
-              <span className={`event-status ${event.isError ? 'is-error' : 'is-success'}`}>
-                {event.isError ? t.common.failed : t.common.success}
-              </span>
-              {event.subagent && (
-                <span className="event-subagent-control">
-                  <button
-                    type="button"
-                    className="event-subagent-tag"
-                    aria-label={
-                      hasMultipleSubagents
-                        ? `${t.timeline.openSubagent} (${subagentReferences.length})`
-                        : `${t.timeline.openSubagent}: ${event.subagent.agentName ?? t.timeline.subagentTag}`
-                    }
-                    aria-expanded={hasMultipleSubagents ? subagentChoicesOpen : undefined}
-                    aria-controls={hasMultipleSubagents ? `subagent-options-${event.id}` : undefined}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onSelectEvent(event)
-                      if (hasMultipleSubagents) {
-                        setSubagentChoicesOpen((open) => !open)
-                      } else {
-                        onOpenSubagent?.(event.subagent!, event.id)
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      e.stopPropagation()
-                      if (e.key === 'Escape') setSubagentChoicesOpen(false)
-                    }}
-                    title={hasMultipleSubagents ? `${subagentReferences.length} subagents` : t.timeline.openSubagent}
-                  >
-                    <Bot size={12} aria-hidden="true" />
-                    <span>
-                      {hasMultipleSubagents
-                        ? `${subagentReferences.length} ${t.timeline.subagentTag}`
-                        : (event.subagent.agentName ?? t.timeline.subagentTag)}
-                    </span>
-                    <span className="subagent-tag-arrow">{hasMultipleSubagents ? '▾' : '→'}</span>
-                  </button>
-                  {hasMultipleSubagents && subagentChoicesOpen && (
-                    <span
-                      id={`subagent-options-${event.id}`}
-                      className="event-subagent-options"
-                      role="group"
-                      aria-label={t.timeline.chooseSubagent}
-                    >
-                      {subagentReferences.map((reference, subagentIndex) => {
-                        const agentName = reference.agentName ?? `${t.timeline.subagentTag} ${subagentIndex + 1}`
-                        return (
-                          <button
-                            key={reference.targetFile}
-                            type="button"
-                            className="event-subagent-tag event-subagent-choice"
-                            aria-label={`${t.timeline.openSubagent}: ${agentName}`}
-                            title={reference.sessionName ?? agentName}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSubagentChoicesOpen(false)
-                              onSelectEvent(event)
-                              onOpenSubagent?.(reference, event.id)
-                            }}
-                            onKeyDown={(e) => {
-                              e.stopPropagation()
-                              if (e.key === 'Escape') setSubagentChoicesOpen(false)
-                            }}
-                          >
-                            <Bot size={12} aria-hidden="true" />
-                            <span>{agentName}</span>
-                            <span className="subagent-tag-arrow">→</span>
-                          </button>
-                        )
-                      })}
-                    </span>
-                  )}
+            <span className={`event-status ${event.isError ? 'is-error' : 'is-success'}`}>
+              {event.isError ? t.common.failed : t.common.success}
+            </span>
+          )}
+          {event.kind === 'tool-call' && event.subagent && (
+            <span className="event-subagent-control">
+              <button
+                type="button"
+                className="event-subagent-tag"
+                aria-label={
+                  hasMultipleSubagents
+                    ? `${t.timeline.openSubagent} (${subagentReferences.length})`
+                    : `${t.timeline.openSubagent}: ${event.subagent.agentName ?? t.timeline.subagentTag}`
+                }
+                aria-expanded={hasMultipleSubagents ? subagentChoicesOpen : undefined}
+                aria-controls={hasMultipleSubagents ? `subagent-options-${event.id}` : undefined}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onSelectEvent(event)
+                  if (hasMultipleSubagents) {
+                    setSubagentChoicesOpen((open) => !open)
+                  } else {
+                    onOpenSubagent?.(event.subagent!, event.id)
+                  }
+                }}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Escape') setSubagentChoicesOpen(false)
+                }}
+                title={hasMultipleSubagents ? `${subagentReferences.length} subagents` : t.timeline.openSubagent}
+              >
+                <Bot size={12} aria-hidden="true" />
+                <span>
+                  {hasMultipleSubagents
+                    ? `${subagentReferences.length} ${t.timeline.subagentTag}`
+                    : (event.subagent.agentName ?? t.timeline.subagentTag)}
+                </span>
+                <span className="subagent-tag-arrow">{hasMultipleSubagents ? '▾' : '→'}</span>
+              </button>
+              {hasMultipleSubagents && subagentChoicesOpen && (
+                <span
+                  id={`subagent-options-${event.id}`}
+                  className="event-subagent-options"
+                  role="group"
+                  aria-label={t.timeline.chooseSubagent}
+                >
+                  {subagentReferences.map((reference, subagentIndex) => {
+                    const agentName = reference.agentName ?? `${t.timeline.subagentTag} ${subagentIndex + 1}`
+                    return (
+                      <button
+                        key={reference.targetFile}
+                        type="button"
+                        className="event-subagent-tag event-subagent-choice"
+                        aria-label={`${t.timeline.openSubagent}: ${agentName}`}
+                        title={reference.sessionName ?? agentName}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSubagentChoicesOpen(false)
+                          onSelectEvent(event)
+                          onOpenSubagent?.(reference, event.id)
+                        }}
+                        onKeyDown={(e) => {
+                          e.stopPropagation()
+                          if (e.key === 'Escape') setSubagentChoicesOpen(false)
+                        }}
+                      >
+                        <Bot size={12} aria-hidden="true" />
+                        <span>{agentName}</span>
+                        <span className="subagent-tag-arrow">→</span>
+                      </button>
+                    )
+                  })}
                 </span>
               )}
-            </>
+            </span>
           )}
           {charCount != null && event.kind !== 'system' && (
             <span className="event-char-count">{t.common.chars(charCount)}</span>

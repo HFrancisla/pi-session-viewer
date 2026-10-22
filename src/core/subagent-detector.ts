@@ -191,6 +191,7 @@ export function extractSubagentReferences(
 
   const addReference = (ref?: SubagentReference) => {
     if (!ref || seenFiles.has(ref.targetFile)) return
+    if (results.some((existing) => subagentReferencesAlias(existing, ref, parentSourcePath))) return
     seenFiles.add(ref.targetFile)
     results.push(ref)
   }
@@ -225,6 +226,33 @@ export function extractSubagentReferences(
     const directFromDetails = createReferenceFromItem(detailsObj, argsObj, toolName, parentSourcePath, defaultRunId)
     if (directFromDetails) {
       addReference(directFromDetails)
+    }
+
+    const workflowChildren = detailsObj.workflowChildren
+    if (isSubagentTool && isObject(workflowChildren) && Array.isArray(workflowChildren.children)) {
+      const parentToolCallId = stringValue(workflowChildren.parentToolCallId)
+      const detailsToolCallId = stringValue(detailsObj.toolCallId)
+      const workflowRunId = stringValue(workflowChildren.workflowRunId)
+      const detailsRunId = stringValue(detailsObj.runId)
+      const belongsToWorkflow = (!parentToolCallId || !detailsToolCallId || parentToolCallId === detailsToolCallId)
+        && (!workflowRunId || !detailsRunId || workflowRunId === detailsRunId)
+      if (belongsToWorkflow) {
+        const relativeParentPath = parentSourcePath ? normalizeSessionRelativePath(parentSourcePath) : undefined
+        for (const child of workflowChildren.children) {
+          if (!isObject(child)) continue
+          const runId = stringValue(child.runId)
+          const agentName = stringValue(child.agent)
+          if (!runId || !agentName) continue
+          const sessionFile = workflowChildTranscriptPath(runId, agentName, undefined, relativeParentPath)
+          if (!sessionFile) continue
+          addReference(createReferenceFromItem({
+            sessionFile,
+            agent: agentName,
+            sessionName: child.sessionName ?? child.childId,
+            runId,
+          }, argsObj, toolName, relativeParentPath, runId))
+        }
+      }
     }
 
     // Artifact files are alternate representations, not additional child runs.
@@ -305,8 +333,37 @@ export function extractSubagentReference(
   return references[0]
 }
 
-/** pi-subagents transcript mirror: `<runId>_<agent>_transcript.jsonl`. */
-const SUBAGENT_TRANSCRIPT_REGEX = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_(.+)_transcript\.jsonl$/i
+/** pi-subagents transcript mirror: `<runId>_<safeAgent>_transcript.jsonl`. */
+const PI_SUBAGENT_RUN_ID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+const PI_SUBAGENT_RUN_ID_REGEX = new RegExp(`^${PI_SUBAGENT_RUN_ID_PATTERN}$`, 'i')
+const SUBAGENT_TRANSCRIPT_REGEX = new RegExp(`^(${PI_SUBAGENT_RUN_ID_PATTERN})_(.+)_transcript\\.jsonl$`, 'i')
+
+export function workflowChildTranscriptPath(
+  runId: string,
+  agentName: string,
+  outputArtifactPath?: string,
+  parentSourcePath?: string,
+): string | undefined {
+  if (!PI_SUBAGENT_RUN_ID_REGEX.test(runId) || !agentName.trim()) return undefined
+  const safeAgentName = agentName.replace(/[^\w.-]/g, '_')
+  const normalizedOutputPath = outputArtifactPath?.replace(/\\/g, '/').trim()
+  const outputName = normalizedOutputPath?.split('/').at(-1)
+  if (normalizedOutputPath?.includes('subagent-artifacts/')
+    && outputName?.startsWith(`${runId}_${safeAgentName}_`)
+    && outputName.endsWith('_output.md')) {
+    return normalizeSessionRelativePath(
+      normalizedOutputPath.replace(/_output\.md$/i, '_transcript.jsonl'),
+      parentSourcePath,
+    )
+  }
+
+  const normalizedParent = parentSourcePath ? normalizeSessionRelativePath(parentSourcePath) : ''
+  const parentDirectory = normalizedParent.includes('/')
+    ? normalizedParent.slice(0, normalizedParent.lastIndexOf('/'))
+    : ''
+  const prefix = parentDirectory ? `${parentDirectory}/` : ''
+  return `${prefix}subagent-artifacts/${runId}_${safeAgentName}_transcript.jsonl`
+}
 
 /**
  * Session files a subagent reference may resolve to, most useful first.
@@ -343,9 +400,36 @@ export function subagentTargetCandidates(targetFile: string, parentSourcePath?: 
     : undefined
 
   const runSession = (base: string) => (base ? `${base}/${runId}/run-0/session.jsonl` : `${runId}/run-0/session.jsonl`)
-  if (projectDir && parentStem) candidates.push(runSession(`${projectDir}/${parentStem}`))
-  if (projectDir) candidates.push(runSession(projectDir))
+  if (parentStem) candidates.push(runSession(projectDir ? `${projectDir}/${parentStem}` : parentStem))
+  candidates.push(runSession(projectDir))
   candidates.push(target)
 
   return [...new Set(candidates.filter(Boolean))]
+}
+
+function isSubagentTranscriptMirror(targetFile: string): boolean {
+  const segments = targetFile.replace(/\\/g, '/').split('/')
+  return segments.includes('subagent-artifacts') && segments.at(-1)?.endsWith('_transcript.jsonl') === true
+}
+
+function isRunnableSubagentSession(targetFile: string, runId: string): boolean {
+  const segments = targetFile.replace(/\\/g, '/').split('/')
+  const runIndex = segments.lastIndexOf(runId)
+  return runIndex >= 0 && segments.slice(runIndex + 1).join('/') === 'run-0/session.jsonl'
+}
+
+export function subagentReferencesAlias(
+  existing: Pick<SubagentReference, 'targetFile' | 'runId'>,
+  incoming: Pick<SubagentReference, 'targetFile' | 'runId'>,
+  parentSourcePath?: string,
+): boolean {
+  if (existing.targetFile === incoming.targetFile) return true
+  if (!existing.runId || existing.runId !== incoming.runId) return false
+  if (isSubagentTranscriptMirror(existing.targetFile) && isRunnableSubagentSession(incoming.targetFile, incoming.runId)) {
+    return subagentTargetCandidates(existing.targetFile, parentSourcePath).includes(incoming.targetFile)
+  }
+  if (isSubagentTranscriptMirror(incoming.targetFile) && isRunnableSubagentSession(existing.targetFile, existing.runId)) {
+    return subagentTargetCandidates(incoming.targetFile, parentSourcePath).includes(existing.targetFile)
+  }
+  return false
 }

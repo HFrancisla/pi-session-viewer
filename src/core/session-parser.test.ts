@@ -638,13 +638,16 @@ describe('parseSessionJsonl', () => {
       }),
     )
 
-    const result = buildSessionView(parseSessionJsonl(source)).events.find((event) => event.kind === 'tool-result')
+    const view = buildSessionView(parseSessionJsonl(source))
+    const call = view.events.find((event) => event.kind === 'tool-call')
+    const result = view.events.find((event) => event.kind === 'tool-result')
 
-    expect(result?.subagent?.targetFile).toBe('subagent-artifacts/worker-a.jsonl')
-    expect(result?.subagents?.map((reference) => reference.targetFile)).toEqual([
+    expect(call?.subagent?.targetFile).toBe('subagent-artifacts/worker-a.jsonl')
+    expect(call?.subagents?.map((reference) => reference.targetFile)).toEqual([
       'subagent-artifacts/worker-a.jsonl',
       'subagent-artifacts/worker-b.jsonl',
     ])
+    expect(result?.subagent).toBeUndefined()
   })
 
   it('counts one child Session when its artifact JSONL is also listed', () => {
@@ -672,12 +675,14 @@ describe('parseSessionJsonl', () => {
       }),
     )
 
-    const result = buildSessionView(parseSessionJsonl(source, '--project--/parent.jsonl'))
-      .events.find((event) => event.kind === 'tool-result')
+    const view = buildSessionView(parseSessionJsonl(source, '--project--/parent.jsonl'))
+    const call = view.events.find((event) => event.kind === 'tool-call')
+    const result = view.events.find((event) => event.kind === 'tool-result')
 
-    expect(result?.subagent?.agentName).toBe('delegate')
-    expect(result?.subagent?.targetFile).toBe(sessionFile)
-    expect(result?.subagents).toBeUndefined()
+    expect(call?.subagent?.agentName).toBe('delegate')
+    expect(call?.subagent?.targetFile).toBe(sessionFile)
+    expect(call?.subagents).toBeUndefined()
+    expect(result?.subagent).toBeUndefined()
   })
 
   it('does not infer additional children from unmatched artifact files when results identify a child', () => {
@@ -699,15 +704,17 @@ describe('parseSessionJsonl', () => {
       }),
     )
 
-    const result = buildSessionView(parseSessionJsonl(source, '--project--/parent.jsonl'))
-      .events.find((event) => event.kind === 'tool-result')
+    const view = buildSessionView(parseSessionJsonl(source, '--project--/parent.jsonl'))
+    const call = view.events.find((event) => event.kind === 'tool-call')
+    const result = view.events.find((event) => event.kind === 'tool-result')
 
-    expect(result?.subagent?.agentName).toBe('delegate')
-    expect(result?.subagent?.targetFile).toBe('--project--/run-0/session.jsonl')
-    expect(result?.subagents).toBeUndefined()
+    expect(call?.subagent?.agentName).toBe('delegate')
+    expect(call?.subagent?.targetFile).toBe('--project--/run-0/session.jsonl')
+    expect(call?.subagents).toBeUndefined()
+    expect(result?.subagent).toBeUndefined()
   })
 
-  it('detects subagent references and attaches them to tool-result events', () => {
+  it('detects subagent references and attaches them to tool-call events', () => {
     const source = jsonl(
       entry('s1', null, '2026-01-01T10:00:00.000Z', {
         type: 'session',
@@ -743,15 +750,15 @@ describe('parseSessionJsonl', () => {
     const callEvent = view.events.find((e) => e.kind === 'tool-call')
     const resultEvent = view.events.find((e) => e.kind === 'tool-result')
 
-    expect(callEvent?.subagent).toBeUndefined()
-
-    expect(resultEvent?.subagent).toBeDefined()
-    expect(resultEvent?.subagent?.targetFile).toBe('subagent-artifacts/analyzer-run.jsonl')
-    expect(resultEvent?.subagent?.agentName).toBe('code-analyzer')
-    expect(resultEvent?.subagent?.task).toBe('Check memory leaks')
+    expect(callEvent?.subagent).toMatchObject({
+      targetFile: 'subagent-artifacts/analyzer-run.jsonl',
+      agentName: 'code-analyzer',
+      task: 'Check memory leaks',
+    })
+    expect(resultEvent?.subagent).toBeUndefined()
   })
 
-  it('links asynchronous subagent notifications to their tool-result by runId', () => {
+  it('links asynchronous subagent notifications to their tool call by runId', () => {
     const runId = '7df2a179-13a8-469a-a68a-bad6cbceb09c'
     const childSession = `/home/user/.pi/agent/sessions/--project--/parent/${runId}/run-0/session.jsonl`
     const sourceName = '/home/user/.pi/agent/sessions/--project--/parent.jsonl'
@@ -797,15 +804,230 @@ describe('parseSessionJsonl', () => {
     )
 
     const view = buildSessionView(parseSessionJsonl(source, sourceName))
+    const callEvent = view.events.find((event) => event.kind === 'tool-call')
     const resultEvent = view.events.find((event) => event.kind === 'tool-result')
 
-    expect(resultEvent?.subagent).toMatchObject({
+    expect(callEvent?.subagent).toMatchObject({
       targetFile: `--project--/parent/${runId}/run-0/session.jsonl`,
       agentName: 'worker',
       sessionName: 'worker: Inspect the change',
       runId,
     })
+    expect(callEvent?.subagents).toBeUndefined()
+    expect(resultEvent?.subagent).toBeUndefined()
+  })
+
+  it('links workflow child Sessions to the invoking tool call', () => {
+    const workflowRunId = '7df2a179-13a8-469a-a68a-bad6cbceb09c'
+    const childRuns = [
+      { runId: '11111111-1111-4111-8111-111111111111', workflowKey: 'inspect-readme', agent: 'scout', status: 'completed' },
+      { runId: '22222222-2222-4222-8222-222222222222', workflowKey: 'inspect-package', agent: 'delegate', status: 'completed' },
+    ]
+    const sourceName = '/home/user/.pi/agent/sessions/--project--/parent.jsonl'
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', { role: 'user', content: 'Run a workflow' }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'call-workflow', name: 'subagent', arguments: { workflow: true } }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'call-workflow', toolName: 'subagent', content: 'Workflow completed',
+        details: { mode: 'workflow', runId: workflowRunId, toolCallId: 'call-workflow', results: [], workflowChildren: { children: [] } },
+      }),
+      {
+        type: 'custom_message', customType: 'subagent-notify', id: 'n1', parentId: 'r1',
+        timestamp: '2026-01-01T10:00:03.000Z', content: 'Workflow completed',
+        details: {
+          runs: [{
+            agent: 'workflow', status: 'completed', runId: workflowRunId, workflowRunId,
+            childRuns,
+            childOutputs: childRuns.map((child) => ({
+              ...child,
+              outputArtifactPath: `/home/user/.pi/agent/sessions/--project--/subagent-artifacts/${child.runId}_${child.agent}_output.md`,
+            })),
+          }],
+        },
+      },
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source, sourceName))
+    const callEvent = view.events.find((event) => event.kind === 'tool-call')
+    const resultEvent = view.events.find((event) => event.kind === 'tool-result')
+
+    expect(callEvent?.subagents?.map((reference) => [reference.agentName, reference.targetFile])).toEqual([
+      ['scout', '--project--/subagent-artifacts/11111111-1111-4111-8111-111111111111_scout_transcript.jsonl'],
+      ['delegate', '--project--/subagent-artifacts/22222222-2222-4222-8222-222222222222_delegate_transcript.jsonl'],
+    ])
+    expect(callEvent?.subagent).toMatchObject({ runId: childRuns[0].runId, sessionName: 'inspect-readme' })
+    expect(resultEvent?.subagent).toBeUndefined()
     expect(resultEvent?.subagents).toBeUndefined()
+  })
+
+  it('links workflow child inventory from the tool result without a completion notice', () => {
+    const workflowRunId = '7df2a179-13a8-469a-a68a-bad6cbceb09c'
+    const children = [
+      { childId: 'inspect-readme', runId: '11111111-1111-4111-8111-111111111111', agent: 'scout', sessionName: 'inspect-readme', state: 'completed' },
+      { childId: 'inspect-package', runId: '22222222-2222-4222-8222-222222222222', agent: 'delegate', sessionName: 'inspect-package', state: 'completed' },
+    ]
+    const sourceName = '/home/user/.pi/agent/sessions/--project--/parent.jsonl'
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', { role: 'user', content: 'Run a workflow' }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'call-workflow', name: 'subagent', arguments: { workflow: true } }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'call-workflow', toolName: 'subagent', content: 'Workflow completed',
+        details: {
+          mode: 'workflow', runId: workflowRunId, toolCallId: 'call-workflow', results: [],
+          workflowChildren: {
+            version: 1, parentToolCallId: 'call-workflow', workflowRunId, inventoryComplete: true,
+            workflowState: 'completed', children,
+          },
+        },
+      }),
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source, sourceName))
+    const callEvent = view.events.find((event) => event.kind === 'tool-call')
+
+    expect(callEvent?.subagents?.map((reference) => [reference.agentName, reference.targetFile])).toEqual([
+      ['scout', '--project--/subagent-artifacts/11111111-1111-4111-8111-111111111111_scout_transcript.jsonl'],
+      ['delegate', '--project--/subagent-artifacts/22222222-2222-4222-8222-222222222222_delegate_transcript.jsonl'],
+    ])
+  })
+
+  it('does not duplicate a runnable result path with its workflow transcript mirror', () => {
+    const workflowRunId = '7df2a179-13a8-469a-a68a-bad6cbceb09c'
+    const childRunId = '11111111-1111-4111-8111-111111111111'
+    const sourceName = '/home/user/.pi/agent/sessions/--project--/parent.jsonl'
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', { role: 'user', content: 'Run a workflow' }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'call-workflow', name: 'subagent', arguments: { workflow: true } }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'call-workflow', toolName: 'subagent', content: 'Workflow completed',
+        details: {
+          mode: 'workflow', runId: workflowRunId, toolCallId: 'call-workflow',
+          results: [{
+            agent: 'scout', runId: childRunId, sessionName: 'inspect-readme',
+            sessionFile: `/home/user/.pi/agent/sessions/--project--/parent/${childRunId}/run-0/session.jsonl`,
+          }],
+          workflowChildren: {
+            version: 1, parentToolCallId: 'call-workflow', workflowRunId, inventoryComplete: true,
+            workflowState: 'completed',
+            children: [{ childId: 'inspect-readme', runId: childRunId, agent: 'scout', sessionName: 'inspect-readme', state: 'completed' }],
+          },
+        },
+      }),
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source, sourceName))
+    const callEvent = view.events.find((event) => event.kind === 'tool-call')
+
+    expect(callEvent?.subagent?.targetFile).toBe(`--project--/parent/${childRunId}/run-0/session.jsonl`)
+    expect(callEvent?.subagents).toBeUndefined()
+  })
+
+  it('resolves workflow transcript fallbacks relative to an absolute parent source path', () => {
+    const workflowRunId = '7df2a179-13a8-469a-a68a-bad6cbceb09c'
+    const childRun = { runId: '11111111-1111-4111-8111-111111111111', agent: 'scout', sessionName: 'inspect-readme' }
+    const sourceName = '/home/user/.pi/agent/sessions/--project--/parent.jsonl'
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', { role: 'user', content: 'Run a workflow' }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'call-workflow', name: 'subagent', arguments: { workflow: true } }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'call-workflow', toolName: 'subagent', content: 'Workflow completed',
+        details: { mode: 'workflow', runId: workflowRunId, toolCallId: 'call-workflow', results: [] },
+      }),
+      {
+        type: 'custom_message', customType: 'subagent-notify', id: 'n1', parentId: 'r1',
+        timestamp: '2026-01-01T10:00:03.000Z', content: 'Workflow completed',
+        details: { runs: [{ agent: 'workflow', runId: workflowRunId, childRuns: [childRun] }] },
+      },
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source, sourceName))
+    const callEvent = view.events.find((event) => event.kind === 'tool-call')
+
+    expect(callEvent?.subagent?.targetFile).toBe(
+      '--project--/subagent-artifacts/11111111-1111-4111-8111-111111111111_scout_transcript.jsonl',
+    )
+  })
+
+  it('does not duplicate an inventory child for a root-level parent with a runnable Session path', () => {
+    const workflowRunId = '7df2a179-13a8-469a-a68a-bad6cbceb09c'
+    const childRunId = '11111111-1111-4111-8111-111111111111'
+    const sourceName = 'parent.jsonl'
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', { role: 'user', content: 'Run a workflow' }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'call-workflow', name: 'subagent', arguments: { workflow: true } }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'call-workflow', toolName: 'subagent', content: 'Workflow completed',
+        details: {
+          mode: 'workflow', runId: workflowRunId, toolCallId: 'call-workflow', results: [],
+          workflowChildren: {
+            version: 1, parentToolCallId: 'call-workflow', workflowRunId, inventoryComplete: true,
+            workflowState: 'completed',
+            children: [{ childId: 'inspect-readme', runId: childRunId, agent: 'scout', sessionName: 'inspect-readme', state: 'completed' }],
+          },
+        },
+      }),
+      {
+        type: 'custom_message', customType: 'subagent-notify', id: 'n1', parentId: 'r1',
+        timestamp: '2026-01-01T10:00:03.000Z', content: 'Workflow completed',
+        details: {
+          runs: [{
+            agent: 'workflow', runId: workflowRunId,
+            childRuns: [{
+              runId: childRunId, agent: 'scout',
+              sessionValue: `parent/${childRunId}/run-0/session.jsonl`,
+            }],
+          }],
+        },
+      },
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source, sourceName))
+    const callEvent = view.events.find((event) => event.kind === 'tool-call')
+
+    expect(callEvent?.subagent?.targetFile).toBe(
+      `subagent-artifacts/${childRunId}_scout_transcript.jsonl`,
+    )
+    expect(callEvent?.subagents).toBeUndefined()
+  })
+
+  it('does not show a subagent entry for a management call without child Sessions', () => {
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', { role: 'user', content: 'Read the workflow guide' }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'call-guide', name: 'subagent', arguments: { action: 'guide', topic: 'workflows' } }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'call-guide', toolName: 'subagent', content: 'Guide content',
+        details: { mode: 'management', results: [] },
+      }),
+    )
+
+    const view = buildSessionView(parseSessionJsonl(source))
+
+    expect(view.events.find((event) => event.kind === 'tool-call')?.subagent).toBeUndefined()
+    expect(view.events.find((event) => event.kind === 'tool-result')?.subagent).toBeUndefined()
   })
 
   it('does not link an asynchronous notice when its runId matches multiple results', () => {
@@ -836,9 +1058,11 @@ describe('parseSessionJsonl', () => {
     )
 
     const view = buildSessionView(parseSessionJsonl(source))
+    const calls = view.events.filter((event) => event.kind === 'tool-call')
     const results = view.events.filter((event) => event.kind === 'tool-result')
 
     expect(results).toHaveLength(2)
+    expect(calls.every((call) => call.subagent === undefined)).toBe(true)
     expect(results.every((result) => result.subagent === undefined)).toBe(true)
   })
 
