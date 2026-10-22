@@ -32,15 +32,14 @@ function defaultToken(): string {
   return randomBytes(32).toString('base64url')
 }
 
-function panelFromServer(server: SessionHttpServer, cwd?: string): SessionViewerPanel {
-  const hash = cwd
-    ? `token=${encodeURIComponent(server.token)}&cwd=${encodeURIComponent(cwd)}`
-    : `token=${encodeURIComponent(server.token)}`
+function panelFromServer(server: SessionHttpServer, cwd?: string, serverCwd?: string): SessionViewerPanel {
+  const hash = new URLSearchParams({ token: server.token })
+  if (cwd && cwd !== serverCwd) hash.set('cwd', cwd)
   return {
     host: server.host,
     port: server.port,
     token: server.token,
-    url: `${server.url}/#${hash}`,
+    url: `${server.url}/#${hash.toString()}`,
   }
 }
 
@@ -50,6 +49,7 @@ export function createServerController(options: ServerControllerOptions): Server
   let state: ServerControllerState = 'stopped'
   let server: SessionHttpServer | undefined
   let panel: SessionViewerPanel | undefined
+  let serverCwd: string | undefined
   let activeCwd = options.currentCwd
   let startPromise: Promise<SessionViewerPanel> | undefined
   let stopPromise: Promise<void> | undefined
@@ -58,19 +58,21 @@ export function createServerController(options: ServerControllerOptions): Server
     const activeServer = server
     server = undefined
     panel = undefined
+    serverCwd = undefined
     if (!activeServer) return
     await activeServer.close()
   }
 
   const start = async (cwd?: string): Promise<SessionViewerPanel> => {
     if (cwd) activeCwd = cwd
-    if (panel && state === 'running' && server) return panelFromServer(server, activeCwd)
+    if (panel && state === 'running' && server) return panelFromServer(server, activeCwd, serverCwd)
     if (startPromise) return startPromise
     if (stopPromise) await stopPromise
 
     state = 'starting'
     startPromise = (async () => {
       try {
+        const serverCwdAtStart = activeCwd
         const started = await startServer({
           sessionRoot: options.sessionRoot,
           webRoot: options.webRoot,
@@ -78,10 +80,11 @@ export function createServerController(options: ServerControllerOptions): Server
           host: options.host,
           port: options.port,
           version: options.version,
-          currentCwd: activeCwd,
+          currentCwd: serverCwdAtStart,
         })
         server = started
-        panel = panelFromServer(started, activeCwd)
+        serverCwd = serverCwdAtStart
+        panel = panelFromServer(started, activeCwd, serverCwd)
         state = 'running'
         if (options.openBrowser) {
           try {

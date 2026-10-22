@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { registerSessionViewerCommand } from '../src/extension/commands'
+import { createServerController } from '../src/extension/server-controller'
 import type { SessionViewerPanel, ServerController } from '../src/extension/server-controller'
 
 interface RegisteredCommand {
   handler: (args: string, context: unknown) => Promise<void>
 }
 
-function commandContext(notifications: string[]): unknown {
+function commandContext(notifications: string[], cwd?: string): unknown {
   return {
+    cwd,
     ui: {
       notify: (message: string) => notifications.push(message),
     },
@@ -15,6 +17,38 @@ function commandContext(notifications: string[]): unknown {
 }
 
 describe('/session-viewer command', () => {
+  it('keeps the displayed link short while preserving the current project scope', async () => {
+    const registrations = new Map<string, RegisteredCommand>()
+    const notifications: string[] = []
+    const cwd = '/home/hzf/workspace/projects-dev/pi-extensions-mine/pi-session-viewer'
+    const token = 'a'.repeat(43)
+    let serverCwd: string | undefined
+    const controller = createServerController({
+      sessionRoot: '/tmp/pi-sessions',
+      webRoot: '/tmp/pi-web',
+      createToken: () => token,
+      startServer: async (options) => {
+        serverCwd = options.currentCwd
+        return {
+          host: '127.0.0.1',
+          port: 43210,
+          token,
+          url: 'http://127.0.0.1:43210',
+          close: async () => {},
+        }
+      },
+    })
+    registerSessionViewerCommand({
+      registerCommand: (name, command) => registrations.set(name, command as RegisteredCommand),
+    }, controller)
+
+    await registrations.get('session-viewer')?.handler('on', commandContext(notifications, cwd))
+
+    expect(serverCwd).toBe(cwd)
+    expect(notifications).toEqual([`Viewer started at: http://127.0.0.1:43210/#token=${token}`])
+    expect(notifications[0].length).toBeLessThanOrEqual(100)
+  })
+
   it('starts the panel and explains that capture remains enabled', async () => {
     const registrations = new Map<string, RegisteredCommand>()
     const notifications: string[] = []

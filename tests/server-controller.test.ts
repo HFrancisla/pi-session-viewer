@@ -31,6 +31,64 @@ describe('session viewer server controller', () => {
     expect(first.url).toBe('http://127.0.0.1:43123/#token=' + 'f'.repeat(64))
   })
 
+  it('omits the server current cwd from the link but keeps later cwd overrides', async () => {
+    const token = 'c'.repeat(43)
+    let serverCwd: string | undefined
+    const controller = createServerController({
+      sessionRoot: '/tmp/pi-sessions',
+      webRoot: '/tmp/pi-web',
+      createToken: () => token,
+      startServer: async (options) => {
+        serverCwd = options.currentCwd
+        return {
+          host: '127.0.0.1',
+          port: 43127,
+          token,
+          url: 'http://127.0.0.1:43127',
+          close: async () => {},
+        }
+      },
+    })
+
+    const first = await controller.start('/workspace/first')
+    const second = await controller.start('/workspace/second')
+
+    expect(serverCwd).toBe('/workspace/first')
+    expect(first.url).toBe(`http://127.0.0.1:43127/#token=${token}`)
+    expect(second.url).toBe(`http://127.0.0.1:43127/#token=${token}&cwd=%2Fworkspace%2Fsecond`)
+  })
+
+  it('keeps a cwd override when a concurrent start changes project during startup', async () => {
+    const token = 'd'.repeat(43)
+    let finishStart!: (server: SessionHttpServer) => void
+    let serverCwd: string | undefined
+    const startup = new Promise<SessionHttpServer>((resolve) => { finishStart = resolve })
+    const controller = createServerController({
+      sessionRoot: '/tmp/pi-sessions',
+      webRoot: '/tmp/pi-web',
+      createToken: () => token,
+      startServer: async (options) => {
+        serverCwd = options.currentCwd
+        return startup
+      },
+    })
+
+    const firstStart = controller.start('/workspace/first')
+    const secondStart = controller.start('/workspace/second')
+    finishStart({
+      host: '127.0.0.1',
+      port: 43128,
+      token,
+      url: 'http://127.0.0.1:43128',
+      close: async () => {},
+    })
+    const [first, second] = await Promise.all([firstStart, secondStart])
+
+    expect(serverCwd).toBe('/workspace/first')
+    expect(first.url).toBe(`http://127.0.0.1:43128/#token=${token}&cwd=%2Fworkspace%2Fsecond`)
+    expect(second).toBe(first)
+  })
+
   it('closes the running listener once and makes repeated stops harmless', async () => {
     let closeCount = 0
     const fakeServer: SessionHttpServer = {
