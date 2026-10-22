@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractSubagentReference, subagentTargetCandidates } from './subagent-detector'
+import { extractSubagentReference, extractSubagentReferences, subagentTargetCandidates } from './subagent-detector'
 import { decodeSessionToken } from './session-token'
 
 describe('subagent-detector', () => {
@@ -79,6 +79,22 @@ describe('subagent-detector', () => {
     expect(ref?.task).toBe('Say hello to user') // unredacted from args
     expect(ref?.targetFile).toBe('--project--/2026-09-19_abc/7df2/run-0/session.jsonl')
     expect(decodeSessionToken(ref!.token)).toBe('--project--/2026-09-19_abc/7df2/run-0/session.jsonl')
+  })
+
+  it('uses artifact JSONL as a fallback when details have no child Session result', () => {
+    const refs = extractSubagentReferences(
+      'subagent',
+      undefined,
+      undefined,
+      { runId: 'fallback-run', artifacts: { files: [{ jsonlPath: 'subagent-artifacts/fallback.jsonl' }] } },
+    )
+
+    expect(refs).toHaveLength(1)
+    expect(refs[0]).toMatchObject({
+      targetFile: 'subagent-artifacts/fallback.jsonl',
+      agentName: 'subagent',
+      runId: 'fallback-run',
+    })
   })
 
   it('detects multiple subagents from details.results array', () => {

@@ -615,10 +615,25 @@ describe('parseSessionJsonl', () => {
         details: {
           runId: 'batch-1',
           results: [
-            { agent: 'worker-a', sessionFile: 'subagent-artifacts/worker-a.jsonl' },
-            { agent: 'worker-b', sessionFile: 'subagent-artifacts/worker-b.jsonl' },
-            { agent: 'worker-a-duplicate', sessionFile: 'subagent-artifacts/worker-a.jsonl' },
+            {
+              agent: 'worker-a', sessionFile: 'subagent-artifacts/worker-a.jsonl',
+              artifactPaths: { jsonlPath: 'subagent-artifacts/worker-a-artifact.jsonl' },
+            },
+            {
+              agent: 'worker-b', sessionFile: 'subagent-artifacts/worker-b.jsonl',
+              artifactPaths: { jsonlPath: 'subagent-artifacts/worker-b-artifact.jsonl' },
+            },
+            {
+              agent: 'worker-a-duplicate', sessionFile: 'subagent-artifacts/worker-a.jsonl',
+              artifactPaths: { jsonlPath: 'subagent-artifacts/worker-a-artifact.jsonl' },
+            },
           ],
+          artifacts: {
+            files: [
+              { jsonlPath: 'subagent-artifacts/worker-a-artifact.jsonl' },
+              { jsonlPath: 'subagent-artifacts/worker-b-artifact.jsonl' },
+            ],
+          },
         },
       }),
     )
@@ -630,6 +645,66 @@ describe('parseSessionJsonl', () => {
       'subagent-artifacts/worker-a.jsonl',
       'subagent-artifacts/worker-b.jsonl',
     ])
+  })
+
+  it('counts one child Session when its artifact JSONL is also listed', () => {
+    const sessionFile = '--project--/2026-10-21T06-19-19-982Z_01a15d1d/run-0/session.jsonl'
+    const artifactPath = '--project--/subagent-artifacts/de5fc68b_delegate_0.jsonl'
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', { role: 'user', content: 'Start one subagent' }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'call-1', name: 'subagent', arguments: { agent: 'delegate', task: 'Complete one task' } }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'call-1', toolName: 'subagent', content: 'Child completed',
+        details: {
+          mode: 'single',
+          runId: 'de5fc68b-7e42-471f-ad0e-9c10bb39650e',
+          results: [{
+            agent: 'delegate',
+            sessionFile,
+            artifactPaths: { jsonlPath: artifactPath },
+          }],
+          artifacts: { files: [{ jsonlPath: artifactPath }] },
+        },
+      }),
+    )
+
+    const result = buildSessionView(parseSessionJsonl(source, '--project--/parent.jsonl'))
+      .events.find((event) => event.kind === 'tool-result')
+
+    expect(result?.subagent?.agentName).toBe('delegate')
+    expect(result?.subagent?.targetFile).toBe(sessionFile)
+    expect(result?.subagents).toBeUndefined()
+  })
+
+  it('does not infer additional children from unmatched artifact files when results identify a child', () => {
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:00.000Z', { role: 'user', content: 'Start one subagent' }),
+      entry('a1', 'u1', '2026-01-01T10:00:01.000Z', {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'call-1', name: 'subagent', arguments: { agent: 'delegate', task: 'Complete one task' } }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.000Z', {
+        role: 'toolResult', toolCallId: 'call-1', toolName: 'subagent', content: 'Child completed',
+        details: {
+          mode: 'single',
+          runId: 'single-run',
+          results: [{ agent: 'delegate', sessionFile: '--project--/run-0/session.jsonl' }],
+          artifacts: { files: [{ jsonlPath: '--project--/subagent-artifacts/unmatched.jsonl' }] },
+        },
+      }),
+    )
+
+    const result = buildSessionView(parseSessionJsonl(source, '--project--/parent.jsonl'))
+      .events.find((event) => event.kind === 'tool-result')
+
+    expect(result?.subagent?.agentName).toBe('delegate')
+    expect(result?.subagent?.targetFile).toBe('--project--/run-0/session.jsonl')
+    expect(result?.subagents).toBeUndefined()
   })
 
   it('detects subagent references and attaches them to tool-result events', () => {

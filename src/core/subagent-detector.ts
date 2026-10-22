@@ -221,19 +221,20 @@ export function extractSubagentReferences(
       }
     }
 
-    // Check details.artifacts.files
-    if (isObject(detailsObj.artifacts) && Array.isArray(detailsObj.artifacts.files)) {
+    // Check direct fields on details
+    const directFromDetails = createReferenceFromItem(detailsObj, argsObj, toolName, parentSourcePath, defaultRunId)
+    if (directFromDetails) {
+      addReference(directFromDetails)
+    }
+
+    // Artifact files are alternate representations, not additional child runs.
+    // Use them only when structured result records did not identify a Session.
+    if (results.length === 0 && isObject(detailsObj.artifacts) && Array.isArray(detailsObj.artifacts.files)) {
       for (const fileItem of detailsObj.artifacts.files) {
         if (isObject(fileItem)) {
           addReference(createReferenceFromItem(fileItem, argsObj, toolName, parentSourcePath, defaultRunId))
         }
       }
-    }
-
-    // Check direct fields on details
-    const directFromDetails = createReferenceFromItem(detailsObj, argsObj, toolName, parentSourcePath, defaultRunId)
-    if (directFromDetails) {
-      addReference(directFromDetails)
     }
   }
 
