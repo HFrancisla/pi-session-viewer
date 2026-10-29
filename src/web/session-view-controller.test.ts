@@ -76,7 +76,7 @@ function createController(
     refreshCatalog?: () => Promise<SessionListResponse | null>
     parseSession?: typeof parseSessionJsonl
     initialCwd?: string | null
-    autoLoadCatalog?: boolean
+    initialCatalogLoading?: boolean
   } = {},
 ): SessionViewController<unknown> {
   return createSessionViewController<unknown>({
@@ -90,7 +90,7 @@ function createController(
     parseSession: options.parseSession ?? parseSessionJsonl,
     now: () => '2026-01-01T00:00:02.000Z',
     initialCwd: options.initialCwd,
-    autoLoadCatalog: options.autoLoadCatalog,
+    initialCatalogLoading: options.initialCatalogLoading,
   })
 }
 
@@ -587,7 +587,7 @@ describe('Session View controller', () => {
     expect(controller.getSnapshot().catalog.selectedProjectCwd).toBe('/work/other')
   })
 
-  it('auto-loads catalog on creation when autoLoadCatalog is set', async () => {
+  it('keeps the initial catalog loading until the initial load intent runs', async () => {
     const s1 = session('s1')
     const refreshCatalog = vi.fn(async () => ({
       root: '/var/sessions',
@@ -597,12 +597,11 @@ describe('Session View controller', () => {
       warnings: [],
     }))
     const read = vi.fn(async (token: string) => payload(token, content(`Hello ${token}`)))
-    const controller = createController(read, { refreshCatalog, autoLoadCatalog: true })
+    const controller = createController(read, { refreshCatalog, initialCatalogLoading: true })
 
-    // Wait microtasks for auto-load to finish
-    await Promise.resolve()
-    await Promise.resolve()
-    await new Promise((r) => setTimeout(r, 10))
+    expect(controller.getSnapshot().catalog.loading).toBe(true)
+    expect(refreshCatalog).not.toHaveBeenCalled()
+    await controller.dispatch({ type: 'load-catalog', autoOpen: true })
 
     expect(refreshCatalog).toHaveBeenCalledTimes(1)
     expect(controller.getSnapshot().active?.token).toBe('s1')

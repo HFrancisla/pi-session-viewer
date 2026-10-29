@@ -129,7 +129,7 @@ export interface SessionViewControllerDependencies<FileHandle = unknown> {
   buildView?(parsed: ParsedSession, leafId?: string | null, projection?: ContextProjection): SessionView
   now(): string
   initialCwd?: string | null
-  autoLoadCatalog?: boolean
+  initialCatalogLoading?: boolean
 }
 
 export interface SessionViewController<FileHandle = unknown> {
@@ -309,7 +309,7 @@ export function createSessionViewController<FileHandle = unknown>(
       currentCwd: dependencies.initialCwd ?? null,
       scopeMode: 'current',
       selectedProjectCwd: null,
-      loading: dependencies.autoLoadCatalog ?? false,
+      loading: dependencies.initialCatalogLoading ?? false,
       warnings: [],
     },
   })
@@ -816,10 +816,6 @@ export function createSessionViewController<FileHandle = unknown>(
         return
       case 'dismiss-action-error': update({ actionError: null }); return
     }
-  }
-
-  if (dependencies.autoLoadCatalog) {
-    void dispatchLoadCatalog(true)
   }
 
   return {

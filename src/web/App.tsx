@@ -1,5 +1,5 @@
 import { AlertCircle, ArrowLeft, Bot, Clock3, Copy, Menu, PanelRightOpen, RefreshCw, Rows3, X } from 'lucide-react'
-import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { fetchSession, fetchSessions, resolveSession } from './api'
 import { Inspector } from './components/Inspector'
 import { SessionSidebar } from './components/SessionSidebar'
@@ -17,6 +17,8 @@ import type {
   TimelineEvent,
 } from '../core/types'
 import { useI18n } from './i18n'
+
+const initialCatalogLoadControllers = new WeakSet<object>()
 
 async function copyTextToClipboard(text: string) {
   if (navigator.clipboard?.writeText) {
@@ -123,9 +125,15 @@ function App() {
     ),
     now: () => new Date().toISOString(),
     initialCwd: browserInitialCwd(),
-    autoLoadCatalog: Boolean(accessToken),
+    initialCatalogLoading: Boolean(accessToken),
   }))
   const sessionState = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
+  useEffect(() => {
+    if (!accessToken || initialCatalogLoadControllers.has(controller)) return
+    initialCatalogLoadControllers.add(controller)
+    void controller.dispatch({ type: 'load-catalog', autoOpen: true })
+  }, [accessToken, controller])
+
   const activeSession = sessionState.active
   const sessionLoading = sessionState.loading
   const catalog = sessionState.catalog

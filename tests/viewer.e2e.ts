@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { decodeSessionToken, encodeSessionToken } from '../src/core/session-token'
+import { subagentTargetCandidates } from '../src/core/subagent-detector'
 
 test('requires an instance token before requesting session data', async ({ page }) => {
   const apiRequests: string[] = []
@@ -232,15 +233,18 @@ test('opens workflow children from the invoking subagent call', async ({ page })
     await route.fulfill({ json: { token, relativePath, modifiedAt, content: sessionContent } })
   })
   await page.route('**/api/resolve**', async (route) => {
-    const target = new URL(route.request().url()).searchParams.get('target') ?? ''
-    const sessionContent = sessionContents.get(target)
-    if (!sessionContent) {
+    const searchParams = new URL(route.request().url()).searchParams
+    const target = searchParams.get('target') ?? ''
+    const parent = searchParams.get('parent') ?? undefined
+    const relativePath = subagentTargetCandidates(target, parent).find((candidate) => sessionContents.has(candidate))
+    const sessionContent = relativePath ? sessionContents.get(relativePath) : undefined
+    if (!relativePath || !sessionContent) {
       await route.fulfill({ status: 404, json: { error: 'Synthetic session not found' } })
       return
     }
-    requestedPaths.push(target)
+    requestedPaths.push(relativePath)
     await route.fulfill({
-      json: { token: encodeSessionToken(target), relativePath: target, modifiedAt, content: sessionContent },
+      json: { token: encodeSessionToken(relativePath), relativePath, modifiedAt, content: sessionContent },
     })
   })
 
