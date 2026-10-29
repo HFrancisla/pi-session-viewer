@@ -199,13 +199,20 @@ export interface ParsedSession {
   warnings: ParseWarning[]
   branches: BranchOption[]
   currentLeafId: string | null
-  stats: SessionStats
 }
 
 export interface SessionView {
   branchEntries: ParsedEntry[]
   turns: TimelineTurn[]
   events: TimelineEvent[]
+  stats: SessionStats
+}
+
+export interface ProjectSummary {
+  cwd: string
+  name: string
+  count: number
+  latestModifiedAt: string
 }
 
 export interface SessionListItem {
@@ -213,6 +220,7 @@ export interface SessionListItem {
   id: string
   title: string
   cwd: string
+  projectName?: string
   timestamp?: string
   modifiedAt: string
   relativePath: string
@@ -222,7 +230,9 @@ export interface SessionListItem {
 export interface SessionListResponse {
   root: string
   currentCwd?: string
+  projects: ProjectSummary[]
   sessions: SessionListItem[]
+  initialSessionToken?: string
   warnings: string[]
 }
 

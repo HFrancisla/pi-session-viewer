@@ -1,13 +1,12 @@
 import { AlertCircle, ArrowLeft, Bot, Clock3, Copy, Menu, PanelRightOpen, RefreshCw, Rows3, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { fetchSession, fetchSessions } from './api'
+import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
+import { fetchSession, fetchSessions, resolveSession } from './api'
 import { Inspector } from './components/Inspector'
 import { SessionSidebar } from './components/SessionSidebar'
 import { Timeline, type TimelineHandle } from './components/Timeline'
 import { formatDateTime, formatDuration } from '../core/format'
-import { createSessionCatalog } from '../core/session-catalog'
-import { buildSessionView, getSessionTitle, parseSessionJsonl, primaryEventForEntry } from '../core/session-parser'
-import { findPreviousPromptSnapshot } from '../core/prompt-diff'
+import { parseSessionJsonl } from '../core/session-parser'
+import { buildSessionView } from '../core/session-view'
 import { browserAccessToken, browserInitialCwd } from './session-auth'
 import { sessionCache } from './session-cache'
 import { createSessionViewController } from './session-view-controller'
@@ -97,51 +96,25 @@ function measurePerformance<T>(name: string, work: () => T): T {
 function App() {
   const { t, locale, setLocale } = useI18n()
   const [accessToken] = useState<string | null>(() => browserAccessToken())
-  const [currentCwd, setCurrentCwd] = useState<string | null>(() => browserInitialCwd())
-  const [scopeMode, setScopeMode] = useState<'current' | 'all'>('current')
-  const [selectedProjectCwd, setSelectedProjectCwd] = useState<string | null>(null)
-  const [sessions, setSessions] = useState<SessionListItem[]>([])
-  const [sessionRoot, setSessionRoot] = useState('')
-  const [listWarnings, setListWarnings] = useState<string[]>([])
-  const [listLoading, setListLoading] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const timelineRef = useRef<TimelineHandle>(null)
-  const sessionChoiceStartedRef = useRef(false)
-
-  const catalog = useMemo(() => createSessionCatalog(sessions, currentCwd), [sessions, currentCwd])
-
-  const reloadSessions = useCallback(async () => {
-    if (!accessToken) {
-      setListLoading(false)
-      return null
-    }
-    setListLoading(true)
-    try {
-      const payload = await fetchSessions(accessToken)
-      setSessions(payload.sessions)
-      setSessionRoot(payload.root)
-      setListWarnings(payload.warnings)
-      if (payload.currentCwd) {
-        setCurrentCwd((prev) => prev ?? payload.currentCwd ?? null)
-      }
-      return payload
-    } catch (error) {
-      setListWarnings([error instanceof Error ? error.message : String(error)])
-      return null
-    } finally {
-      setListLoading(false)
-    }
-  }, [accessToken])
 
   const [controller] = useState(() => createSessionViewController<File>({
     readServerSession: async (token) => {
       if (!accessToken) throw { code: 'missing-token' }
       return fetchSession(token, accessToken)
     },
+    resolveSubagent: async (targetFile, parentRelative) => {
+      if (!accessToken) throw { code: 'missing-token' }
+      return resolveSession(targetFile, parentRelative, accessToken)
+    },
     readImportedFile: (source) => source.file.text(),
-    refreshCatalog: reloadSessions,
+    refreshCatalog: async () => {
+      if (!accessToken) return null
+      return fetchSessions(accessToken)
+    },
     cache: sessionCache,
     parseSession: (content, sourceName) => measurePerformance('pi-session-viewer:parse-session', () => parseSessionJsonl(content, sourceName)),
     buildView: (parsed, leafId, projection) => measurePerformance(
@@ -149,10 +122,13 @@ function App() {
       () => buildSessionView(parsed, leafId, projection),
     ),
     now: () => new Date().toISOString(),
+    initialCwd: browserInitialCwd(),
+    autoLoadCatalog: Boolean(accessToken),
   }))
   const sessionState = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
   const activeSession = sessionState.active
   const sessionLoading = sessionState.loading
+  const catalog = sessionState.catalog
   const selectedToken = activeSession?.token ?? null
   const selectedMetadata = activeSession?.metadata ?? null
   const parsedSession = activeSession?.parsed ?? null
@@ -164,22 +140,13 @@ function App() {
   const loadedAt = sessionState.loadedAt
   const importedSource = activeSession?.source.kind === 'file' ? activeSession.source.imported : null
   const importedFile = importedSource?.file ?? null
-  const importedFileName = importedSource?.name ?? ''
   const view = sessionState.view
   const activeContextProjection = sessionState.contextProjection
-  const selectedEvent = useMemo(
-    () => view?.events.find((event) => event.id === selectedEventId) ?? null,
-    [view, selectedEventId],
-  )
-  const previousPrompt = useMemo(() => {
-    if (!view || selectedEvent?.kind !== 'system-prompt') return undefined
-    return findPreviousPromptSnapshot(view.events, selectedEvent.id)
-  }, [view, selectedEvent])
-  const filteredTurns = useMemo(() => (
-    view?.turns
-      .map((turn) => ({ ...turn, events: turn.events.filter((event) => enabledKinds.has(event.kind)) }))
-      .filter((turn) => turn.events.length > 0) ?? []
-  ), [view, enabledKinds])
+  const selectedEvent = sessionState.selectedEvent
+  const previousPrompt = sessionState.previousPrompt
+  const visibleTurns = sessionState.visibleTurns
+  const fullJsonlPath = sessionState.fullJsonlPath
+
   const selectBranch = useCallback((leafId: string) => {
     void controller.dispatch({ type: 'select-branch', leafId })
   }, [controller])
@@ -196,53 +163,27 @@ function App() {
     void controller.dispatch({ type: 'acknowledge-timeline-restore', key })
   }, [controller])
 
-  useEffect(() => {
-    let cancelled = false
-    reloadSessions().then((payload) => {
-      if (cancelled || !payload || !payload.sessions.length || sessionChoiceStartedRef.current) return
-      if (controller.getSnapshot().active || controller.getSnapshot().loading) return
-      const targetCwd = payload.currentCwd ?? currentCwd ?? browserInitialCwd()
-      const initialSession = createSessionCatalog(payload.sessions, targetCwd).findInitialSession(targetCwd)
-      if (initialSession) void controller.dispatch({ type: 'open', session: initialSession })
-    })
-    return () => { cancelled = true }
-  }, [currentCwd, controller, reloadSessions])
-
-  const refreshCurrent = useCallback(async () => {
-    sessionChoiceStartedRef.current = true
+  const refreshCurrent = useCallback(() => {
     const viewport = timelineRef.current?.getViewport() ?? null
-    if (controller.getSnapshot().active) {
-      await controller.dispatch({ type: 'refresh', viewport })
-      return
-    }
-
-    const payload = await reloadSessions()
-    if (!payload || controller.getSnapshot().active || controller.getSnapshot().loading) return
-    const targetCwd = payload.currentCwd ?? currentCwd ?? browserInitialCwd()
-    const initialSession = createSessionCatalog(payload.sessions, targetCwd).findInitialSession(targetCwd)
-    if (initialSession) void controller.dispatch({ type: 'open', session: initialSession })
-  }, [controller, currentCwd, reloadSessions])
+    void controller.dispatch({ type: 'refresh', viewport })
+  }, [controller])
 
   const openServerSession = useCallback((session: SessionListItem) => {
-    sessionChoiceStartedRef.current = true
     setSidebarOpen(false)
     void controller.dispatch({ type: 'open', session })
   }, [controller])
 
   const openSubagent = useCallback((reference: SubagentReference, sourceEventId?: string) => {
-    sessionChoiceStartedRef.current = true
     const viewport = timelineRef.current?.getViewport() ?? null
     void controller.dispatch({ type: 'open-subagent', reference, sourceEventId, viewport })
   }, [controller])
 
   const returnToParent = useCallback(() => {
-    sessionChoiceStartedRef.current = true
     const viewport = timelineRef.current?.getViewport() ?? null
     void controller.dispatch({ type: 'return-to-parent', viewport })
   }, [controller])
 
   const importFile = useCallback((file: File) => {
-    sessionChoiceStartedRef.current = true
     setSidebarOpen(false)
     void controller.dispatch({ type: 'import', source: { name: file.name, file } })
   }, [controller])
@@ -257,12 +198,9 @@ function App() {
   }, [controller, selectedEvent])
 
   const jumpToEntry = useCallback((entryId: string) => {
-    const events = view?.events.filter((event) => event.entryId === entryId) ?? []
-    const target = primaryEventForEntry(events)
-    if (!target) return
-    void controller.dispatch({ type: 'jump-to-event', eventId: target.id })
+    void controller.dispatch({ type: 'jump-to-entry', entryId })
     setInspectorOpen(true)
-  }, [controller, view])
+  }, [controller])
 
   const errorMessage = (error: NonNullable<typeof sessionState.loadError>) => {
     switch (error.code) {
@@ -277,21 +215,7 @@ function App() {
     ? t.header.failedToLoadSubagent(errorMessage(sessionState.actionError))
     : null
   const displayError = loadError ?? (!accessToken && !importedFile ? t.header.missingToken : null)
-  // Memoized: the title is derived from the parsed session, so recomputing it in
-  // the render body made every render (including each selection change) pay for
-  // scanning the session again.
-  const title = useMemo(
-    () => (parsedSession ? getSessionTitle(parsedSession) : t.header.selectSession),
-    [parsedSession, t.header.selectSession],
-  )
-  const fullJsonlPath = useMemo(() => {
-    const rel = selectedMetadata?.relativePath || parsedSession?.sourceName || importedFileName || ''
-    if (!rel) return ''
-    if (rel.startsWith('/') || !sessionRoot) return rel
-    const cleanRoot = sessionRoot.replace(/\/+$/, '')
-    const cleanRel = rel.replace(/^\/+/, '')
-    return `${cleanRoot}/${cleanRel}`
-  }, [selectedMetadata?.relativePath, parsedSession?.sourceName, importedFileName, sessionRoot])
+  const title = sessionState.sessionTitle ?? t.header.selectSession
 
   return (
     <div className="app-shell">
@@ -348,12 +272,12 @@ function App() {
           <button
             className="icon-button"
             type="button"
-            onClick={() => void refreshCurrent()}
-            disabled={sessionLoading || listLoading || (!accessToken && !importedFile)}
+            onClick={refreshCurrent}
+            disabled={sessionLoading || catalog.loading || (!accessToken && !importedFile)}
             title={t.header.reloadTitle}
             aria-label={t.header.reloadTitle}
           >
-            <RefreshCw className={sessionLoading || listLoading ? 'spin' : ''} size={18} />
+            <RefreshCw className={sessionLoading || catalog.loading ? 'spin' : ''} size={18} />
           </button>
           <button className="icon-button mobile-only" type="button" onClick={() => { setSidebarOpen(false); setInspectorOpen(true) }} title={t.header.openInspector} aria-label={t.header.openInspector}>
             <PanelRightOpen size={19} />
@@ -364,16 +288,17 @@ function App() {
       <div className="workspace">
         <div className={`sidebar-layer${sidebarOpen ? ' is-open' : ''}`}>
           <SessionSidebar
-            catalog={catalog}
+            projects={catalog.projects}
+            sessions={catalog.sessions}
             selectedToken={selectedToken}
-            root={sessionRoot}
-            loading={listLoading}
-            warnings={listWarnings}
-            currentCwd={currentCwd}
-            scopeMode={scopeMode}
-            selectedProjectCwd={selectedProjectCwd}
-            onScopeModeChange={setScopeMode}
-            onProjectFilterChange={setSelectedProjectCwd}
+            root={catalog.root}
+            loading={catalog.loading}
+            warnings={catalog.warnings}
+            currentCwd={catalog.currentCwd}
+            scopeMode={catalog.scopeMode}
+            selectedProjectCwd={catalog.selectedProjectCwd}
+            onScopeModeChange={(mode) => void controller.dispatch({ type: 'set-scope-mode', mode })}
+            onProjectFilterChange={(cwd) => void controller.dispatch({ type: 'set-project-filter', cwd })}
             onSelect={openServerSession}
             onImport={() => fileInput.current?.click()}
           />
@@ -398,15 +323,15 @@ function App() {
                 </div>
               )}
               <section className="session-summary" aria-label={t.overview.sessionSummary}>
-                <div><span>{t.overview.entries}</span><strong>{parsedSession.stats.entryCount}</strong></div>
-                <div><span>{t.overview.turns}</span><strong>{parsedSession.stats.turnCount}</strong></div>
-                <div><span>{t.overview.duration}</span><strong>{formatDuration(parsedSession.stats.elapsedMs)}</strong></div>
-                <div><span>{t.overview.started}</span><strong>{formatDateTime(parsedSession.stats.startedAt)}</strong></div>
+                <div><span>{t.overview.entries}</span><strong>{view.stats.entryCount}</strong></div>
+                <div><span>{t.overview.turns}</span><strong>{view.stats.turnCount}</strong></div>
+                <div><span>{t.overview.duration}</span><strong>{formatDuration(view.stats.elapsedMs)}</strong></div>
+                <div><span>{t.overview.started}</span><strong>{formatDateTime(view.stats.startedAt)}</strong></div>
               </section>
               <Timeline
                 ref={timelineRef}
                 session={parsedSession}
-                turns={filteredTurns}
+                turns={visibleTurns}
                 allEvents={view.events}
                 selectedEventId={selectedEventId}
                 restorePosition={restorePosition}

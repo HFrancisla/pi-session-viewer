@@ -611,9 +611,9 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   const viewport = await page.evaluate(() => ({ documentWidth: document.body.scrollWidth, viewportWidth: innerWidth }))
   expect(viewport.documentWidth).toBeLessThanOrEqual(viewport.viewportWidth)
 
-  // The failed subagent jump probes its candidate files and is expected to 404.
-  const expectedProbes = browserErrors.filter((entry) => /404 \(Not Found\) @ http:\/\/[^ ]+\/api\/sessions\//.test(entry))
-  expect(expectedProbes.length, 'the failed subagent jump must have probed the API').toBeGreaterThan(0)
+  // The failed subagent jump sends a single resolve request to the server and is expected to 404.
+  const expectedProbes = browserErrors.filter((entry) => /404 \(Not Found\) @ http:\/\/[^ ]+\/api\/resolve\?/.test(entry))
+  expect(expectedProbes).toHaveLength(1)
   expect(browserErrors.filter((entry) => !expectedProbes.includes(entry))).toEqual([])
 })
 

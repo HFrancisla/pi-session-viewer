@@ -2,13 +2,132 @@ import { promises as fs, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { getSessionTitle, parseSessionJsonl } from '../core/session-parser'
-import {
-  isSessionCatalogMember,
-  isSessionCatalogPathMember,
-  isSessionCatalogSubtreeExcluded,
-} from '../core/session-catalog'
-import type { SessionFileResponse, SessionListItem, SessionListResponse } from '../core/types'
+import { subagentTargetCandidates } from '../core/subagent-detector'
+import type {
+  ProjectSummary,
+  SessionFileResponse,
+  SessionListItem,
+  SessionListResponse,
+} from '../core/types'
 import { createLruCache } from '../core/lru-cache'
+import { normalizePath } from '../core/path'
+
+const SUBAGENT_DIRECTORY_NAMES = new Set(['subagent-artifacts', 'subagents'])
+// Pi run IDs are UUIDs; target paths also use short hex and run-<number> IDs.
+const RUN_IDENTIFIER = /^(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{4,}|run-\d+)$/i
+const RUN_DIRECTORY = /^run-\d+$/
+
+function sessionPathSegments(relativePath: string): string[] {
+  return relativePath.replace(/\\/g, '/').split('/').filter(Boolean)
+}
+
+function isSubagentPathSegment(segment: string): boolean {
+  return SUBAGENT_DIRECTORY_NAMES.has(segment)
+}
+
+function hasSubagentPathSegment(segments: string[]): boolean {
+  return segments.some(isSubagentPathSegment)
+}
+
+function isSessionCatalogSubtreeExcluded(relativePath: string): boolean {
+  return hasSubagentPathSegment(sessionPathSegments(relativePath))
+}
+
+function isRunnableSubagentSession(segments: string[]): boolean {
+  const runIdentifier = segments.at(-3)
+  return Boolean(runIdentifier && RUN_IDENTIFIER.test(runIdentifier))
+    && segments.at(-1) === 'session.jsonl'
+    && RUN_DIRECTORY.test(segments.at(-2) ?? '')
+}
+
+function isSessionCatalogPathMember(relativePath: string): boolean {
+  const segments = sessionPathSegments(relativePath)
+  if (hasSubagentPathSegment(segments)) return false
+  if (segments.at(-1)?.endsWith('_transcript.jsonl')) return false
+  return !isRunnableSubagentSession(segments)
+}
+
+function isSessionCatalogMember(session: SessionListItem): boolean {
+  if (session.parentSession?.trim()) return false
+  if (session.id.toLowerCase().startsWith('subagent-')) return false
+  return isSessionCatalogPathMember(session.relativePath)
+}
+
+export function projectName(cwd: string): string {
+  if (!cwd || cwd === 'Unknown working directory') return 'Unknown Project'
+  const parts = cwd.split(/[\\/]/).filter(Boolean)
+  return parts.at(-1) ?? cwd
+}
+
+/**
+ * Disambiguates duplicate project directory basenames by prepending the minimum
+ * number of parent directory segments required to make each label unique.
+ */
+export function disambiguateProjectNames(cwds: string[]): Map<string, string> {
+  const result = new Map<string, string>()
+  const parsed = cwds.map((cwd) => {
+    const norm = normalizePath(cwd)
+    const segments = norm.split('/').filter(Boolean)
+    return { cwd, norm, segments }
+  })
+
+  for (const item of parsed) {
+    if (!item.norm || item.norm === 'Unknown working directory') {
+      result.set(item.norm, 'Unknown Project')
+      continue
+    }
+    let depth = 1
+    while (depth <= item.segments.length) {
+      const candidate = item.segments.slice(-depth).join('/')
+      const collision = parsed.some((other) => {
+        if (other.norm === item.norm) return false
+        const otherCandidate = other.segments.slice(-depth).join('/')
+        return otherCandidate === candidate
+      })
+      if (!collision || depth === item.segments.length) {
+        result.set(item.norm, candidate)
+        break
+      }
+      depth += 1
+    }
+  }
+  return result
+}
+
+export function buildProjectSummaries(sessions: SessionListItem[]): {
+  projects: ProjectSummary[]
+  projectNames: Map<string, string>
+} {
+  const map = new Map<string, { cwd: string; count: number; latestModifiedAt: string }>()
+  for (const session of sessions) {
+    const key = normalizePath(session.cwd) || 'Unknown working directory'
+    const existing = map.get(key)
+    if (!existing) {
+      map.set(key, {
+        cwd: session.cwd,
+        count: 1,
+        latestModifiedAt: session.modifiedAt,
+      })
+    } else {
+      existing.count += 1
+      if (session.modifiedAt.localeCompare(existing.latestModifiedAt) > 0) {
+        existing.latestModifiedAt = session.modifiedAt
+      }
+    }
+  }
+
+  const distinctCwds = Array.from(map.values()).map((item) => item.cwd)
+  const disambiguatedNames = disambiguateProjectNames(distinctCwds)
+
+  const projects = Array.from(map.values())
+    .map((item) => ({
+      ...item,
+      name: disambiguatedNames.get(normalizePath(item.cwd)) ?? projectName(item.cwd),
+    }))
+    .sort((a, b) => b.latestModifiedAt.localeCompare(a.latestModifiedAt))
+
+  return { projects, projectNames: disambiguatedNames }
+}
 
 const SESSION_PREFIX_LIMIT = 256 * 1024
 
@@ -151,7 +270,7 @@ function isValidPiSessionHeader(value: unknown): value is {
     && (header.parentSession === undefined || typeof header.parentSession === 'string')
 }
 
-export async function listSessions(root: string, currentCwd?: string): Promise<SessionListResponse> {
+export async function discoverSessionCatalog(root: string, currentCwd?: string): Promise<SessionListResponse> {
   const warnings: string[] = []
   try {
     const rootRealPath = await fs.realpath(root)
@@ -172,16 +291,32 @@ export async function listSessions(root: string, currentCwd?: string): Promise<S
       await new Promise<void>((resolve) => setImmediate(resolve))
     }
     sessions.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt))
-    return { root: rootRealPath, currentCwd, sessions, warnings }
+
+    const { projects, projectNames } = buildProjectSummaries(sessions)
+    for (const session of sessions) {
+      session.projectName = projectNames.get(normalizePath(session.cwd)) ?? projectName(session.cwd)
+    }
+
+    let initialSessionToken: string | undefined
+    if (currentCwd) {
+      const normTarget = normalizePath(currentCwd)
+      const matched = sessions.find((s) => normalizePath(s.cwd) === normTarget)
+      initialSessionToken = matched?.token ?? sessions[0]?.token
+    } else {
+      initialSessionToken = sessions[0]?.token
+    }
+
+    return { root: rootRealPath, currentCwd, projects, sessions, initialSessionToken, warnings }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return { root, currentCwd, sessions: [], warnings: [`Failed to scan Pi session directory: ${message}`] }
+    return { root, currentCwd, projects: [], sessions: [], warnings: [`Failed to scan Pi session directory: ${message}`] }
   }
 }
 
-export async function resolveAllowedSessionFile(root: string, token: string): Promise<{ absolute: string; relative: string }> {
+export const listSessions = discoverSessionCatalog
+
+export async function resolveAllowedSessionPath(root: string, relative: string): Promise<{ absolute: string; relative: string }> {
   const rootRealPath = await fs.realpath(root)
-  const relative = decodeSessionToken(token)
   if (!relative || !relative.endsWith('.jsonl') || path.isAbsolute(relative)) {
     throw new Error('Invalid session file identifier.')
   }
@@ -201,6 +336,56 @@ export async function resolveAllowedSessionFile(root: string, token: string): Pr
   const stat = await fs.stat(absolute)
   if (!stat.isFile()) throw new Error('Requested session file is invalid.')
   return { absolute, relative: path.relative(rootRealPath, absolute) }
+}
+
+export async function resolveAllowedSessionFile(root: string, token: string): Promise<{ absolute: string; relative: string }> {
+  const relative = decodeSessionToken(token)
+  return resolveAllowedSessionPath(root, relative)
+}
+
+export type ResolveSessionTargetResult =
+  | { kind: 'resolved'; absolute: string; relative: string; token: string }
+  | { kind: 'transcript-only' }
+  | { kind: 'not-found' }
+
+export async function resolveSessionTarget(
+  root: string,
+  targetFile: string,
+  parentRelative?: string,
+): Promise<ResolveSessionTargetResult> {
+  const candidates = subagentTargetCandidates(targetFile, parentRelative)
+  let sawTranscriptOnly = false
+
+  for (const candidate of candidates) {
+    let resolved: { absolute: string; relative: string }
+    try {
+      resolved = await resolveAllowedSessionPath(root, candidate)
+    } catch {
+      continue
+    }
+
+    try {
+      const prefix = await readPrefix(resolved.absolute, 4096)
+      const firstLine = prefix.split(/\r?\n/, 1)[0]
+      const header = JSON.parse(firstLine)
+      if (isValidPiSessionHeader(header)) {
+        return {
+          kind: 'resolved',
+          absolute: resolved.absolute,
+          relative: resolved.relative,
+          token: encodeSessionToken(resolved.relative),
+        }
+      }
+      sawTranscriptOnly = true
+    } catch {
+      sawTranscriptOnly = true
+    }
+  }
+
+  if (sawTranscriptOnly) {
+    return { kind: 'transcript-only' }
+  }
+  return { kind: 'not-found' }
 }
 
 export async function readSessionFile(root: string, token: string): Promise<SessionFileResponse> {

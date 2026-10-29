@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { promises as fs } from 'node:fs'
 import { hasValidBearerToken, isAllowedHost, isAllowedOrigin } from './security'
-import { listSessions, resolveAllowedSessionFile } from './session-discovery'
+import { listSessions, resolveAllowedSessionFile, resolveSessionTarget } from './session-discovery'
 import { computeContextProjections } from './context-projection'
 import { readStaticAsset } from './static-assets'
 import { createLruCache, type LruCache } from '../core/lru-cache'
@@ -61,6 +61,36 @@ function sendCachedJson(response: ServerResponse, body: string): void {
   response.end(body)
 }
 
+async function sendSessionPayload(
+  response: ServerResponse,
+  sessionBodies: SessionBodyCache,
+  absolute: string,
+  relative: string,
+  token: string,
+): Promise<void> {
+  const stat = await fs.stat(absolute)
+  const cacheKey = `${relative}\u0000${stat.mtimeMs}\u0000${stat.size}`
+  const cached = sessionBodies.get(cacheKey)
+  if (cached !== undefined) {
+    sendCachedJson(response, cached)
+    return
+  }
+  const content = await fs.readFile(absolute, 'utf8')
+  // What the model actually received is computed by Pi itself; when Pi is not
+  // reachable the field stays absent and the UI shows no marks.
+  const contextProjections = await computeContextProjections(content, relative)
+  const payload = {
+    token,
+    relativePath: relative,
+    modifiedAt: stat.mtime.toISOString(),
+    content,
+    ...(contextProjections ? { contextProjections } : {}),
+  }
+  const body = JSON.stringify(payload)
+  sessionBodies.set(cacheKey, body)
+  sendCachedJson(response, body)
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -102,6 +132,36 @@ async function handleRequest(
     return
   }
 
+  if (pathname === '/api/resolve') {
+    const searchParams = new URL(request.url ?? '/', 'http://127.0.0.1').searchParams
+    const target = searchParams.get('target')
+    const parent = searchParams.get('parent') ?? undefined
+    if (!target) {
+      sendJson(response, 400, { error: 'Target session identifier is required.' })
+      return
+    }
+
+    try {
+      const result = await resolveSessionTarget(options.sessionRoot, target, parent)
+      if (result.kind === 'transcript-only') {
+        sendJson(response, 422, {
+          error: 'Subagent transcript is not a runnable session.',
+          code: 'subagent-transcript-only',
+        })
+        return
+      }
+      if (result.kind === 'not-found') {
+        sendJson(response, 404, { error: `No session file found for ${target}` })
+        return
+      }
+      await sendSessionPayload(response, sessionBodies, result.absolute, result.relative, result.token)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      sendJson(response, 500, { error: message })
+    }
+    return
+  }
+
   const sessionPathPrefix = '/api/sessions/'
   if (pathname.startsWith(sessionPathPrefix)) {
     let token: string
@@ -113,27 +173,7 @@ async function handleRequest(
     }
     try {
       const { absolute, relative } = await resolveAllowedSessionFile(options.sessionRoot, token)
-      const stat = await fs.stat(absolute)
-      const cacheKey = `${relative}\u0000${stat.mtimeMs}\u0000${stat.size}`
-      const cached = sessionBodies.get(cacheKey)
-      if (cached !== undefined) {
-        sendCachedJson(response, cached)
-        return
-      }
-      const content = await fs.readFile(absolute, 'utf8')
-      // What the model actually received is computed by Pi itself; when Pi is not
-      // reachable the field stays absent and the UI shows no marks.
-      const contextProjections = await computeContextProjections(content, relative)
-      const payload = {
-        token,
-        relativePath: relative,
-        modifiedAt: stat.mtime.toISOString(),
-        content,
-        ...(contextProjections ? { contextProjections } : {}),
-      }
-      const body = JSON.stringify(payload)
-      sessionBodies.set(cacheKey, body)
-      sendCachedJson(response, body)
+      await sendSessionPayload(response, sessionBodies, absolute, relative, token)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       sendJson(response, 404, { error: message })

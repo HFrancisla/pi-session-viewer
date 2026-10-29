@@ -1,9 +1,8 @@
 import { FileJson2, FolderOpen, LoaderCircle, MessageSquareText } from 'lucide-react'
 import { forwardRef, useMemo } from 'react'
 import { Virtuoso, type Components, type ScrollerProps } from 'react-virtuoso'
-import type { SessionCatalog, ProjectSummary } from '../../core/session-catalog'
-import { normalizePath } from '../../core/session-catalog'
-import type { SessionListItem } from '../../core/types'
+import type { ProjectSummary, SessionListItem } from '../../core/types'
+import { normalizePath } from '../../core/path'
 import { formatDateTime } from '../../core/format'
 import { useI18n } from '../i18n'
 
@@ -26,7 +25,8 @@ const SessionListScroller: Components<SessionListItem, SessionListContext>['Scro
 ))
 
 interface SessionSidebarProps {
-  catalog: SessionCatalog
+  projects: ProjectSummary[]
+  sessions: SessionListItem[]
   selectedToken: string | null
   root: string
   loading: boolean
@@ -41,7 +41,8 @@ interface SessionSidebarProps {
 }
 
 export function SessionSidebar({
-  catalog,
+  projects,
+  sessions,
   selectedToken,
   root,
   loading,
@@ -55,8 +56,6 @@ export function SessionSidebar({
   onImport,
 }: SessionSidebarProps) {
   const { t, localizeTitle } = useI18n()
-  const projects = catalog.projects
-  const sessions = catalog.allSessions
 
   const effectiveCurrentCwd = useMemo(() => {
     if (currentCwd) return currentCwd
@@ -73,13 +72,15 @@ export function SessionSidebar({
   const filteredSessions = useMemo(() => {
     if (scopeMode === 'current') {
       if (!effectiveCurrentCwd) return sessions
-      return catalog.getSessionsForProject(effectiveCurrentCwd)
+      const normEffective = normalizePath(effectiveCurrentCwd)
+      return sessions.filter((s) => normalizePath(s.cwd) === normEffective)
     }
     if (selectedProjectCwd) {
-      return catalog.getSessionsForProject(selectedProjectCwd)
+      const normSelected = normalizePath(selectedProjectCwd)
+      return sessions.filter((s) => normalizePath(s.cwd) === normSelected)
     }
     return sessions
-  }, [catalog, sessions, scopeMode, effectiveCurrentCwd, selectedProjectCwd])
+  }, [sessions, scopeMode, effectiveCurrentCwd, selectedProjectCwd])
 
   return (
     <aside className="session-sidebar" aria-label={t.sidebar.heading}>
@@ -166,7 +167,7 @@ export function SessionSidebar({
               <strong>{session.title}</strong>
               <span>
                 {formatDateTime(session.timestamp ?? session.modifiedAt)}
-                {scopeMode === 'all' ? ` · ${localizeTitle(catalog.getProjectName(session.cwd))}` : ''}
+                {scopeMode === 'all' && session.projectName ? ` · ${localizeTitle(session.projectName)}` : ''}
               </span>
             </span>
           </button>

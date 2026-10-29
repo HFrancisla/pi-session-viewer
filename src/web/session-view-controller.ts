@@ -1,16 +1,19 @@
 import { allEventKinds, defaultEventKinds } from '../core/event-kinds'
-import { buildSessionView } from '../core/session-parser'
-import { subagentTargetCandidates } from '../core/subagent-detector'
-import { encodeSessionToken } from '../core/session-token'
+import { findPreviousPromptSnapshot } from '../core/prompt-diff'
+import { getSessionTitle } from '../core/session-parser'
+import { buildSessionView, primaryEventForEntry } from '../core/session-view'
 import type {
   ContextProjection,
   EventKind,
   ParsedSession,
+  ProjectSummary,
   SessionFileResponse,
   SessionListItem,
   SessionListResponse,
   SessionView,
   SubagentReference,
+  TimelineEvent,
+  TimelineTurn,
 } from '../core/types'
 import { sessionCacheKey, type CachedSession, type SessionCache } from './session-cache'
 
@@ -65,6 +68,17 @@ export interface SessionNavigationFrame<FileHandle = unknown> {
   timelineAnchor: SessionViewAnchor | null
 }
 
+export interface SessionCatalogState {
+  projects: ProjectSummary[]
+  sessions: SessionListItem[]
+  root: string
+  currentCwd: string | null
+  scopeMode: 'current' | 'all'
+  selectedProjectCwd: string | null
+  loading: boolean
+  warnings: string[]
+}
+
 export interface SessionViewSnapshot<FileHandle = unknown> {
   active: ActiveSessionView<FileHandle> | null
   view: SessionView | null
@@ -78,9 +92,18 @@ export interface SessionViewSnapshot<FileHandle = unknown> {
   navigation: readonly SessionNavigationFrame<FileHandle>[]
   restoreIntent: SessionViewRestoreIntent | null
   loadedAt: string | null
+  visibleTurns: TimelineTurn[]
+  selectedEvent: TimelineEvent | null
+  previousPrompt: string | undefined
+  sessionTitle: string | null
+  catalog: SessionCatalogState
+  fullJsonlPath: string
 }
 
 export type SessionViewIntent<FileHandle = unknown> =
+  | { type: 'load-catalog'; autoOpen?: boolean }
+  | { type: 'set-scope-mode'; mode: 'current' | 'all' }
+  | { type: 'set-project-filter'; cwd: string | null }
   | { type: 'open'; session: SessionListItem }
   | { type: 'import'; source: ImportedSessionSource<FileHandle> }
   | { type: 'refresh'; viewport?: SessionViewViewport | null }
@@ -88,6 +111,7 @@ export type SessionViewIntent<FileHandle = unknown> =
   | { type: 'return-to-parent'; targetIndex?: number; viewport?: SessionViewViewport | null }
   | { type: 'select-event'; eventId: string }
   | { type: 'jump-to-event'; eventId: string }
+  | { type: 'jump-to-entry'; entryId: string }
   | { type: 'select-branch'; leafId: string }
   | { type: 'toggle-event-kind'; kind: EventKind }
   | { type: 'toggle-all-event-kinds' }
@@ -97,12 +121,15 @@ export type SessionViewIntent<FileHandle = unknown> =
 
 export interface SessionViewControllerDependencies<FileHandle = unknown> {
   readServerSession(token: string): Promise<SessionFileResponse>
+  resolveSubagent(targetFile: string, parentRelative?: string): Promise<SessionFileResponse>
   readImportedFile(source: ImportedSessionSource<FileHandle>): Promise<string>
   refreshCatalog(): Promise<SessionListResponse | null>
   cache: SessionCache
   parseSession(content: string, sourceName: string): ParsedSession
   buildView?(parsed: ParsedSession, leafId?: string | null, projection?: ContextProjection): SessionView
   now(): string
+  initialCwd?: string | null
+  autoLoadCatalog?: boolean
 }
 
 export interface SessionViewController<FileHandle = unknown> {
@@ -214,11 +241,55 @@ function rememberSession(
   })
 }
 
+function computeFullJsonlPath<FileHandle>(
+  active: ActiveSessionView<FileHandle> | null,
+  sessionRoot: string,
+): string {
+  if (!active) return ''
+  const importedName = active.source.kind === 'file' ? active.source.imported.name : ''
+  const rel = active.metadata?.relativePath || active.parsed.sourceName || importedName || ''
+  if (!rel) return ''
+  if (rel.startsWith('/') || !sessionRoot) return rel
+  const cleanRoot = sessionRoot.replace(/\/+$/, '')
+  const cleanRel = rel.replace(/^\/+/, '')
+  return `${cleanRoot}/${cleanRel}`
+}
+
+function deriveSnapshot<FileHandle>(
+  base: Omit<
+    SessionViewSnapshot<FileHandle>,
+    'visibleTurns' | 'selectedEvent' | 'previousPrompt' | 'sessionTitle' | 'fullJsonlPath'
+  >,
+): SessionViewSnapshot<FileHandle> {
+  const selectedEvent = base.view && base.selectedEventId
+    ? base.view.events.find((event) => event.id === base.selectedEventId) ?? null
+    : null
+  const previousPrompt = base.view && selectedEvent?.kind === 'system-prompt'
+    ? findPreviousPromptSnapshot(base.view.events, selectedEvent.id)
+    : undefined
+  const visibleTurns: TimelineTurn[] = base.view
+    ? base.view.turns
+        .map((turn) => ({ ...turn, events: turn.events.filter((event) => base.enabledKinds.has(event.kind)) }))
+        .filter((turn) => turn.events.length > 0)
+    : []
+  const sessionTitle = base.active ? getSessionTitle(base.active.parsed) : null
+  const fullJsonlPath = computeFullJsonlPath(base.active, base.catalog.root)
+
+  return {
+    ...base,
+    visibleTurns,
+    selectedEvent,
+    previousPrompt,
+    sessionTitle,
+    fullJsonlPath,
+  }
+}
+
 export function createSessionViewController<FileHandle = unknown>(
   dependencies: SessionViewControllerDependencies<FileHandle>,
 ): SessionViewController<FileHandle> {
   const buildView = dependencies.buildView ?? buildSessionView
-  let snapshot: SessionViewSnapshot<FileHandle> = {
+  let snapshot: SessionViewSnapshot<FileHandle> = deriveSnapshot({
     active: null,
     view: null,
     contextProjection: undefined,
@@ -231,14 +302,29 @@ export function createSessionViewController<FileHandle = unknown>(
     navigation: [],
     restoreIntent: null,
     loadedAt: null,
-  }
+    catalog: {
+      projects: [],
+      sessions: [],
+      root: '',
+      currentCwd: dependencies.initialCwd ?? null,
+      scopeMode: 'current',
+      selectedProjectCwd: null,
+      loading: dependencies.autoLoadCatalog ?? false,
+      warnings: [],
+    },
+  })
   let latestSessionChange = 0
   let restoreKey = 0
   const listeners = new Set<() => void>()
   const rememberedViewports = new Map<string, RememberedSessionView>()
 
-  const publish = (next: SessionViewSnapshot<FileHandle>) => {
-    snapshot = next
+  const publish = (
+    next: Omit<
+      SessionViewSnapshot<FileHandle>,
+      'visibleTurns' | 'selectedEvent' | 'previousPrompt' | 'sessionTitle' | 'fullJsonlPath'
+    >,
+  ) => {
+    snapshot = deriveSnapshot(next)
     for (const listener of listeners) listener()
   }
 
@@ -349,23 +435,100 @@ export function createSessionViewController<FileHandle = unknown>(
     }
   }
 
+  const applyCatalog = (payload: SessionListResponse | null, error?: unknown) => {
+    if (error) {
+      update({
+        catalog: {
+          ...snapshot.catalog,
+          loading: false,
+          warnings: [error instanceof Error ? error.message : String(error)],
+        },
+      })
+      return
+    }
+    if (payload) {
+      update({
+        catalog: {
+          ...snapshot.catalog,
+          projects: payload.projects,
+          sessions: payload.sessions,
+          root: payload.root,
+          warnings: payload.warnings,
+          currentCwd: snapshot.catalog.currentCwd ?? payload.currentCwd ?? null,
+          loading: false,
+        },
+      })
+    } else {
+      update({
+        catalog: {
+          ...snapshot.catalog,
+          loading: false,
+        },
+      })
+    }
+  }
+
+  const dispatchLoadCatalog = async (autoOpen = false) => {
+    update({ catalog: { ...snapshot.catalog, loading: true } })
+    let payload: SessionListResponse | null = null
+    try {
+      payload = await dependencies.refreshCatalog()
+      applyCatalog(payload)
+    } catch (error) {
+      applyCatalog(null, error)
+      return
+    }
+
+    if (autoOpen && payload && payload.sessions.length > 0) {
+      if (!snapshot.active && !snapshot.loading) {
+        const initialSession = payload.initialSessionToken
+          ? payload.sessions.find((s) => s.token === payload.initialSessionToken)
+          : payload.sessions[0]
+        if (initialSession) {
+          await dispatchOpen(initialSession)
+        }
+      }
+    }
+  }
+
   const dispatchRefresh = async (viewport?: SessionViewViewport | null) => {
     const sequence = beginSessionChange()
     const activeAtStart = snapshot.active
-    const catalogPromise = Promise.resolve().then(() => dependencies.refreshCatalog()).catch(() => null)
+    update({ catalog: { ...snapshot.catalog, loading: true } })
+
+    let catalogError: unknown = null
+    const catalogPromise = Promise.resolve()
+      .then(() => dependencies.refreshCatalog())
+      .catch((err) => {
+        catalogError = err
+        return null
+      })
+
     if (!activeAtStart) {
-      await catalogPromise
-      if (isLatest(sequence)) update({ loading: false })
+      const catalog = await catalogPromise
+      if (!isLatest(sequence)) return
+      applyCatalog(catalog, catalogError)
+      if (!snapshot.active && catalog && catalog.sessions.length > 0) {
+        const initial = catalog.initialSessionToken
+          ? catalog.sessions.find((s) => s.token === catalog.initialSessionToken)
+          : catalog.sessions[0]
+        if (initial) {
+          await dispatchOpen(initial)
+          return
+        }
+      }
+      update({ loading: false })
       return
     }
 
     try {
       if (activeAtStart.source.kind === 'file') {
-        const [content] = await Promise.all([
+        const [content, fetchedCatalog] = await Promise.all([
           dependencies.readImportedFile(activeAtStart.source.imported),
           catalogPromise,
         ])
         if (!isLatest(sequence)) return
+        applyCatalog(fetchedCatalog, catalogError)
         const parsed = parsePiSession(dependencies.parseSession, content, activeAtStart.source.imported.name)
         const active = { ...activeAtStart, parsed }
         const selected = reconcile(parsed, null, snapshot.selectedLeafId, snapshot.selectedEventId, buildView)
@@ -378,6 +541,8 @@ export function createSessionViewController<FileHandle = unknown>(
       if (serverSource.kind !== 'server') throw new Error('Unsupported Session source')
       const catalog = await catalogPromise
       if (!isLatest(sequence)) return
+      applyCatalog(catalog, catalogError)
+
       const listedMetadata = catalog?.sessions.find((item) => item.token === serverSource.token)
       if (listedMetadata && listedMetadata.modifiedAt === serverSource.modifiedAt) {
         publish({ ...snapshot, active: { ...activeAtStart, metadata: listedMetadata }, loading: false, loadError: null })
@@ -422,88 +587,62 @@ export function createSessionViewController<FileHandle = unknown>(
 
     try {
       const parentRelative = parent.metadata?.relativePath ?? parent.parsed.sourceName
-      const attempts = subagentTargetCandidates(reference.targetFile, parentRelative)
-      let resolved: {
-        content: string
-        parsed: ParsedSession
-        modifiedAt: string
-        contextProjections: Record<string, ContextProjection> | null
-        relativePath: string
-      } | undefined
-      let lastError: unknown
-      let sawNonSession = false
+      let token: string
+      let relativePath: string
+      let modifiedAt: string
+      let parsed: ParsedSession
+      let contextProjections: Record<string, ContextProjection> | null
 
-      for (const candidate of attempts) {
-        const candidateToken = encodeSessionToken(candidate)
-        const cached = dependencies.cache.recallByToken(candidateToken)
-        if (cached) {
-          if (!parsedIsSession(cached.parsed)) {
-            sawNonSession = true
-            continue
-          }
-          resolved = {
-            content: cached.content,
-            parsed: cached.parsed,
-            modifiedAt: cached.modifiedAt,
-            contextProjections: cached.contextProjections,
-            relativePath: candidate,
-          }
-          break
-        }
-
-        try {
-          const payload = await dependencies.readServerSession(candidateToken)
-          if (!isLatest(sequence)) return
-          const parsed = dependencies.parseSession(payload.content, payload.relativePath)
-          if (!parsedIsSession(parsed)) {
-            sawNonSession = true
-            continue
-          }
-          resolved = {
-            content: payload.content,
+      const cached = dependencies.cache.recallByToken(reference.token)
+      if (cached && parsedIsSession(cached.parsed)) {
+        token = cached.token
+        relativePath = cached.parsed.sourceName
+        modifiedAt = cached.modifiedAt
+        parsed = cached.parsed
+        contextProjections = cached.contextProjections
+      } else {
+        const payload = await dependencies.resolveSubagent(reference.targetFile, parentRelative)
+        if (!isLatest(sequence)) return
+        token = payload.token
+        relativePath = payload.relativePath
+        modifiedAt = payload.modifiedAt
+        parsed = parsePiSession(dependencies.parseSession, payload.content, payload.relativePath)
+        contextProjections = payload.contextProjections ?? null
+        rememberSession(
+          dependencies.cache,
+          token,
+          payload.modifiedAt,
+          payload.content,
+          parsed,
+          contextProjections,
+        )
+        if (reference.token !== token) {
+          rememberSession(
+            dependencies.cache,
+            reference.token,
+            payload.modifiedAt,
+            payload.content,
             parsed,
-            modifiedAt: payload.modifiedAt,
-            contextProjections: payload.contextProjections ?? null,
-            relativePath: payload.relativePath,
-          }
-          break
-        } catch (error) {
-          if (!isLatest(sequence)) return
-          lastError = error
+            contextProjections,
+          )
         }
       }
 
-      if (!resolved) {
-        if (sawNonSession) throw { code: 'subagent-transcript-only' } satisfies SessionViewError
-        if (lastError) throw lastError
-        throw new Error(`No session file found for ${reference.targetFile}`)
-      }
-      if (!isLatest(sequence)) return
-
-      const token = encodeSessionToken(resolved.relativePath)
       const metadata: SessionListItem = {
         token,
         id: reference.targetFile,
-        title: reference.agentName ? `${reference.agentName} (Subagent)` : `Subagent (${resolved.relativePath})`,
+        title: reference.agentName ? `${reference.agentName} (Subagent)` : `Subagent (${relativePath})`,
         cwd: parent.metadata?.cwd ?? parent.parsed.header?.cwd ?? '',
-        modifiedAt: resolved.modifiedAt,
-        relativePath: resolved.relativePath,
+        modifiedAt,
+        relativePath,
         parentSession: parent.parsed.header?.id,
       }
-      rememberSession(
-        dependencies.cache,
-        token,
-        resolved.modifiedAt,
-        resolved.content,
-        resolved.parsed,
-        resolved.contextProjections,
-      )
       const active: ActiveSessionView<FileHandle> = {
         token,
         metadata,
-        source: { kind: 'server', token, modifiedAt: resolved.modifiedAt },
-        parsed: resolved.parsed,
-        contextProjections: resolved.contextProjections,
+        source: { kind: 'server', token, modifiedAt },
+        parsed,
+        contextProjections,
       }
       const remembered = rememberedViewports.get(token)
       const selected = reconcile(
@@ -612,6 +751,15 @@ export function createSessionViewController<FileHandle = unknown>(
 
   const dispatch = async (intent: SessionViewIntent<FileHandle>) => {
     switch (intent.type) {
+      case 'load-catalog': return dispatchLoadCatalog(intent.autoOpen)
+      case 'set-scope-mode': {
+        update({ catalog: { ...snapshot.catalog, scopeMode: intent.mode } })
+        return
+      }
+      case 'set-project-filter': {
+        update({ catalog: { ...snapshot.catalog, selectedProjectCwd: intent.cwd } })
+        return
+      }
       case 'open': return dispatchOpen(intent.session)
       case 'import': return dispatchImport(intent.source)
       case 'refresh': return dispatchRefresh(intent.viewport)
@@ -619,6 +767,13 @@ export function createSessionViewController<FileHandle = unknown>(
       case 'return-to-parent': return dispatchReturn(intent.targetIndex, intent.viewport)
       case 'select-event': setSelectedEvent(intent.eventId, false); return
       case 'jump-to-event': setSelectedEvent(intent.eventId, true); return
+      case 'jump-to-entry': {
+        const events = snapshot.view?.events.filter((event) => event.entryId === intent.entryId) ?? []
+        const target = primaryEventForEntry(events)
+        if (!target) return
+        setSelectedEvent(target.id, true)
+        return
+      }
       case 'select-branch': {
         const active = snapshot.active
         if (!active || !active.parsed.branches.some((branch) => branch.leafId === intent.leafId)) return
@@ -661,6 +816,10 @@ export function createSessionViewController<FileHandle = unknown>(
         return
       case 'dismiss-action-error': update({ actionError: null }); return
     }
+  }
+
+  if (dependencies.autoLoadCatalog) {
+    void dispatchLoadCatalog(true)
   }
 
   return {

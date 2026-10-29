@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { KNOWN_ENTRY_TYPES, buildSessionView, parseSessionJsonl } from '../src/core/session-parser'
+import { KNOWN_ENTRY_TYPES, parseSessionJsonl } from '../src/core/session-parser'
+import { buildSessionView } from '../src/core/session-view'
 import type { RawObject } from '../src/core/types'
 import { PI_PACKAGE_DIR, PI_VERSION } from './helpers/pi-runtime'
 

@@ -3,7 +3,6 @@ import { request as httpRequest } from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createSessionCatalog } from '../src/core/session-catalog'
 import type { SessionListResponse } from '../src/core/types'
 import { startSessionHttpServer, type SessionHttpServer } from '../src/server/http-server'
 import { encodeSessionToken } from '../src/server/session-discovery'
@@ -197,7 +196,7 @@ describe('production session HTTP server security', () => {
 
     expect(response.status).toBe(200)
     expect(payload.sessions.map((item) => item.relativePath).sort()).toEqual(expected)
-    expect(createSessionCatalog(payload.sessions).allSessions.map((item) => item.relativePath).sort()).toEqual(expected)
+    expect(payload.projects.length).toBeGreaterThan(0)
 
     const childResponse = await fetch(`${server.url}/api/sessions/${encodeSessionToken('child-id.jsonl')}`, {
       headers: { Authorization: `Bearer ${server.token}` },
@@ -368,5 +367,80 @@ describe('production session HTTP server security', () => {
     })
 
     expect(status).toBe(400)
+  })
+
+  it('resolves subagent target preferring runnable session over transcript mirror', async () => {
+    const runId = '11111111-2222-3333-4444-555555555555'
+    const parentPath = 'project/alpha.jsonl'
+    const runnablePath = `project/alpha/${runId}/run-0/session.jsonl`
+    const transcriptPath = `project/subagent-artifacts/${runId}_scout_transcript.jsonl`
+    const parentContent = '{"type":"session","id":"parent","timestamp":"2026-01-01T10:00:00.000Z","cwd":"/work"}\n'
+    const runnableContent = '{"type":"session","id":"child","timestamp":"2026-01-01T10:05:00.000Z","cwd":"/work"}\n'
+    const transcriptContent = '{"type":"transcript","messages":[]}\n'
+
+    const server = await createServerWithSessions({
+      [parentPath]: parentContent,
+      [runnablePath]: runnableContent,
+      [transcriptPath]: transcriptContent,
+    })
+
+    const response = await fetch(
+      `${server.url}/api/resolve?target=${encodeURIComponent(transcriptPath)}&parent=${encodeURIComponent(parentPath)}`,
+      { headers: { Authorization: `Bearer ${server.token}` } },
+    )
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { relativePath: string; content: string }
+    expect(payload.relativePath).toBe(runnablePath)
+    expect(payload.content).toBe(runnableContent)
+  })
+
+  it('returns 422 with subagent-transcript-only when only a transcript mirror exists', async () => {
+    const runId = '11111111-2222-3333-4444-555555555555'
+    const parentPath = 'project/alpha.jsonl'
+    const transcriptPath = `project/subagent-artifacts/${runId}_scout_transcript.jsonl`
+    const parentContent = '{"type":"session","id":"parent","timestamp":"2026-01-01T10:00:00.000Z","cwd":"/work"}\n'
+    const transcriptContent = '{"type":"transcript","messages":[]}\n'
+
+    const server = await createServerWithSessions({
+      [parentPath]: parentContent,
+      [transcriptPath]: transcriptContent,
+    })
+
+    const response = await fetch(
+      `${server.url}/api/resolve?target=${encodeURIComponent(transcriptPath)}&parent=${encodeURIComponent(parentPath)}`,
+      { headers: { Authorization: `Bearer ${server.token}` } },
+    )
+    expect(response.status).toBe(422)
+    const payload = await response.json() as { code: string; error: string }
+    expect(payload.code).toBe('subagent-transcript-only')
+  })
+
+  it('returns 404 when target does not exist', async () => {
+    const server = await createServer()
+    const response = await fetch(`${server.url}/api/resolve?target=missing.jsonl`, {
+      headers: { Authorization: `Bearer ${server.token}` },
+    })
+    expect(response.status).toBe(404)
+  })
+
+  it('returns 400 when resolve target parameter is missing', async () => {
+    const server = await createServer()
+    const response = await fetch(`${server.url}/api/resolve`, {
+      headers: { Authorization: `Bearer ${server.token}` },
+    })
+    expect(response.status).toBe(400)
+  })
+
+  it('rejects path traversal in resolve target', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'pi-session-viewer-server-'))
+    directories.push(directory)
+    const sessionRoot = path.join(directory, 'sessions')
+    await writeFile(path.join(directory, 'secret.jsonl'), '{"type":"session","id":"secret"}\n')
+    const server = await startServerAt(sessionRoot, 'd'.repeat(64))
+
+    const response = await fetch(`${server.url}/api/resolve?target=../secret.jsonl`, {
+      headers: { Authorization: `Bearer ${server.token}` },
+    })
+    expect(response.status).toBe(404)
   })
 })

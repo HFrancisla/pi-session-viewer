@@ -57,7 +57,7 @@ function payload(token: string, body: string, modifiedAt = 'm1', relativePath = 
 }
 
 function catalog(sessions: SessionListItem[] = []): SessionListResponse {
-  return { root: '/sessions', currentCwd: '/work/demo', sessions, warnings: [] }
+  return { root: '/sessions', currentCwd: '/work/demo', projects: [], sessions, warnings: [] }
 }
 
 function deferred<T>() {
@@ -70,14 +70,18 @@ function deferred<T>() {
 function createController(
   readServerSession: (token: string) => Promise<SessionFileResponse>,
   options: {
+    resolveSubagent?: (targetFile: string, parentRelative?: string) => Promise<SessionFileResponse>
     cache?: ReturnType<typeof createSessionCache>
     readImportedFile?: (file: unknown) => Promise<string>
     refreshCatalog?: () => Promise<SessionListResponse | null>
     parseSession?: typeof parseSessionJsonl
+    initialCwd?: string | null
+    autoLoadCatalog?: boolean
   } = {},
 ): SessionViewController<unknown> {
   return createSessionViewController<unknown>({
     readServerSession,
+    resolveSubagent: options.resolveSubagent ?? (async (targetFile) => readServerSession(encodeSessionToken(targetFile))),
     readImportedFile: async (source) => options.readImportedFile
       ? options.readImportedFile(source.file)
       : String(source.file),
@@ -85,6 +89,8 @@ function createController(
     cache: options.cache ?? createSessionCache(),
     parseSession: options.parseSession ?? parseSessionJsonl,
     now: () => '2026-01-01T00:00:02.000Z',
+    initialCwd: options.initialCwd,
+    autoLoadCatalog: options.autoLoadCatalog,
   })
 }
 
@@ -101,7 +107,17 @@ describe('Session View controller', () => {
     expect(snapshot.view?.events.find((event) => event.id === 'user-1:user')?.summary).toBe('Alpha request')
     expect(snapshot.selectedLeafId).toBe('user-1')
     expect(snapshot.selectedEventId).toBe('missing-system-prompt:user-1')
+    expect(snapshot.sessionTitle).toBe('Alpha request')
+    expect(snapshot.selectedEvent?.id).toBe('missing-system-prompt:user-1')
+    expect(snapshot.visibleTurns.length).toBeGreaterThan(0)
     expect(snapshot.loadError).toBe(null)
+  })
+
+  it('jumps to entry by finding its primary event', async () => {
+    const controller = createController(async (token) => payload(token, content('Alpha request')))
+    await controller.dispatch({ type: 'open', session: session('alpha') })
+    await controller.dispatch({ type: 'jump-to-entry', entryId: 'user-1' })
+    expect(controller.getSnapshot().selectedEventId).toBe('user-1:user')
   })
 
   it('starts with the conversation event kinds enabled and system bookkeeping filtered out', async () => {
@@ -308,13 +324,16 @@ describe('Session View controller', () => {
     const runId = '01234567-89ab-cdef-0123-456789abcdef'
     const transcriptPath = `project/subagent-artifacts/${runId}_agent_transcript.jsonl`
     const runnablePath = `project/alpha/${runId}/run-0/session.jsonl`
-    const requested: string[] = []
+    const resolveCalls: Array<{ targetFile: string; parentRelative?: string }> = []
     const controller = createController(async (token) => {
       const path = decodeSessionToken(token)
-      requested.push(path)
       if (path === parentPath) return payload(token, content('Parent session'), 'parent-v1', parentPath)
-      if (path === runnablePath) return payload(token, content('Runnable child'), 'child-v1', runnablePath)
       throw new Error(`missing ${path}`)
+    }, {
+      resolveSubagent: async (targetFile, parentRelative) => {
+        resolveCalls.push({ targetFile, parentRelative })
+        return payload(encodeSessionToken(runnablePath), content('Runnable child'), 'child-v1', runnablePath)
+      },
     })
     await controller.dispatch({ type: 'open', session: session(encodeSessionToken(parentPath), 'parent-v1', parentPath) })
     await controller.dispatch({
@@ -324,7 +343,7 @@ describe('Session View controller', () => {
       viewport: { scrollTop: 260, anchor: { eventId: 'user-1:user', offset: 12 } },
     })
 
-    expect(requested).toEqual([parentPath, runnablePath])
+    expect(resolveCalls).toEqual([{ targetFile: transcriptPath, parentRelative: parentPath }])
     expect(controller.getSnapshot().active?.metadata?.relativePath).toBe(runnablePath)
     expect(controller.getSnapshot().navigation).toHaveLength(1)
     expect(controller.getSnapshot().navigation[0]).not.toHaveProperty('parsed')
@@ -335,13 +354,14 @@ describe('Session View controller', () => {
   it('rejects a transcript mirror as a Session and preserves the active view with an Action Error', async () => {
     const runId = '01234567-89ab-cdef-0123-456789abcdef'
     const transcriptPath = `project/subagent-artifacts/${runId}_agent_transcript.jsonl`
-    const requested: string[] = []
     const controller = createController(async (token) => {
       const path = decodeSessionToken(token)
-      requested.push(path)
       if (path === 'project/alpha.jsonl') return payload(token, content('Parent session'), 'm1', path)
-      if (path === transcriptPath) return payload(token, JSON.stringify({ type: 'transcript', messages: [] }), 'm1', path)
       throw new Error(`missing ${path}`)
+    }, {
+      resolveSubagent: async () => {
+        throw { code: 'subagent-transcript-only' }
+      },
     })
     await controller.dispatch({ type: 'open', session: session(encodeSessionToken('project/alpha.jsonl'), 'm1', 'project/alpha.jsonl') })
     const parent = controller.getSnapshot().active
@@ -353,7 +373,6 @@ describe('Session View controller', () => {
     expect(controller.getSnapshot().active).toBe(parent)
     expect(controller.getSnapshot().loadError).toBe(null)
     expect(controller.getSnapshot().actionError).toEqual({ code: 'subagent-transcript-only' })
-    expect(requested.at(-1)).toBe(transcriptPath)
     await controller.dispatch({ type: 'dismiss-action-error' })
     expect(controller.getSnapshot().actionError).toBe(null)
   })
@@ -365,8 +384,9 @@ describe('Session View controller', () => {
     const controller = createController(async (token) => {
       const path = decodeSessionToken(token)
       if (path === parentPath) return payload(token, content('Parent'), 'm1', parentPath)
-      if (path === childPath) return child.promise
       return payload(token, content('New choice'), 'm1', path)
+    }, {
+      resolveSubagent: async () => child.promise,
     })
     await controller.dispatch({ type: 'open', session: session(encodeSessionToken(parentPath), 'm1', parentPath) })
     const pendingJump = controller.dispatch({
@@ -530,5 +550,61 @@ describe('Session View controller', () => {
     expect(controller.getSnapshot().restoreIntent?.key).toBe(latest.key)
     await controller.dispatch({ type: 'acknowledge-timeline-restore', key: latest.key })
     expect(controller.getSnapshot().restoreIntent).toBe(null)
+  })
+
+  it('loads catalog, updates project/scope filters, and auto-opens initial session', async () => {
+    const s1 = session('s1')
+    const s2 = session('s2')
+    const refreshCatalog = vi.fn(async () => ({
+      root: '/var/sessions',
+      currentCwd: '/work/app',
+      projects: [{ cwd: '/work/app', name: 'app', count: 2, latestModifiedAt: '2026-01-01T00:00:00.000Z' }],
+      sessions: [s1, s2],
+      initialSessionToken: 's2',
+      warnings: [],
+    }))
+    const read = vi.fn(async (token: string) => payload(token, content(`Hello ${token}`)))
+    const controller = createController(read, { refreshCatalog })
+
+    expect(controller.getSnapshot().catalog.loading).toBe(false)
+    expect(controller.getSnapshot().catalog.sessions).toHaveLength(0)
+
+    await controller.dispatch({ type: 'load-catalog', autoOpen: true })
+
+    expect(refreshCatalog).toHaveBeenCalledTimes(1)
+    const snapshot = controller.getSnapshot()
+    expect(snapshot.catalog.root).toBe('/var/sessions')
+    expect(snapshot.catalog.currentCwd).toBe('/work/app')
+    expect(snapshot.catalog.projects).toHaveLength(1)
+    expect(snapshot.catalog.sessions).toHaveLength(2)
+    expect(snapshot.active?.token).toBe('s2')
+    expect(snapshot.fullJsonlPath).toBe('/var/sessions/s2.jsonl')
+
+    await controller.dispatch({ type: 'set-scope-mode', mode: 'all' })
+    expect(controller.getSnapshot().catalog.scopeMode).toBe('all')
+
+    await controller.dispatch({ type: 'set-project-filter', cwd: '/work/other' })
+    expect(controller.getSnapshot().catalog.selectedProjectCwd).toBe('/work/other')
+  })
+
+  it('auto-loads catalog on creation when autoLoadCatalog is set', async () => {
+    const s1 = session('s1')
+    const refreshCatalog = vi.fn(async () => ({
+      root: '/var/sessions',
+      currentCwd: '/work/demo',
+      projects: [],
+      sessions: [s1],
+      warnings: [],
+    }))
+    const read = vi.fn(async (token: string) => payload(token, content(`Hello ${token}`)))
+    const controller = createController(read, { refreshCatalog, autoLoadCatalog: true })
+
+    // Wait microtasks for auto-load to finish
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(refreshCatalog).toHaveBeenCalledTimes(1)
+    expect(controller.getSnapshot().active?.token).toBe('s1')
   })
 })
