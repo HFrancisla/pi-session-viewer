@@ -103,6 +103,7 @@ test('opens a single subagent directly without showing a chooser', async ({ page
       json: {
         root: '/synthetic/sessions',
         currentCwd: cwd,
+        projects: [{ cwd, name: 'demo', count: 1, latestModifiedAt: modifiedAt }],
         sessions: [{
           token: parentToken, id: 'single-parent', title: 'Single subagent parent', cwd,
           timestamp: modifiedAt, modifiedAt, relativePath: parentPath,
@@ -121,6 +122,16 @@ test('opens a single subagent directly without showing a chooser', async ({ page
     } else {
       await route.fulfill({ status: 404, json: { error: 'not found' } })
     }
+  })
+  await page.route('**/api/resolve**', async (route) => {
+    const target = new URL(route.request().url()).searchParams.get('target')
+    if (target !== childPath) {
+      await route.fulfill({ status: 404, json: { error: 'not found' } })
+      return
+    }
+    await route.fulfill({
+      json: { token: encodeSessionToken(childPath), relativePath: childPath, modifiedAt, content: childContent },
+    })
   })
 
   await page.goto('/#token=dev-token&cwd=/work/demo')
@@ -203,6 +214,7 @@ test('opens workflow children from the invoking subagent call', async ({ page })
     await route.fulfill({
       json: {
         root: '/synthetic/sessions', currentCwd: cwd,
+        projects: [{ cwd, name: 'demo', count: 1, latestModifiedAt: modifiedAt }],
         sessions: [{ token: parentToken, id: 'workflow-parent', title: 'Workflow parent', cwd, timestamp: modifiedAt, modifiedAt, relativePath: parentPath }],
         warnings: [],
       },
@@ -218,6 +230,18 @@ test('opens workflow children from the invoking subagent call', async ({ page })
     }
     requestedPaths.push(relativePath)
     await route.fulfill({ json: { token, relativePath, modifiedAt, content: sessionContent } })
+  })
+  await page.route('**/api/resolve**', async (route) => {
+    const target = new URL(route.request().url()).searchParams.get('target') ?? ''
+    const sessionContent = sessionContents.get(target)
+    if (!sessionContent) {
+      await route.fulfill({ status: 404, json: { error: 'Synthetic session not found' } })
+      return
+    }
+    requestedPaths.push(target)
+    await route.fulfill({
+      json: { token: encodeSessionToken(target), relativePath: target, modifiedAt, content: sessionContent },
+    })
   })
 
   await page.goto('/#token=dev-token&cwd=/work/demo')

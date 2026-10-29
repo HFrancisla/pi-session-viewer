@@ -43,8 +43,19 @@ test('a revisited session is served from the client cache', async ({ page }) => 
   const requests: string[] = []
 
   await page.route('**/api/sessions', async (route) => {
+    const sessions = Object.keys(versions).map(session)
+    const latestModifiedAt = sessions.reduce(
+      (latest, item) => item.modifiedAt.localeCompare(latest) > 0 ? item.modifiedAt : latest,
+      sessions[0]?.modifiedAt ?? '',
+    )
     await route.fulfill({
-      json: { root: '/synthetic/sessions', currentCwd: cwd, sessions: Object.keys(versions).map(session), warnings: [] },
+      json: {
+        root: '/synthetic/sessions',
+        currentCwd: cwd,
+        projects: [{ cwd, name: 'demo', count: sessions.length, latestModifiedAt }],
+        sessions,
+        warnings: [],
+      },
     })
   })
   await page.route('**/api/sessions/*', async (route) => {

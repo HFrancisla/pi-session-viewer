@@ -44,38 +44,26 @@ function sessionContent(number: number, cwd: string) {
 
 test('virtualizes the 400-session catalog across scope, filtering, selection, and mobile navigation', async ({ page }) => {
   const sessions = syntheticSessions()
-  const unexpectedCatalogRows = [
-    {
-      token: 'unexpected-child-id',
-      id: 'SUBAGENT-latest',
-      title: 'Hidden child by ID',
-      cwd: projectCwds[0],
-      modifiedAt: '2027-01-01T00:00:00.000Z',
-      relativePath: 'latest-child.jsonl',
-    },
-    {
-      token: 'unexpected-child-path',
-      id: 'child-path',
-      title: 'Hidden child by path',
-      cwd: '/work/child-only',
-      modifiedAt: '2027-02-01T00:00:00.000Z',
-      relativePath: 'subagents/child.jsonl',
-    },
-    {
-      token: 'unexpected-transcript',
-      id: 'transcript',
-      title: 'Hidden transcript mirror',
-      cwd: '/work/child-only',
-      modifiedAt: '2027-03-01T00:00:00.000Z',
-      relativePath: 'archive/child_transcript.jsonl',
-    },
-  ]
-  const catalogSource = [...unexpectedCatalogRows, ...sessions]
+  const projects = projectCwds.map((cwd) => {
+    const projectSessions = sessions.filter((session) => session.cwd === cwd)
+    return {
+      cwd,
+      name: cwd.split('/').at(-1) ?? cwd,
+      count: projectSessions.length,
+      latestModifiedAt: projectSessions.at(-1)?.modifiedAt ?? '',
+    }
+  })
   const sessionByToken = new Map(sessions.map((session) => [session.token, session]))
 
   await page.route('**/api/sessions', async (route) => {
     await route.fulfill({
-      json: { root: '/synthetic/sessions', currentCwd: projectCwds[0], sessions: catalogSource, warnings: [] },
+      json: {
+        root: '/synthetic/sessions',
+        currentCwd: projectCwds[0],
+        projects,
+        sessions,
+        warnings: [],
+      },
     })
   })
   await page.route('**/api/sessions/*', async (route) => {

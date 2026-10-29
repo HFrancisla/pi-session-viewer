@@ -149,6 +149,7 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
       json: {
         root: '/synthetic/sessions',
         currentCwd: cwd,
+        projects: [{ cwd, name: 'project', count: 1, latestModifiedAt: sessionTimestamp }],
         warnings: [],
         sessions: [{
           token: sessionToken,
@@ -437,6 +438,7 @@ test('keeps the large virtualized timeline reachable without horizontal overflow
       json: {
         root: '/synthetic/sessions',
         currentCwd: cwd,
+        projects: [{ cwd, name: 'project', count: 1, latestModifiedAt: sessionTimestamp }],
         warnings: [],
         sessions: [{
           token: sessionToken,
@@ -567,7 +569,15 @@ test('restores a large parent timeline anchor after subagent navigation', async 
   ]
 
   await page.route('**/api/sessions', async (route) => {
-    await route.fulfill({ json: { root: '/synthetic/sessions', currentCwd: cwd, warnings: [], sessions } })
+    await route.fulfill({
+      json: {
+        root: '/synthetic/sessions',
+        currentCwd: cwd,
+        projects: [{ cwd, name: 'project', count: sessions.length, latestModifiedAt: sessions[0].modifiedAt }],
+        warnings: [],
+        sessions,
+      },
+    })
   })
   await page.route('**/api/sessions/*', async (route) => {
     const token = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1) ?? '')
@@ -590,6 +600,16 @@ test('restores a large parent timeline anchor after subagent navigation', async 
         ? 'synthetic-large-second.jsonl'
         : 'synthetic-large-parent.jsonl'
     await route.fulfill({ json: { token, relativePath, modifiedAt: sessionTimestamp, content } })
+  })
+  await page.route('**/api/resolve**', async (route) => {
+    const target = new URL(route.request().url()).searchParams.get('target')
+    const token = target === childPath ? childToken : ''
+    if (!token) {
+      await route.fulfill({ status: 404, json: { error: 'Synthetic session not found' } })
+      return
+    }
+    sessionRequests.push(token)
+    await route.fulfill({ json: { token, relativePath: childPath, modifiedAt: sessionTimestamp, content: childContent } })
   })
 
   await page.goto('/#token=dev-token')
