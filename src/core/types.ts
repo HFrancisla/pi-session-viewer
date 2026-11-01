@@ -75,6 +75,7 @@ export interface SystemPromptComposition {
     baseDir?: string
     disableModelInvocation?: boolean
   }>
+  sections?: Record<string, string>
 }
 
 export interface SystemPromptCapture {

@@ -121,6 +121,7 @@ const TAG_TO_FIELD: Record<string, SectionField> = {
 const NESTED_PROMPT_TAGS = new Set([
   'available_skills',
   'skill',
+  'subagent',
   'name',
   'description',
   'location',

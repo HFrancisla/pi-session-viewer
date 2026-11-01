@@ -30,6 +30,7 @@ interface SerializablePromptOptions {
     baseDir: string
     disableModelInvocation: boolean
   }>
+  sections?: Record<string, string>
 }
 
 function promptHash(prompt: string): string {
@@ -57,6 +58,7 @@ function serializeOptions(options: BuildSystemPromptOptions): SerializablePrompt
       baseDir: skill.baseDir,
       disableModelInvocation: skill.disableModelInvocation,
     })),
+    sections: options.sections ? { ...options.sections } : undefined,
   }
 }
 

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -29,6 +29,18 @@ function isPiPackage(packageDir: string): boolean {
 export function resolvePiPackageDir(): string | undefined {
   const entry = process.argv[1]
   if (entry) {
+    try {
+      let realDirectory = path.dirname(realpathSync(entry))
+      while (true) {
+        if (isPiPackage(realDirectory)) return realDirectory
+        const parent = path.dirname(realDirectory)
+        if (parent === realDirectory) break
+        realDirectory = parent
+      }
+    } catch {
+      // Ignored if realpath fails.
+    }
+
     let directory = path.dirname(path.resolve(entry))
     while (true) {
       if (isPiPackage(directory)) return directory

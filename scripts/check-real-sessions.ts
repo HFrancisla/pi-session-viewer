@@ -85,10 +85,17 @@ export function inspectPrompt(prompt: string, composition?: SystemPromptComposit
   }
 }
 
+/**
+ * Known sections added by popular Pi extensions (e.g. pi-subagents) that are
+ * surfaced cleanly as their own cards rather than built-in Pi core sections.
+ */
+const KNOWN_EXTENSION_SECTIONS = new Set(['advertised_subagents', 'active_subagents'])
+
 function problemCategories(finding: Omit<RealSessionFinding, 'session'>): string[] {
   const categories: string[] = []
   if (finding.format === 'unknown') categories.push('unknown layout')
-  if (finding.unrecognized.length > 0) categories.push(`unknown Pi sections (${finding.unrecognized.join(', ')})`)
+  const unknownSections = finding.unrecognized.filter((name) => !KNOWN_EXTENSION_SECTIONS.has(name))
+  if (unknownSections.length > 0) categories.push(`unknown Pi sections (${unknownSections.join(', ')})`)
   if (finding.uncovered.length > 0) categories.push('unclaimed text')
   if (finding.overlaps > 0) categories.push('overlapping sections')
   return categories
