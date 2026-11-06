@@ -1,3 +1,13 @@
+## Hard rules
+
+- **Ground truth is current state**: Documentation and code comments describe only currently active implementations and business rules. Do not retain historical change logs, temporary plans, or deprecated approaches.
+- **No unauthorized changes**: Never revert existing changes without explicit user instructions, and never solidify unconfirmed implementation deviations into business rules.
+
+## Language
+
+- Default to **Chinese** for conversations, documentation, code comments, and issue/spec tracking.
+- Context documents (`GLOSSARY.md`) must provide both Chinese and English terminology for easy code mapping.
+
 ## Project status
 
 This project is under active development. Prioritize the optimal architecture; backward compatibility is not required.
