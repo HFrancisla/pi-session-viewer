@@ -9,6 +9,7 @@ import {
   resolvePromptDiff,
   type PromptDiffResult,
 } from './prompt-diff'
+import { PI_PROMPT_BASELINE_VERSION } from './pi-defaults'
 import type { SystemPromptComposition, TimelineEvent } from './types'
 import { buildFixturePrompt } from '../../scripts/generate-prompt-fixtures.mjs'
 import { PI_PACKAGE_DIR } from '../../tests/helpers/pi-runtime'
@@ -60,19 +61,14 @@ function expectDiffIsReversible(result: PromptDiffResult): void {
   expect(result.unchangedCount).toBe(result.lines.filter((line) => line.type === 'unchanged').length)
 }
 
-describe('prompt-diff: the vanilla baseline is Pi\'s real vanilla prompt', () => {
-  it.each([
-    ['legacy-0.85.1', 'legacy'],
-    ['current', 'tagged'],
-  ] as const)('reproduces the %s vanilla fixture byte-for-byte (%s layout)', (fixtureSet, layout) => {
-    const full = loadFixture(`${fixtureSet}-full.json`)
-    const vanilla = loadFixture(`${fixtureSet}-vanilla.json`)
+describe('prompt-diff: the Vanilla Pi baseline is versioned and verified', () => {
+  it('reproduces the committed Pi 1.5.0 vanilla fixture byte-for-byte', () => {
+    const full = loadFixture('current-full.json')
+    const vanilla = loadFixture('current-vanilla.json')
 
     const rebuilt = buildVanillaSystemPrompt(full.prompt, { cwd: full.options.cwd })
     expect(rebuilt).toBe(vanilla.prompt)
-    // The baseline must be written in the same layout as the prompt it compares
-    // against, otherwise every line would show up as a change.
-    expect(rebuilt.includes('<tools>')).toBe(layout === 'tagged')
+    expect(rebuilt.includes('<tools>')).toBe(true)
   })
 
   it('reproduces the vanilla prompt the installed Pi builds right now', async () => {
@@ -86,9 +82,10 @@ describe('prompt-diff: the vanilla baseline is Pi\'s real vanilla prompt', () =>
 describe('prompt-diff: resolvePromptDiff against real prompts', () => {
   const full = loadFixture('current-full.json')
   const composition = compositionOf(full)
+  const currentBaseline = { composition, piVersion: PI_PROMPT_BASELINE_VERSION }
 
   it('produces a reversible diff whose baseline is Pi vanilla', () => {
-    const result = resolvePromptDiff(full.prompt, { composition })
+    const result = resolvePromptDiff(full.prompt, currentBaseline)
 
     expect(result.baselineMode).toBe('vanilla')
     expect(result.baselinePrompt).toBe(buildVanillaSystemPrompt(full.prompt, composition))
@@ -96,7 +93,7 @@ describe('prompt-diff: resolvePromptDiff against real prompts', () => {
   })
 
   it('marks the project context, skills and appended instructions as additions', () => {
-    const result = resolvePromptDiff(full.prompt, { composition })
+    const result = resolvePromptDiff(full.prompt, currentBaseline)
     const added = result.lines.filter((line) => line.type === 'added').map((line) => line.text)
 
     expect(added).toContain('- Never commit secrets')
@@ -107,7 +104,7 @@ describe('prompt-diff: resolvePromptDiff against real prompts', () => {
   })
 
   it('keeps the documentation Pi also sends in the baseline out of the diff', () => {
-    const result = resolvePromptDiff(full.prompt, { composition })
+    const result = resolvePromptDiff(full.prompt, currentBaseline)
     const removed = result.lines.filter((line) => line.type === 'removed').map((line) => line.text)
 
     expect(removed.filter((line) => line.startsWith('- When asked about: extensions'))).toEqual([])
@@ -125,11 +122,34 @@ describe('prompt-diff: resolvePromptDiff against real prompts', () => {
     expectDiffIsReversible(result)
   })
 
-  it('falls back to Vanilla Pi when a previous baseline is unavailable', () => {
-    const result = resolvePromptDiff(full.prompt, { composition }, 'previous')
+  it('falls back to Vanilla Pi when a previous baseline is unavailable and versions match', () => {
+    const result = resolvePromptDiff(full.prompt, currentBaseline, 'previous')
 
     expect(result.baselineMode).toBe('vanilla')
     expect(result.baselinePrompt).toBe(buildVanillaSystemPrompt(full.prompt, composition))
+  })
+
+  it('does not fabricate a Vanilla diff for a mismatched or missing Pi version', () => {
+    for (const piVersion of ['1.4.0', undefined]) {
+      const result = resolvePromptDiff(full.prompt, { composition, piVersion })
+
+      expect(result.baselineMode).toBe('unavailable')
+      expect(result.baselinePrompt).toBeUndefined()
+      expect(result.unavailableReason).toBe(piVersion ? 'version-mismatch' : 'version-unknown')
+      expect(result.lines).toEqual([])
+    }
+  })
+
+  it('still uses an exact previous snapshot when the Vanilla baseline is incompatible', () => {
+    const previousPrompt = 'Previous Pi prompt'
+    const result = resolvePromptDiff(
+      full.prompt,
+      { piVersion: '1.4.0', previousPrompt },
+      'previous',
+    )
+
+    expect(result.baselineMode).toBe('previous')
+    expect(result.baselinePrompt).toBe(previousPrompt)
   })
 
   it('finds the preceding resolved snapshot and skips missing prompt records', () => {
@@ -146,7 +166,7 @@ describe('prompt-diff: resolvePromptDiff against real prompts', () => {
     const beforeExtensions = full.prompt.replace('Answer in Chinese.', 'Answer in English.')
     const result = resolvePromptDiff(
       full.prompt,
-      { composition, promptBeforeFinalExtensions: beforeExtensions },
+      { ...currentBaseline, promptBeforeFinalExtensions: beforeExtensions },
       'before-extensions'
     )
 
@@ -156,7 +176,7 @@ describe('prompt-diff: resolvePromptDiff against real prompts', () => {
   })
 
   it('falls back to the vanilla baseline when no earlier prompt was recorded', () => {
-    const result = resolvePromptDiff(full.prompt, { composition }, 'before-extensions')
+    const result = resolvePromptDiff(full.prompt, currentBaseline, 'before-extensions')
 
     expect(result.baselineMode).toBe('vanilla')
     expectDiffIsReversible(result)

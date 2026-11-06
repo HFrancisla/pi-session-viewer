@@ -8,6 +8,9 @@
  * that test fails and this file must be updated.
  */
 
+/** Pi release whose copied native prompt is the Vanilla baseline. */
+export const PI_PROMPT_BASELINE_VERSION = '1.5.0'
+
 /** Tools Pi enables by default (`normalizeBuildSystemPromptOptions`). */
 export const PI_DEFAULT_TOOLS = ['read', 'bash', 'edit', 'write'] as const
 
@@ -38,10 +41,8 @@ export const PI_TOOL_PROMPT_CONTRIBUTIONS: Record<string, PiToolPromptContributi
   edit: {
     snippet: 'Make precise file edits with exact text replacement, including multiple disjoint edits in one call',
     guidelines: [
-      'Use edit for precise changes (edits[].oldText must match exactly)',
-      'When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls',
-      'Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.',
-      'Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.',
+      'Use edit for targeted changes. Batch changes to one file in a single call.',
+      'Each edits[].oldText must exactly and uniquely match the original file. Keep matches short and non-overlapping; merge nearby changes without including large unchanged regions.',
     ],
   },
   write: {
@@ -102,9 +103,9 @@ export function buildPiRules(
   return rules
 }
 
-/** Pi's built-in preamble for a default (non-custom) system prompt. */
+/** Pi 1.5.0's built-in preamble for a default (non-custom) system prompt. */
 export const PI_DEFAULT_PREAMBLE =
-  'You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.'
+  'You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.'
 
 /**
  * Pi >= 0.86 wraps every prompt section except the preamble in an XML-style

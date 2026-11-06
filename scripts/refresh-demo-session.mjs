@@ -54,6 +54,8 @@ if (isMain) {
   const args = parseArgs(process.argv.slice(2))
   const file = path.resolve(args.file ?? DEFAULT_SESSION)
   const piPackageDir = path.resolve(args.pi ?? DEFAULT_PI)
+  const piPackage = JSON.parse(await readFile(path.join(piPackageDir, 'package.json'), 'utf8'))
+  if (typeof piPackage.version !== 'string') throw new Error(`No Pi version in ${piPackageDir}/package.json`)
 
   const contents = await readFile(file, 'utf8')
   const lines = contents.split('\n')
@@ -73,6 +75,7 @@ if (isMain) {
   entry.data.prompt = prompt
   entry.data.promptLength = prompt.length
   entry.data.promptHash = createHash('sha256').update(prompt).digest('hex')
+  entry.data.piVersion = piPackage.version
   lines[index] = JSON.stringify(entry)
 
   // Keep the synthetic subagent reference on the tool result: the Playwright test

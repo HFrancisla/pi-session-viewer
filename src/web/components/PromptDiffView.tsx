@@ -1,6 +1,7 @@
 import { Check, Copy, Info } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { formatDiffLineTooltip, resolvePromptDiff, type DiffBaselineMode } from '../../core/prompt-diff'
+import { formatDiffLineTooltip, isVanillaBaselineCompatible, resolvePromptDiff, type DiffBaselineMode } from '../../core/prompt-diff'
+import { PI_PROMPT_BASELINE_VERSION } from '../../core/pi-defaults'
 import type { TimelineEvent } from '../../core/types'
 import { useI18n } from '../i18n'
 
@@ -8,17 +9,23 @@ export function PromptDiffView({ event, previousPrompt }: { event: TimelineEvent
   const { t } = useI18n()
   const [copied, setCopied] = useState(false)
   const hasPreviousPrompt = previousPrompt !== undefined
-  const [baselineMode, setBaselineMode] = useState<DiffBaselineMode>(hasPreviousPrompt ? 'previous' : 'vanilla')
+  const piVersion = event.systemPrompt?.piVersion
+  const vanillaCompatible = isVanillaBaselineCompatible(piVersion)
+  const [baselineMode, setBaselineMode] = useState<DiffBaselineMode>(
+    hasPreviousPrompt ? 'previous' : vanillaCompatible ? 'vanilla' : 'unavailable'
+  )
+  const vanillaUnavailableMessage = t.inspector.diff.vanillaUnavailable(PI_PROMPT_BASELINE_VERSION, piVersion)
 
   const diffResult = useMemo(() => resolvePromptDiff(
     event.content,
     {
       composition: event.systemPrompt?.composition,
+      piVersion,
       promptBeforeFinalExtensions: event.systemPrompt?.promptBeforeFinalExtensions,
       previousPrompt,
     },
     baselineMode,
-  ), [event.content, event.systemPrompt?.composition, event.systemPrompt?.promptBeforeFinalExtensions, previousPrompt, baselineMode])
+  ), [event.content, event.systemPrompt?.composition, piVersion, event.systemPrompt?.promptBeforeFinalExtensions, previousPrompt, baselineMode])
 
   const handleCopy = async () => {
     try {
@@ -28,6 +35,7 @@ export function PromptDiffView({ event, previousPrompt }: { event: TimelineEvent
           return `${prefix}${l.text}`
         })
         .join('\n')
+      if (diffResult.baselineMode === 'unavailable') return
       await navigator.clipboard.writeText(diffText)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
@@ -37,13 +45,14 @@ export function PromptDiffView({ event, previousPrompt }: { event: TimelineEvent
   }
 
   const { addedCount, removedCount, lines } = diffResult
-  const isIdentical = addedCount === 0 && removedCount === 0
+  const isUnavailable = diffResult.baselineMode === 'unavailable'
+  const isIdentical = !isUnavailable && addedCount === 0 && removedCount === 0
 
   return (
     <div className="content-view diff-view">
       <div className="content-header-toolbar">
         <div className="diff-header-meta">
-          <div className="prompt-diff-badges">
+          {!isUnavailable && <div className="prompt-diff-badges">
             <span
               className={`diff-count-badge is-added${addedCount === 0 ? ' is-dim' : ''}`}
               title={t.inspector.diff.addedLines(addedCount)}
@@ -56,7 +65,7 @@ export function PromptDiffView({ event, previousPrompt }: { event: TimelineEvent
             >
               -{removedCount}
             </span>
-          </div>
+          </div>}
 
           <span className="diff-header-divider" aria-hidden="true" />
 
@@ -76,9 +85,11 @@ export function PromptDiffView({ event, previousPrompt }: { event: TimelineEvent
               type="button"
               className={`prompt-diff-baseline-pill${baselineMode === 'vanilla' ? ' is-active' : ''}`}
               aria-pressed={baselineMode === 'vanilla'}
+              disabled={!vanillaCompatible}
+              title={!vanillaCompatible ? vanillaUnavailableMessage : undefined}
               onClick={() => setBaselineMode('vanilla')}
             >
-              {t.inspector.diff.baselineVanilla}
+              {t.inspector.diff.baselineVanilla(PI_PROMPT_BASELINE_VERSION)}
             </button>
           </div>
         </div>
@@ -87,14 +98,20 @@ export function PromptDiffView({ event, previousPrompt }: { event: TimelineEvent
           type="button"
           className="inspector-action-btn"
           onClick={handleCopy}
-          title={t.inspector.diff.copyDiff}
+          title={isUnavailable ? vanillaUnavailableMessage : t.inspector.diff.copyDiff}
+          disabled={isUnavailable}
         >
           {copied ? <Check size={13} className="copy-success-icon" /> : <Copy size={13} />}
           <span>{copied ? t.common.copied : t.inspector.diff.copyDiff}</span>
         </button>
       </div>
 
-      {isIdentical ? (
+      {isUnavailable ? (
+        <div className="prompt-diff-empty">
+          <Info size={20} />
+          <p>{vanillaUnavailableMessage}</p>
+        </div>
+      ) : isIdentical ? (
         <div className="prompt-diff-empty">
           <Info size={20} />
           <p>{t.inspector.diff.noChanges}</p>

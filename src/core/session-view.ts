@@ -325,6 +325,7 @@ function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, Pr
       promptBeforeFinalExtensions: stringValue(snapshot?.promptBeforeFinalExtensions),
       capturedAt: stringValue(data.capturedAt),
       sequence: typeof data.sequence === 'number' ? data.sequence : undefined,
+      piVersion: stringValue(data.piVersion) ?? stringValue(snapshot?.piVersion),
       model: modelValue ? { provider: stringValue(modelValue.provider), id: stringValue(modelValue.id) } : undefined,
     },
     model: modelValue ? { provider: stringValue(modelValue.provider), id: stringValue(modelValue.id) } : undefined,

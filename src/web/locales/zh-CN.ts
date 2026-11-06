@@ -117,8 +117,10 @@ export const zhCN: Translations = {
     diff: {
       baselineLabel: '基准',
       baselinePrevious: '上一份有效提示词',
-      baselineVanilla: '原生 Pi',
+      baselineVanilla: (version: string) => `原生 Pi ${version}`,
       noPreviousPrompt: '此分支没有更早的有效提示词快照。',
+      vanillaUnavailable: (baselineVersion: string, piVersion?: string) =>
+        `此原生 Pi ${baselineVersion} 基准尚未针对该快照验证${piVersion ? `（快照由 Pi ${piVersion} 捕获）` : '（捕获的 Pi 版本未知）'}。`,
       noChanges: '与对比基准完全一致，未发现任何修改或追加。',
       addedLines: (count: number) => `+${count} 行`,
       removedLines: (count: number) => `-${count} 行`,

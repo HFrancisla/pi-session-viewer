@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseSystemPromptSections } from './prompt-sections'
+import { PI_DEFAULT_PREAMBLE } from './pi-defaults'
 import type { SystemPromptComposition } from './types'
 import { expectFullCoverage, expectGroundTruthMapped } from '../../tests/helpers/prompt-assertions'
 
@@ -74,7 +75,7 @@ describe('parseSystemPromptSections: Pi >= 0.86 tagged layout', () => {
   })
 
   it('reports the base template as Pi\'s preamble only', () => {
-    expect(sections.baseTemplate.content.startsWith('You are an expert coding assistant')).toBe(true)
+    expect(sections.baseTemplate.content).toBe(PI_DEFAULT_PREAMBLE)
     expect(sections.baseTemplate.meta).toContain('Default Template')
   })
 })

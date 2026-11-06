@@ -116,8 +116,10 @@ export const en = {
     diff: {
       baselineLabel: 'Baseline',
       baselinePrevious: 'Previous snapshot',
-      baselineVanilla: 'Vanilla Pi',
+      baselineVanilla: (version: string) => `Vanilla Pi ${version}`,
       noPreviousPrompt: 'No previous effective prompt snapshot on this branch.',
+      vanillaUnavailable: (baselineVersion: string, piVersion?: string) =>
+        `Vanilla Pi ${baselineVersion} is not verified for this snapshot${piVersion ? ` (captured with Pi ${piVersion})` : ' (Pi version unknown)'}.`,
       noChanges: 'Identical to baseline. No modifications or additions found.',
       addedLines: (count: number) => `+${count} lines`,
       removedLines: (count: number) => `-${count} lines`,

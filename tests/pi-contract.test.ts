@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   PI_DEFAULT_PREAMBLE,
   PI_DEFAULT_TOOLS,
+  PI_PROMPT_BASELINE_VERSION,
   PI_EXTENSION_SECTION_NAMES,
   PI_SECTION_TAG_NAMES,
   PI_TOOL_PROMPT_CONTRIBUTIONS,
@@ -54,7 +55,8 @@ describe('Pi contract: the viewer copies of Pi prompt data', () => {
       expect(normalized.selectedTools).toEqual([...PI_DEFAULT_TOOLS])
     }
     const prompt = systemPrompt.buildSystemPrompt({ cwd: '/work/demo' })
-    expect(prompt).toContain(PI_DEFAULT_PREAMBLE)
+    expect(PI_PROMPT_BASELINE_VERSION).toBe(PI_VERSION)
+    expect(parseSystemPromptSections(prompt).baseTemplate.content).toBe(PI_DEFAULT_PREAMBLE)
   })
 
   it("models every section Pi's builder emits for standard options", async () => {

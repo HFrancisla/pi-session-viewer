@@ -227,6 +227,7 @@ describe('buildSessionView', () => {
   it('only displays system prompt on the first turn unless the prompt changes in subsequent turns', () => {
     const promptData = {
       schemaVersion: 1,
+      piVersion: '1.5.0',
       promptHash: 'hash-1',
       promptLength: 21,
       composition: {
@@ -267,7 +268,11 @@ describe('buildSessionView', () => {
     const promptEvents = view.events.filter((event) => event.kind === 'system-prompt')
 
     expect(promptEvents).toHaveLength(2)
-    expect(promptEvents[0]).toMatchObject({ title: 'System prompt', targetEntryId: 'u1' })
+    expect(promptEvents[0]).toMatchObject({
+      title: 'System prompt',
+      targetEntryId: 'u1',
+      systemPrompt: { piVersion: '1.5.0' },
+    })
     expect(promptEvents[1]).toMatchObject({ title: 'System prompt update', targetEntryId: 'u3' })
     expect(view.turns[0].events[0]?.id).toBe('p1:system-prompt')
     expect(view.turns[1].events.some((event) => event.kind === 'system-prompt')).toBe(false)

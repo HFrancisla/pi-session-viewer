@@ -2,6 +2,7 @@ import type { SystemPromptComposition, TimelineEvent } from './types'
 import { parseSystemPromptSections } from './prompt-sections'
 import {
   PI_DEFAULT_PREAMBLE,
+  PI_PROMPT_BASELINE_VERSION,
   PI_TOOL_PROMPT_CONTRIBUTIONS,
   PI_TOOL_SNIPPETS,
   buildPiRules,
@@ -26,12 +27,18 @@ export interface PromptDiffResult {
   addedCount: number
   removedCount: number
   unchangedCount: number
-  baselinePrompt: string
+  baselinePrompt?: string
   targetPrompt: string
   baselineMode: DiffBaselineMode
+  unavailableReason?: 'version-unknown' | 'version-mismatch'
 }
 
-export type DiffBaselineMode = 'vanilla' | 'before-extensions' | 'previous'
+export type DiffBaselineMode = 'vanilla' | 'before-extensions' | 'previous' | 'unavailable'
+
+/** The copied Vanilla prompt is only verified against this exact Pi release. */
+export function isVanillaBaselineCompatible(piVersion?: string): boolean {
+  return piVersion === PI_PROMPT_BASELINE_VERSION
+}
 
 /** Finds the preceding resolved system-prompt snapshot on the selected branch. */
 export function findPreviousPromptSnapshot(events: TimelineEvent[], eventId: string): string | undefined {
@@ -57,32 +64,28 @@ export interface VanillaPromptOptions {
   documentation?: string
 }
 
-const TOOLS_FOOTER =
-  'In addition to the tools above, you may have access to other custom tools depending on the project.'
+const TOOLS_FOOTER = 'Additional tools may be available.'
 
 /**
  * Documentation section used when the compared prompt has no docs section.
  * Mirrors Pi's own text; `pi-contract.test.ts` compares it against the docs
  * section Pi really emits, so a reworded bullet fails that test.
  */
-export const FALLBACK_DOCS = `Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
+export const FALLBACK_DOCS = `Pi documentation (read only when the user asks about the harness itself, its SDK, extensions, themes, skills, or TUI):
 - Main documentation: /README.md
 - Additional docs: /docs
 - Examples: /examples (extensions, custom tools, SDK)
 - When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
-- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)
-- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
-- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)`
+- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)
+- Before implementing harness changes, read the relevant docs and examples in full, following related cross-references.`
 
 /**
- * Builds Pi's native, out-of-the-box system prompt (without project AGENTS.md,
+ * Builds the copied Pi 1.5.0 Vanilla prompt (without project AGENTS.md,
  * skills, custom instructions, or extension-added tools).
  *
- * The baseline is emitted in the same layout as `prompt` (Pi's tagged layout for
- * >= 0.86, its header layout for <= 0.85) so the diff compares like with like.
- * `pi-contract.test.ts` asserts this reconstruction against the installed Pi's
- * own `buildSystemPrompt()` output for both layouts, so it cannot silently drift
- * from what Pi actually sends.
+ * The baseline is emitted in the same layout as `prompt` so the diff compares
+ * like with like. Callers must first verify the captured Pi version with
+ * `isVanillaBaselineCompatible`; this reconstruction is not version-agnostic.
  */
 export function buildVanillaSystemPrompt(
   prompt: string,
@@ -300,6 +303,7 @@ export function resolvePromptDiff(
   targetPrompt: string,
   systemPromptData?: {
     composition?: Partial<SystemPromptComposition>
+    piVersion?: string
     promptBeforeFinalExtensions?: string
     previousPrompt?: string
   },
@@ -307,16 +311,34 @@ export function resolvePromptDiff(
 ): PromptDiffResult {
   const hasExtensionsBaseline = Boolean(systemPromptData?.promptBeforeFinalExtensions)
   const hasPreviousBaseline = systemPromptData?.previousPrompt !== undefined
-  const effectiveMode: DiffBaselineMode = baselineMode === 'previous' && hasPreviousBaseline
-    ? 'previous'
-    : baselineMode === 'before-extensions' && hasExtensionsBaseline
-      ? 'before-extensions'
-      : 'vanilla'
+  const hasVanillaBaseline = isVanillaBaselineCompatible(systemPromptData?.piVersion)
+  const effectiveMode: DiffBaselineMode = baselineMode === 'unavailable'
+    ? 'unavailable'
+    : baselineMode === 'previous' && hasPreviousBaseline
+      ? 'previous'
+      : baselineMode === 'before-extensions' && hasExtensionsBaseline
+        ? 'before-extensions'
+        : hasVanillaBaseline ? 'vanilla' : 'unavailable'
+
+  if (effectiveMode === 'unavailable') {
+    return {
+      lines: [],
+      addedCount: 0,
+      removedCount: 0,
+      unchangedCount: 0,
+      baselinePrompt: undefined,
+      targetPrompt,
+      baselineMode: effectiveMode,
+      unavailableReason: !systemPromptData?.piVersion
+        ? 'version-unknown'
+        : hasVanillaBaseline ? undefined : 'version-mismatch',
+    }
+  }
 
   const baselinePrompt = effectiveMode === 'previous'
     ? systemPromptData?.previousPrompt ?? ''
-    : effectiveMode === 'before-extensions' && systemPromptData?.promptBeforeFinalExtensions
-      ? systemPromptData.promptBeforeFinalExtensions
+    : effectiveMode === 'before-extensions'
+      ? systemPromptData?.promptBeforeFinalExtensions ?? ''
       : buildVanillaSystemPrompt(targetPrompt, systemPromptData?.composition)
 
   const diff = computeLineDiff(baselinePrompt, targetPrompt)
