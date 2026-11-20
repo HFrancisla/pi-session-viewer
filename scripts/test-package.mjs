@@ -23,7 +23,7 @@ try {
   if (typeof tarballName !== 'string') throw new Error('npm pack did not return a tarball filename')
   tarballPath = path.join(packDestination, tarballName)
 
-  await run('npm', ['install', '--prefix', temporaryRoot, '--omit=dev', '--ignore-scripts', '--legacy-peer-deps', tarballPath], {
+  await run('npm', ['install', '--prefix', temporaryRoot, '--omit=dev', '--omit=peer', '--ignore-scripts', tarballPath], {
     cwd: projectRoot,
   })
 

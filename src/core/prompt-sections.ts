@@ -3,16 +3,13 @@ import type { SystemPromptComposition } from './types'
 /**
  * Which wire format the prompt uses.
  *
- * - `tagged`: Pi >= 0.86 wraps every section except the preamble in XML-ish
+ * - `tagged`: Pi wraps every section except the preamble in XML-ish
  *   tags (`<tools>`, `<rules>`, `<docs>`, `<addendum>`, `<project_context>`,
  *   `<skills>`, `<cwd>`), joined with blank lines.
- * - `legacy`: Pi <= 0.85 emitted plain headers (`Available tools:`,
- *   `Guidelines:`, `Pi documentation (read only ...):`) plus a trailing
- *   `Current working directory:` line.
  * - `unknown`: a non-empty prompt matching neither layout. Nothing is thrown
  *   away: the whole prompt is reported as the base template and flagged.
  */
-export type PromptFormat = 'tagged' | 'legacy' | 'unknown' | 'empty'
+export type PromptFormat = 'tagged' | 'unknown' | 'empty'
 
 export interface PromptSectionRange {
   /** Inclusive offset of the first character of the region in the source prompt. */
@@ -234,103 +231,6 @@ function parseTaggedPrompt(prompt: string): { claims: Claim[]; unrecognized: Unr
   return { claims, unrecognized }
 }
 
-function firstMatchIndex(prompt: string, pattern: RegExp, from = 0): number | undefined {
-  const scoped = new RegExp(pattern.source, pattern.flags.replace('g', '') + 'g')
-  scoped.lastIndex = from
-  const match = scoped.exec(prompt)
-  return match ? match.index : undefined
-}
-
-function lastMatch(prompt: string, pattern: RegExp): RegExpExecArray | undefined {
-  const scoped = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g')
-  let match = scoped.exec(prompt)
-  let last: RegExpExecArray | undefined
-  while (match) {
-    last = match
-    match = scoped.exec(prompt)
-  }
-  return last
-}
-
-/** Parses the Pi <= 0.85 plain-header layout. */
-function parseLegacyPrompt(prompt: string): Claim[] {
-  const toolsStart = firstMatchIndex(prompt, /^Available tools:\n/m)
-  const guidelinesStart = firstMatchIndex(prompt, /^Guidelines:\n/m)
-  const docsStart = firstMatchIndex(prompt, /^Pi documentation \(read only[^\n]*:\n/m)
-  const skillsProseStart = firstMatchIndex(
-    prompt,
-    /^The following skills provide specialized instructions for specific tasks\.?$/m
-  )
-  const skillsTagStart = firstMatchIndex(prompt, /^<available_skills>$/m)
-  const projectStart = prompt.indexOf('<project_context>')
-  const projectClose = projectStart === -1 ? -1 : prompt.indexOf('</project_context>', projectStart)
-  const cwdMatch = lastMatch(prompt, /^Current working directory:[ \t]*[^\r\n]*$/m)
-
-  const skillsStarts = [skillsProseStart, skillsTagStart].filter((value): value is number => value !== undefined)
-  const skillsStart = skillsStarts.length > 0 ? Math.min(...skillsStarts) : undefined
-  const cwdStart = cwdMatch?.index
-
-  const tailMarkers = [skillsStart, projectStart === -1 ? undefined : projectStart, cwdStart]
-  const nextMarkerAfter = (...starts: Array<number | undefined>): number | undefined => {
-    const candidates = starts.filter((value): value is number => value !== undefined)
-    return candidates.length > 0 ? Math.min(...candidates) : undefined
-  }
-
-  const claims: Claim[] = []
-
-  if (toolsStart !== undefined) {
-    claims.push({
-      field: 'availableTools',
-      start: toolsStart,
-      end: nextMarkerAfter(guidelinesStart, docsStart, ...tailMarkers) ?? prompt.length,
-    })
-  }
-  if (guidelinesStart !== undefined) {
-    claims.push({
-      field: 'guidelines',
-      start: guidelinesStart,
-      end: nextMarkerAfter(docsStart, ...tailMarkers) ?? prompt.length,
-    })
-  }
-  if (docsStart !== undefined) {
-    // Pi's documentation section is a header plus a bullet list; text following
-    // the list in the same gap is append-instructions text, not documentation.
-    const gapEnd = nextMarkerAfter(...tailMarkers) ?? prompt.length
-    const lines = prompt.slice(docsStart, gapEnd).split('\n')
-    let end = docsStart + lines[0].length
-    for (let i = 1; i < lines.length; i += 1) {
-      if (!/^-/.test(lines[i])) break
-      end += 1 + lines[i].length
-    }
-    claims.push({ field: 'documentation', start: docsStart, end })
-  }
-  if (projectStart !== -1 && projectClose !== -1) {
-    // `<project_context>` is the section delimiter in both layouts, so it is not
-    // part of the section content (the tagged layout removes it too).
-    claims.push({
-      field: 'projectContext',
-      start: projectStart,
-      end: projectClose + '</project_context>'.length,
-      contentStart: projectStart + '<project_context>'.length,
-      contentEnd: projectClose,
-    })
-  }
-  if (skillsStart !== undefined) {
-    const closingTag = '</available_skills>'
-    const closingIndex = prompt.indexOf(closingTag, skillsStart)
-    claims.push({
-      field: 'skills',
-      start: skillsStart,
-      end: closingIndex === -1 ? (cwdStart ?? prompt.length) : closingIndex + closingTag.length,
-    })
-  }
-  if (cwdStart !== undefined && cwdMatch) {
-    claims.push({ field: 'cwd', start: cwdStart, end: cwdStart + cwdMatch[0].length })
-  }
-
-  return claims
-}
-
 /**
  * Assigns every character of the prompt to exactly one section: claimed regions
  * go to their section, everything else (the preamble, blank-line separators that
@@ -375,11 +275,9 @@ function collectRegions(prompt: string, claims: Claim[], boundary: number): Pars
  * to the content fed into the LLM, preserving counts/badges from composition if available,
  * and uniformly displaying character counts (with estimated tokens in metadata).
  *
- * Handles both Pi prompt layouts (tagged for >= 0.86, headers for <= 0.85) and
- * never discards text: anything the section model does not claim is reported as
- * the base template (before the tool list) or append instructions (after it),
- * and Pi sections this viewer does not know are surfaced through
- * `unrecognizedSections` instead of being silently absorbed.
+ * 仅按当前 Pi 的标签分区解析，不丢弃任何原始内容。
+ * 未被已知分区接纳的文本归入基础模板或附加指令；
+ * 未识别的标签单独存入 `unrecognizedSections`，不混入其他分区。
  */
 export function parseSystemPromptSections(
   prompt: string | undefined,
@@ -393,17 +291,6 @@ export function parseSystemPromptSections(
 
   if (!rawPrompt.trim()) {
     format = 'empty'
-  } else if (
-    // Pi <= 0.85 header layout. Checked before the tagged layout because a
-    // legacy prompt also carries `<project_context>` and `<available_skills>`
-    // tags, and because its documentation body contains the same
-    // "Pi documentation (read only ...)" text as the tagged layout.
-    /^Available tools:\n/m.test(rawPrompt) ||
-    /^Guidelines:\n/m.test(rawPrompt) ||
-    /^Current working directory:/m.test(rawPrompt)
-  ) {
-    format = 'legacy'
-    claims = parseLegacyPrompt(rawPrompt)
   } else {
     const tagged = parseTaggedPrompt(rawPrompt)
     if (tagged.claims.length > 0) {
@@ -441,9 +328,7 @@ export function parseSystemPromptSections(
   const documentation = join(fields.documentation)
   const projectContext = join(fields.projectContext)
   const skillsContent = join(fields.skills)
-  // Pi <= 0.85 wrote the directory as a `Current working directory: <path>` line;
-  // Pi >= 0.86 writes the bare path inside `<cwd>`. Report the path either way.
-  const cwdContent = join(fields.cwd).replace(/^Current working directory:[ \t]*/, '')
+  const cwdContent = join(fields.cwd)
   const mcpServersContent = join(fields.mcpServers)
 
   // Composition fallbacks: only used when the prompt itself has no such section.

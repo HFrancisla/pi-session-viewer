@@ -35,9 +35,8 @@ describe('truncate', () => {
   })
 
   it('stops reading once the kept prefix is decided', () => {
-    // A 10 MB body costs the old implementation a full whitespace scan even though
-    // only 92 characters survive. The threshold is calibrated against the slow
-    // reference on the same machine, so a loaded CI box cannot make this flaky.
+    // 截断只需要检查保留的前缀，不应扫描整个 10 MB 文本。
+    // 与同一台机器上的完整扫描基准比较，避免 CI 机器负载影响绝对时间阈值。
     const huge = `${'word '.repeat(2_000_000)}tail`
     const referenceStarted = performance.now()
     const expected = reference(huge)

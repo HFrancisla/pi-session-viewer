@@ -14,6 +14,25 @@ afterEach(async () => {
 })
 
 describe('real-session checker', () => {
+  it('识别带空白格式的上下文编辑记录并正确统计', async () => {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ['--import', 'tsx', path.resolve('scripts/check-real-sessions.ts')],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PI_CODING_AGENT_SESSION_DIR: path.resolve('tests/fixtures/sessions'),
+          PI_SESSION_SCAN_LIMIT: '20',
+        },
+        maxBuffer: 1024 * 1024,
+      },
+    )
+
+    expect(stdout).toContain('1 contain context edits')
+    expect(stdout).toContain('1 entries omitted by a context edit')
+  })
+
   it('parses the listed Session Catalog while scanning prompts from excluded files', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'pi-session-viewer-real-session-check-'))
     directories.push(root)

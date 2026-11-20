@@ -1,46 +1,24 @@
-# Issue tracker: GitHub
+# 事项跟踪：GitHub Issues（Issue Tracker）
 
-Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+本仓库用 GitHub Issues 跟踪实际需求、缺陷和规格说明，使用 `gh` CLI 操作。仓库地址以当前 `git remote -v` 为准，避免硬编码另一个工作区。
 
-## Conventions
+## 事项操作（Issue Operations）
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --json number,title,body,labels,comments`.
-- **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
-- **Make an issue a sub-issue of a parent**: `gh issue create --parent <parent> ...`, or `gh issue edit <parent> --add-sub-issue <child>` afterwards (`gh` 2.94+). Older `gh`: `gh api --method POST repos/<owner>/<repo>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>` (database id, as in **Blocking** below). Without sub-issues, put `Part of #<parent>` at the top of the child body.
-- **Comment on an issue**: `gh issue comment <number> --body "..."`
-- **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`
+- 创建：`gh issue create --title "..." --body "..."`；多行内容通过 heredoc 传入。
+- 阅读：`gh issue view <number> --json number,title,body,labels,comments`。
+- 列出：`gh issue list --state open --json number,title,body,labels,comments`，按需增加 `--label`。
+- 评论：`gh issue comment <number> --body "..."`。
+- 修改标签：`gh issue edit <number> --add-label "..."` 或 `--remove-label "..."`。
+- 关闭：`gh issue close <number> --comment "..."`。
 
-Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
+所有状态标签采用 `docs/agents/triage-labels.md` 定义的现行约定。要发布规格说明时创建 Issue；要读取待办事项时使用 `gh issue view`。操作已有 Issue 前先读当前内容，不覆盖尚未确认的用户变更。
 
-## Pull requests as a triage surface
+## Pull Request 范围
 
-**PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
+**PRs as a request surface: no.** 当前事项入口是 GitHub Issues，PR 不直接作为需求分诊入口。需要核对单个编号代表的资源类型时，先通过 `gh pr view <number>` 检查，必要时使用 `gh issue view <number>`。
 
-When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
+## 父子事项与阻塞关系（Sub-issues and Dependencies）
 
-- **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the diff.
-- **List external PRs for triage**: `gh api --paginate 'repos/{owner}/{repo}/pulls?state=open' --jq '.[] | select(.author_association | IN("OWNER","MEMBER","COLLABORATOR") | not) | {number, title, author: .user.login, author_association, labels: [.labels[].name]}'`.
-- **Comment / label / close**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
+确有多步骤计划时可使用 GitHub 的父子 Issue 结构：`gh issue create --parent <parent> ...`，或用 `gh issue edit <parent> --add-sub-issue <child>` 关联现有事项。分阶段计划可用标签 `wayfinder:map`，子事项可用 `wayfinder:research`、`wayfinder:prototype`、`wayfinder:grilling`、`wayfinder:task`。
 
-GitHub shares one number space across issues and PRs, so a bare `#42` may be either: resolve with `gh pr view 42` and fall back to `gh issue view 42`.
-
-## When a skill says "publish to the issue tracker"
-
-Create a GitHub issue.
-
-## When a skill says "fetch the relevant ticket"
-
-Read it as in **Read an issue** above.
-
-## Wayfinding operations
-
-Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.
-
-- **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body. `gh issue create --label wayfinder:map`.
-- **Child ticket**: an issue linked to the map as a GitHub sub-issue (see **Make an issue a sub-issue of a parent**). Where sub-issues aren't enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels: `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, the ticket is assigned to the driving dev.
-- **Blocking**: GitHub's **native issue dependencies**, the canonical, UI-visible representation. Add an edge with `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`, where `<blocker-db-id>` is the blocker's numeric **database id** (`gh api repos/<owner>/<repo>/issues/<n> --jq .id`, _not_ the `#number` or `node_id`). GitHub reports `issue_dependencies_summary.blocked_by` (open blockers only, the live gate). Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the top of the child body. A ticket is unblocked when every blocker is closed.
-- **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
-- **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
-- **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+阻塞关系使用 GitHub 原生 Issue Dependencies：先通过 `gh api repos/<owner>/<repo>/issues/<number> --jq .id` 取得数据库 ID，再用 `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>` 记录。只有依赖解除后的事项才属于可执行前沿。对未确认的阻塞依赖，不得擅自解除。

@@ -2,16 +2,13 @@ import type { SystemPromptComposition, TimelineEvent } from './types'
 import { parseSystemPromptSections } from './prompt-sections'
 import {
   PI_DEFAULT_PREAMBLE,
-  PI_VERIFIED_VANILLA_VERSIONS,
+  PI_PROMPT_BASELINE_VERSION,
   PI_TOOL_PROMPT_CONTRIBUTIONS,
   PI_TOOL_SNIPPETS,
   buildPiRules,
   joinPiPromptParts,
   wrapPiSection,
 } from './pi-defaults'
-
-/** Pi's built-in tool snippets. Kept as an alias of the verified copy in `pi-defaults`. */
-export const DEFAULT_TOOL_SNIPPETS: Record<string, string> = PI_TOOL_SNIPPETS
 
 export type DiffLineType = 'added' | 'removed' | 'unchanged'
 
@@ -35,9 +32,9 @@ export interface PromptDiffResult {
 
 export type DiffBaselineMode = 'vanilla' | 'before-extensions' | 'previous' | 'unavailable'
 
-/** The copied Vanilla prompt is verified only for explicitly checked Pi releases. */
+/** Vanilla 对比基线仅适用于当前契约测试验证的 Pi 版本。 */
 export function isVanillaBaselineCompatible(piVersion?: string): boolean {
-  return piVersion !== undefined && PI_VERIFIED_VANILLA_VERSIONS.includes(piVersion)
+  return piVersion === PI_PROMPT_BASELINE_VERSION
 }
 
 /** Finds the preceding resolved system-prompt snapshot on the selected branch. */
@@ -57,13 +54,6 @@ export function findPreviousPromptSnapshot(events: TimelineEvent[], eventId: str
   return undefined
 }
 
-export interface VanillaPromptOptions {
-  cwd?: string
-  selectedTools?: string[]
-  toolSnippets?: Record<string, string>
-  documentation?: string
-}
-
 const TOOLS_FOOTER = 'Additional tools may be available.'
 
 /**
@@ -80,8 +70,8 @@ export const FALLBACK_DOCS = `Pi documentation (read only when the user asks abo
 - Before implementing harness changes, read the relevant docs and examples in full, following related cross-references.`
 
 /**
- * Builds the copied Pi 1.5.0/1.6.0 Vanilla prompt (without project AGENTS.md,
- * skills, custom instructions, or extension-added tools).
+ * 构造当前 Pi 的 Vanilla 提示词，不包含项目指令、Skills、
+ * 自定义附加内容及扩展工具。
  *
  * The baseline is emitted in the same layout as `prompt` so the diff compares
  * like with like. Callers must first verify the captured Pi version with
@@ -110,31 +100,13 @@ export function buildVanillaSystemPrompt(
   // from the prompt being compared.
   const parsed = parseSystemPromptSections(prompt)
 
-  // Pi only started feeding tool prompt guidelines into a prompt's rules section
-  // after the header layout was gone: the 0.85.1 fixture
-  // (`tests/fixtures/prompts/pi-0.85.1-vanilla.json`) contains the file-operations
-  // rule and the two standard guidelines but no tool guidelines, while the 1.2.0
-  // fixture contains all of them.
-  const toolGuidelines = parsed.format === 'legacy'
-    ? {}
-    : Object.fromEntries(tools.map((name) => [name, PI_TOOL_PROMPT_CONTRIBUTIONS[name]?.guidelines ?? []]))
+  const toolGuidelines = Object.fromEntries(tools.map((name) => [name, PI_TOOL_PROMPT_CONTRIBUTIONS[name]?.guidelines ?? []]))
   const rules = buildPiRules(tools, toolGuidelines, [])
   const documentation = parsed.documentation.content === 'None' ? FALLBACK_DOCS : parsed.documentation.content
   const cwd = (composition?.cwd ?? (parsed.cwd.content === 'None' ? '' : parsed.cwd.content)).replace(/\\/g, '/')
 
   const toolsBody = `${toolsList}\n\n${TOOLS_FOOTER}`
   const rulesBody = rules.map((rule) => `- ${rule}`).join('\n')
-
-  if (parsed.format === 'legacy') {
-    const parts = [
-      PI_DEFAULT_PREAMBLE,
-      `Available tools:\n${toolsBody}`,
-      `Guidelines:\n${rulesBody}`,
-      documentation,
-    ]
-    const base = parts.join('\n\n')
-    return cwd ? `${base}\nCurrent working directory: ${cwd}` : base
-  }
 
   const parts = [
     PI_DEFAULT_PREAMBLE,

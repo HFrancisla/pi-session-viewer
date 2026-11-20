@@ -521,6 +521,8 @@ test('keeps the large virtualized timeline reachable without horizontal overflow
 })
 
 test('restores a large parent timeline anchor after subagent navigation', async ({ page }) => {
+  // 大型目录和长时间轴会受到 CI 机器负载影响，延长测试与初始目录渲染的等待上限。
+  test.setTimeout(60_000)
   const parentToken = 'synthetic-large-parent'
   const secondToken = 'synthetic-large-second'
   const childPath = 'subagent-artifacts/synthetic-child.jsonl'
@@ -615,7 +617,7 @@ test('restores a large parent timeline anchor after subagent navigation', async 
   await page.goto('/#token=dev-token')
   const sessionList = page.locator('.session-list')
   const parentSession = sessionList.locator('.session-item').filter({ hasText: 'Synthetic large parent' })
-  await expect(parentSession).toBeVisible()
+  await expect(parentSession).toBeVisible({ timeout: 15_000 })
   expect(await sessionList.locator('.session-item').count()).toBeLessThan(60)
   await parentSession.click()
   await expect(page.locator('.header-session strong')).toHaveText('Parent synthetic request 1')

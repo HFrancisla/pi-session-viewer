@@ -802,43 +802,6 @@ function groupTurns(events: TimelineEvent[]): TimelineTurn[] {
   return turns
 }
 
-function inferMissingPromptTargets(events: TimelineEvent[]): void {
-  for (let index = 0; index < events.length; index += 1) {
-    const event = events[index]
-    if ((event.kind !== 'system-prompt' && event.kind !== 'tool-definitions') || event.targetEntryId) continue
-    if (event.systemPrompt?.messageType === 'custom') continue
-
-    const captureStage = event.systemPrompt?.captureStage ?? 'agent_start'
-    if (captureStage !== 'agent_start') continue
-
-    // 1. Look forward for the next user event (e.g. legacy snapshots recorded at agent_start before user persisted)
-    for (let nextIndex = index + 1; nextIndex < events.length; nextIndex += 1) {
-      const candidate = events[nextIndex]
-      if (candidate.kind === 'user') {
-        event.targetEntryId = candidate.entryId
-        break
-      }
-      if (candidate.kind === 'assistant' || candidate.kind === 'tool-call' || candidate.kind === 'tool-result') {
-        break
-      }
-    }
-
-    // 2. If not found, look backward to check if it immediately followed a user event
-    if (!event.targetEntryId) {
-      for (let prevIndex = index - 1; prevIndex >= 0; prevIndex -= 1) {
-        const candidate = events[prevIndex]
-        if (candidate.kind === 'user') {
-          event.targetEntryId = candidate.entryId
-          break
-        }
-        if (candidate.kind === 'assistant' || candidate.kind === 'tool-call' || candidate.kind === 'tool-result') {
-          break
-        }
-      }
-    }
-  }
-}
-
 /** The entry a `context_edit` points at, read from the raw record. */
 function contextEditTargetId(event: TimelineEvent): string | undefined {
   if (event.kind !== 'system' || !isObject(event.raw)) return undefined
@@ -968,7 +931,6 @@ export function buildSessionView(
     : systemEvents(entry, snapshots))
   pairTools(rawEvents, session.sourceName)
   linkAsyncSubagentNotifications(rawEvents, session.sourceName)
-  inferMissingPromptTargets(rawEvents)
   const events = placeSystemPromptsBeforeUsers(rawEvents)
   applyContextProjection(events, contextProjection)
   const turns = groupTurns(events)
@@ -1006,5 +968,3 @@ export function buildSessionView(
 
   return { branchEntries, events, turns, stats }
 }
-
-export const projectSessionView = buildSessionView

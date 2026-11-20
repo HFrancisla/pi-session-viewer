@@ -10,8 +10,6 @@
 
 /** Pi release whose copied native prompt is the Vanilla baseline. */
 export const PI_PROMPT_BASELINE_VERSION = '1.6.0'
-/** Only releases whose generated native prompt has been compared byte-for-byte. */
-export const PI_VERIFIED_VANILLA_VERSIONS: readonly string[] = ['1.5.0', '1.6.0']
 
 /** Tools Pi enables by default (`normalizeBuildSystemPromptOptions`). */
 export const PI_DEFAULT_TOOLS = ['read', 'bash', 'edit', 'write'] as const
@@ -105,14 +103,13 @@ export function buildPiRules(
   return rules
 }
 
-/** Pi 1.5.0/1.6.0's built-in preamble for a default (non-custom) system prompt. */
+/** 当前 Pi 默认系统提示词的前导文本。 */
 export const PI_DEFAULT_PREAMBLE =
   'You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.'
 
 /**
- * Pi >= 0.86 wraps every prompt section except the preamble in an XML-style
- * tag of the same name (`buildSystemPromptSections`). Pi <= 0.85 emitted plain
- * headers instead; see `parseSystemPromptSections` for that legacy layout.
+ * Pi 用同名 XML 风格标签包裹前导文本以外的分区，
+ * 具体规则由 `buildSystemPromptSections` 定义。
  *
  * These are the sections Pi's builder emits for standard options, in order.
  * Extension-provided sections (`PI_EXTENSION_SECTION_NAMES`) are appended after

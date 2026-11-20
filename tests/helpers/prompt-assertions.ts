@@ -90,7 +90,7 @@ export function expectGroundTruthMapped(sections: ParsedPromptSections, options:
   }
 
   // Section content must not leak into the base template, and the base template
-  // must not contain section markup of any layout.
+  // must not contain section markup.
   const base = sections.baseTemplate.content
   for (const name of withSnippet) {
     expect(base, `tool list leaked into Base Template`).not.toContain(`- ${name}:`)
@@ -101,10 +101,6 @@ export function expectGroundTruthMapped(sections: ParsedPromptSections, options:
   for (const markup of ['<tools>', '<rules>', '<docs>', '<addendum>', '<available_skills>']) {
     expect(base, `Base Template still contains section markup ${markup}`).not.toContain(markup)
   }
-  for (const header of ['Available tools:', 'Guidelines:', 'Pi documentation (read only']) {
-    expect(base, `Base Template still contains the legacy header "${header}"`).not.toContain(header)
-  }
-  expect(base).not.toContain('Current working directory:')
 }
 
 function skillProse(): string {

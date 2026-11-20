@@ -73,7 +73,7 @@ describe('prompt-diff: the Vanilla Pi baseline is versioned and verified', () =>
   })
 
   it('supports only Pi versions with verified identical vanilla prompts', () => {
-    expect(isVanillaBaselineCompatible('1.5.0')).toBe(true)
+    expect(isVanillaBaselineCompatible('1.5.0')).toBe(false)
     expect(isVanillaBaselineCompatible('1.6.0')).toBe(true)
     expect(isVanillaBaselineCompatible('1.5.1')).toBe(false)
     expect(isVanillaBaselineCompatible('1.7.0')).toBe(false)

@@ -24,14 +24,11 @@ const MAX_PROJECTED_LEAVES = 8
 let cachedApi: Promise<PiContextApi | undefined> | undefined
 
 /**
- * Where Pi keeps the pure projection functions, most specific first.
+ * Pi 的原生上下文投影函数所在模块。
  *
- * `dist/core/session-manager.js` exports both functions the viewer needs and its
- * transitive imports are small; the package root re-exports the whole CLI and tool
- * runtime. Measured on Pi 1.3.0: 266 ms / +8 MB against 1884 ms / +50 MB. The root
- * stays as a fallback for a Pi release that moves or renames the internal module.
+ * 从 session-manager 模块直接导入，避免额外初始化 CLI 与 TUI。
  */
-export const PI_CONTEXT_API_MODULES = ['dist/core/session-manager.js', 'dist/index.js']
+const PI_CONTEXT_API_MODULE = 'dist/core/session-manager.js'
 
 function isPiContextApi(module: unknown): module is PiContextApi {
   if (!module || typeof module !== 'object') return false
@@ -50,7 +47,7 @@ function isPiContextApi(module: unknown): module is PiContextApi {
  */
 export function loadPiContextApi(): Promise<PiContextApi | undefined> {
   if (!cachedApi) {
-    cachedApi = importFromPi<PiContextApi>(PI_CONTEXT_API_MODULES, isPiContextApi)
+    cachedApi = importFromPi<PiContextApi>(PI_CONTEXT_API_MODULE, isPiContextApi)
   }
   return cachedApi
 }

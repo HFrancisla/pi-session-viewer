@@ -15,7 +15,6 @@ describe('Pi package extension entrypoint', () => {
     expect(events).toEqual(expect.arrayContaining([
       'session_start',
       'before_agent_start',
-      'agent_start',
       'before_provider_request',
       'agent_end',
       'session_shutdown',

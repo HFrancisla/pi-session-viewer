@@ -10,12 +10,6 @@
  *
  *   npm run fixtures:refresh
  *
- * The frozen `legacy-0.85.1-*.json` fixtures (Pi's pre-0.86 header layout) are
- * not touched; regenerate them from a 0.85.1 install if ever needed:
- *
- *   npm install --prefix /tmp/pi-0851 @earendil-works/pi-coding-agent@0.85.1
- *   node scripts/generate-prompt-fixtures.mjs --pi /tmp/pi-0851/node_modules/@earendil-works/pi-coding-agent \
- *     --version 0.85.1 --variant full --out tests/fixtures/prompts/legacy-0.85.1-full.json
  */
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'

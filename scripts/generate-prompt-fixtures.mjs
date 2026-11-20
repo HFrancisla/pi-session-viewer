@@ -8,13 +8,7 @@
  * so an expectation can only be wrong if Pi itself produced something else.
  *
  * Usage:
- *   node scripts/generate-prompt-fixtures.mjs --pi <path-to-pi-package> \
- *     --version 1.2.0 --variant full --out tests/fixtures/prompts/pi-1.2.0-full.json
- *
- * To regenerate the 0.85.x (legacy header layout) fixtures:
- *   npm install --prefix /tmp/pi-0851 @earendil-works/pi-coding-agent@0.85.1
- *   node scripts/generate-prompt-fixtures.mjs --pi /tmp/pi-0851/node_modules/@earendil-works/pi-coding-agent \
- *     --version 0.85.1 --variant legacy --out tests/fixtures/prompts/pi-0.85.1-full.json
+ *   npm run fixtures:refresh
  */
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'

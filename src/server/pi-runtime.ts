@@ -24,7 +24,7 @@ function isPiPackage(packageDir: string): boolean {
  * Pi's `exports` map has no `require` condition, so `require.resolve` cannot find
  * it, and the viewer is installed outside Pi's own `node_modules`. The CLI entry
  * that started the process (Pi itself, or the viewer's standalone server) is the
- * reliable anchor, with `node_modules` lookup as a fallback for development.
+ * reliable anchor; standalone development resolves it from `node_modules`.
  */
 export function resolvePiPackageDir(): string | undefined {
   const entry = process.argv[1]
@@ -74,30 +74,21 @@ export function resolvePiVersion(): string | undefined {
  * projection, for example) are loaded by path. Returning `undefined` when Pi
  * cannot be located is deliberate: callers must degrade instead of guessing.
  *
- * Several candidate paths are tried in order, and a module only counts if
- * `isValid` accepts it. That fallback is the point: Pi's package root pulls in the
- * CLI, the TUI and the whole tool runtime (measured: 1884 ms and +50 MB of heap,
- * against 266 ms and +8 MB for the 60 KB module that actually holds the
- * projection), while the internal layout may move between Pi releases. Asking for
- * the narrow module first and falling back to the root keeps the win without
- * making the viewer depend on an undocumented path.
+ * 仅加载指定内部模块，不额外初始化 Pi CLI 与 TUI。如果当前
+ * API 不可用，调用方必须跳过上下文投影，而不是推测结果。
  */
 export async function importFromPi<T>(
-  relativePaths: string | string[],
+  relativePath: string,
   isValid: (module: unknown) => module is T,
 ): Promise<T | undefined> {
   const directory = resolvePiPackageDir()
   if (!directory) return undefined
-  const candidates = typeof relativePaths === 'string' ? [relativePaths] : relativePaths
-  for (const relativePath of candidates) {
-    const target = path.join(directory, relativePath)
-    if (!existsSync(target)) continue
-    try {
-      const loaded: unknown = await import(pathToFileURL(target).href)
-      if (isValid(loaded)) return loaded
-    } catch {
-      // Try the next candidate.
-    }
+  const target = path.join(directory, relativePath)
+  if (!existsSync(target)) return undefined
+  try {
+    const loaded: unknown = await import(pathToFileURL(target).href)
+    return isValid(loaded) ? loaded : undefined
+  } catch {
+    return undefined
   }
-  return undefined
 }

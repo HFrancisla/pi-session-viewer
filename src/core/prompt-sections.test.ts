@@ -26,8 +26,6 @@ function loadFixture(name: string): PromptFixture {
 }
 
 const FIXTURES = [
-  { file: 'legacy-0.85.1-full.json', format: 'legacy' },
-  { file: 'legacy-0.85.1-vanilla.json', format: 'legacy' },
   { file: 'current-full.json', format: 'tagged' },
   { file: 'current-vanilla.json', format: 'tagged' },
   { file: 'current-mcp.json', format: 'tagged' },
@@ -37,7 +35,7 @@ const FIXTURES = [
  * These fixtures are produced by Pi's own `buildSystemPrompt()`
  * (see `scripts/generate-prompt-fixtures.mjs`), so no expectation in this file
  * is authored by hand: they assert that the values Pi was given end up in the
- * matching section, for both prompt layouts Pi has shipped.
+ * matching section for the installed Pi.
  */
 describe('parseSystemPromptSections: real Pi prompts', () => {
   it.each(FIXTURES)('parses $file ($format layout) without losing or double-counting text', ({ file, format }) => {
@@ -51,7 +49,7 @@ describe('parseSystemPromptSections: real Pi prompts', () => {
   })
 })
 
-describe('parseSystemPromptSections: Pi >= 0.86 tagged layout', () => {
+describe('parseSystemPromptSections: Pi tagged layout', () => {
   const fixture = loadFixture('current-full.json')
   const sections = parseSystemPromptSections(fixture.prompt, fixture.options)
 
@@ -105,33 +103,6 @@ describe('parseSystemPromptSections: the MCP servers section', () => {
   })
 })
 
-describe('parseSystemPromptSections: Pi <= 0.85 header layout', () => {
-  const fixture = loadFixture('legacy-0.85.1-full.json')
-  const sections = parseSystemPromptSections(fixture.prompt, fixture.options)
-
-  it('keeps the plain headers in their own sections', () => {
-    expect(sections.availableTools.content.startsWith('Available tools:\n')).toBe(true)
-    expect(sections.guidelines.content.startsWith('Guidelines:\n')).toBe(true)
-    expect(sections.documentation.content.startsWith('Pi documentation (read only')).toBe(true)
-  })
-
-  it('separates append instructions from the documentation bullets', () => {
-    expect(sections.appendPrompt.content).toBe(fixture.options.appendSystemPrompt)
-    expect(sections.documentation.content).not.toContain(fixture.options.appendSystemPrompt)
-    expect(sections.documentation.content.endsWith('- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)')).toBe(true)
-  })
-
-  it('strips the boilerplate from the working directory', () => {
-    expect(sections.cwd.content).toBe(fixture.options.cwd)
-  })
-
-  it('strips the project_context wrapper but keeps its content', () => {
-    expect(sections.projectContext.content.startsWith('Project-specific instructions and guidelines:')).toBe(true)
-    expect(sections.projectContext.content).not.toContain('<project_context>')
-    expect(sections.projectContext.content).toContain('<project_instructions path="/work/demo/AGENTS.md">')
-  })
-})
-
 describe('parseSystemPromptSections: sections the viewer does not model', () => {
   it('surfaces an unknown Pi section instead of absorbing it', () => {
     const prompt = [
@@ -172,6 +143,16 @@ describe('parseSystemPromptSections: sections the viewer does not model', () => 
 
   it('flags a prompt whose layout it does not recognize and keeps every character', () => {
     const prompt = 'Totally custom agent prompt.\n\nWith a second paragraph.'
+    const sections = parseSystemPromptSections(prompt)
+
+    expect(sections.format).toBe('unknown')
+    expect(sections.baseTemplate.content).toBe(prompt)
+    expect(sections.availableTools.isEmpty).toBe(true)
+    expectFullCoverage(prompt, sections)
+  })
+
+  it('does not interpret untagged header text as Pi sections', () => {
+    const prompt = 'Available tools:\n- bash: Execute commands\n\nGuidelines:\n- Use tests first'
     const sections = parseSystemPromptSections(prompt)
 
     expect(sections.format).toBe('unknown')

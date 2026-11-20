@@ -1,98 +1,69 @@
-# Pi Session Viewer
+# Pi Session Viewer 领域术语（Glossary）
 
-A local, read-only observability inspector for Pi coding-agent sessions, prompt snapshots, and causality analysis.
+本文件仅定义当前实现中使用的概念。中文用于描述与沟通，括号中的英文及代码标识用于定位源码。
 
-## Sessions and projects
+## 会话与项目（Sessions and Projects）
 
-**Session**:
-A recorded linear or branching execution history of a Pi agent run, stored as a series of JSONL entries.
-_Avoid_: log, trace, run, chat
+**会话（Session）**：Pi Agent 一次运行形成的 JSONL 记录，可以包含线性历史和分支。源码类型为 `ParsedSession`；不要与单次轮次混淆。
 
-**Turn**:
-A single interaction round initiated by a user message and containing all resulting assistant replies, thinking processes, and tool executions.
-_Avoid_: round, step, iteration
+**轮次（Turn）**：由一条用户消息触发、包含随后 Assistant、Thinking 和工具交互的完整交互单元。源码类型为 `TimelineTurn`。`custom` 消息触发的运行在界面中显示为独立的 `Custom run`。
 
-**Project**:
-A logical collection of Sessions sharing the same normalized working directory (`cwd`).
-_Avoid_: workspace, directory, folder, repository
+**项目（Project）**：工作目录 `cwd` 归一化后相同的会话集合，不等同于 Git 仓库。
 
-**Session Catalog**:
-The index of top-level Pi Sessions grouped by Project. It excludes child Sessions identified by their parent relationship or known subagent origin, plus transcript mirrors, which are not Sessions. Membership determines standalone listing only; a child Session may still be opened from a reference in its parent Session.
-_Avoid_: session list, session registry, project manager
+**会话目录（Session Catalog）**：将可独立浏览的顶层会话按项目索引；通过父子关系、已知子代理来源等判定的子会话及转录镜像不单独列出，但可从父会话中的引用打开。
 
-**Disambiguated Project Name**:
-A minimal distinguishing path label assigned to a project when its directory basename collides with another project in the catalog.
-_Avoid_: full path, alias, display label
+**消歧项目名（Disambiguated Project Name）**：多个项目目录具有相同 basename 时，用最少的路径片段生成可区分的名称，而不是统一显示完整绝对路径。
 
-## Timeline and selection
+## 时间轴与选择（Timeline and Selection）
 
-**Visible event**:
-A session event included by the selected branch and the current event-kind filters. Visibility in the timeline is independent from selection in the Inspector.
+**可见事件（Visible Event）**：属于当前分支且通过事件类型过滤的事件。是否可见不决定 Inspector 是否选中该事件。
 
-**Selected event**:
-The session event whose details the Inspector presents. It remains selected when its timeline row is hidden by a filter; an explicit jump to it makes its event kind visible.
+**选中事件（Selected Event）**：Inspector 当前展示详情的事件。过滤器隐藏对应时间轴行时仍可保持选中；主动跳转可恢复该类型的可见性。
 
-**Focused event**:
-The visible timeline event currently targeted by keyboard navigation. It may differ from the selected event, and moving focus alone does not change the Inspector selection.
+**焦点事件（Focused Event）**：键盘导航当前定位的可见事件。移动焦点不会自动改变选中事件。
 
-**Session View**:
-The current presentation of one Session on a selected branch. Event-kind filters determine its Visible events, while the Selected event drives the Inspector and the Focused event remains independent.
+**会话视图（Session View）**：指定分支上的时间轴、轮次与统计投影（`SessionView`）。`buildSessionView` 负责构建，事件过滤、选中与焦点在 Web 端分别维护。
 
-## Prompts and context projections
+**工具因果关系（Tool Causality）**：工具调用（`tool-call`）和结果（`tool-result`）按调用标识配对，时间轴展示对应关系；不根据文本相似性推断配对。
 
-**Prompt Format**:
-The layout Pi uses to assemble a system prompt. Pi >= 0.86 wraps every section except the preamble in a tag (`tagged`: `<tools>`, `<rules>`, `<docs>`, `<addendum>`, `<project_context>`, `<skills>`, `<cwd>`); Pi <= 0.85 emitted plain headers (`legacy`: `Available tools:`, `Guidelines:`, `Pi documentation (read only ...):`). A prompt matching neither is `unknown`, never silently merged into another section.
-_Avoid_: prompt version, prompt style, prompt schema
+## 提示词与上下文（Prompts and Context）
 
-**Section Claim**:
-The region of the source prompt a parsed section is built from, recorded as `ranges`. Claims never overlap and cover every non-whitespace character exactly once, so a parse can be proven lossless.
-_Avoid_: offset, span, slice
+**提示词格式（Prompt Format）**：`parseSystemPromptSections` 的结构识别结果。`tagged` 表示 Pi 当前使用的 XML 风格顶层分区；`unknown` 表示无法识别的非空内容；`empty` 表示空白提示词。无法识别时保留完整原文，不假定分区含义。
 
-**Context Edit**:
-Pi's append-only `context_edit` entry. It changes only future model context: `replacement: null` omits the target entry from context, a non-null replacement substitutes its content. The target entry itself is never modified.
-_Avoid_: message edit, rewrite, patch
+**提示词分区（Prompt Section）**：系统提示词中的一个命名块。Pi 的标准分区包括 `tools`、`rules`、`docs`、`addendum`、`project_context`、`skills`、`cwd`；扩展还可以通过 `sections` 添加 `mcp_servers`。各块独立展示。
 
-**Usage Entry**:
-Pi's `usage` entry: model-attributed usage that is not attached to an assistant message (for example `kind: "cache_warm"`). It does not participate in LLM context.
-_Avoid_: cost record, billing entry
+**区间归属（Section Claim）**：解析后的 `ranges` 记录每个分区在原文中的字符范围。所有非空白字符必须恰好归属一个范围，范围之间不重叠；无法识别的内容也不能丢失。
 
-**Prompt Section**:
-One named block of Pi's system prompt. Pi's builder emits `tools`, `rules`, `docs`, `addendum`, `project_context`, `skills`, and `cwd` for standard options; its built-in extensions append their own afterwards through the `sections` option (`mcp_servers` from the MCP extension). Both groups are modelled and shown as their own cards; anything else is an Unrecognized Section.
-_Avoid_: prompt block, prompt part
+**未识别分区（Unrecognized Section）**：提示词包含未建模的顶层标签时，解析器将其加入 `unrecognizedSections`，并在界面中独立展示，不塞入其他已知块。
 
-**Context Projection**:
-What the model actually received on one branch, computed by Pi's own `buildSessionProjection`. It applies `context_edit` omissions/replacements and compaction, so it differs from the session file: the file is the raw append-only history, the projection is the context.
-_Avoid_: context state, prompt state, effective history
+**提示词捕获（Prompt Capture）**：扩展在 `before_agent_start` 读取初始配置，在 `before_provider_request` 记录 `ctx.getSystemPrompt()` 与当前活动工具定义。首条用户消息已持久化时，用 `targetUserEntryId` 精确关联；不凭事件相邻位置猜测归属。这描述的是 Pi Harness 状态，并非 HTTP 请求的最终 Payload。
 
-**Context Edit Link**:
-The connection between a `context_edit` and the entries it keeps out of context: the target entry (named by a content preview, jumpable) plus any other entries the same edit removed. The viewer shows both ends, so "why is this not in context" and "what did that edit remove" are answerable in place.
-_Avoid_: edit reference, message pointer
+**提示词快照（Prompt Snapshot）**：携带完整文本的 `snapshot`，或通过 `promptHash` 引用已有文本的 `reference`。每次配置发生变化时仍需记录新的有效组成或工具定义；无法解析的引用显示为缺失，而不是使用当前配置补写历史。
 
-**Context Exclusion**:
-A context-producing entry on the shown branch that contributes no message to the model. `omitted` means a `context_edit` removed it; `not-in-context` means another cause (a compaction boundary, or a tool result whose call left the context). The viewer marks the raw record instead of hiding it.
-_Avoid_: hidden entry, deleted message, dropped row
+**原生提示词基线（Vanilla Prompt Baseline）**：基于 `PI_PROMPT_BASELINE_VERSION` 对当前 Pi 默认工具和规则构造的比较基线。仅当捕获版本与该已验证版本完全一致时，才能选择 Vanilla Diff；其他版本可使用确切的前一快照或扩展修改前快照进行比较。
 
-**Subagent Target Resolution**:
-A subagent reference can name either the runnable run session or pi-subagents' transcript mirror. The viewer tries the runnable session first (`<parent-session-dir>/<runId>/run-0/session.jsonl`) and falls back to the mirror, and only navigates when the file really is a Pi session: a pi-subagents transcript is not, so the viewer keeps the current session and says so.
-_Avoid_: subagent link, child path
+**上下文编辑（Context Edit）**：Pi 的追加式 `context_edit` 条目，针对未来模型上下文指定 `targetId` 与 `replacement`。`replacement: null` 表示排除目标，非空替换表示替换内容；原 JSONL 条目本身不会被就地改写。
 
-**Action Error**:
-A failure that concerns one action rather than the open session (a subagent jump whose artifacts are gone, for example). It is reported in a dismissible strip above the timeline; the session on screen is never replaced by it.
-_Avoid_: load error, fatal error, session error
+**上下文投影（Context Projection）**：调用 Pi 自身的 `buildSessionProjection` 得到当前分支实际传给模型的消息集合，包括上下文编辑、压缩和排除效果；不拿原始会话文件冒充模型上下文。若无法调用 Pi API，就不展示猜测的投影结果。
 
-**Unrecognized Section**:
-A top-level tag Pi emitted that this viewer does not model. It is reported in `unrecognizedSections` and still shown as its own item, so a new Pi section surfaces instead of being absorbed.
-_Avoid_: unknown block, extra section
+**上下文排除（Context Exclusion）**：某个原始记录未产生模型可见消息。`omitted` 表示由明确的上下文编辑排除，`not-in-context` 表示其他原因（如压缩边界或工具配对）；界面标记原记录，不将其删除。
 
-## Verification Gates
+**上下文编辑关联（Context Edit Link）**：连接 `context_edit` 与对应目标及被同一编辑排除的条目，通过 `affectedEntryIds` 及 `targetEntryId` 实现双向定位。
 
-Expectations come from Pi, not from this repository:
+**用量条目（Usage Entry）**：Pi 的 `usage` 条目，可记录不附着于 Assistant 消息的模型用量，如 `kind: "cache_warm"`；不参与 LLM 上下文。
 
-- `tests/pi-contract.test.ts` builds prompts with the installed `@earendil-works/pi-coding-agent`, compares the copied tool snippets/guidelines/section names against Pi's own exports, and fails when the committed `current-*.json` fixture no longer matches the installed Pi.
-- `tests/fixtures/prompts/*.json` are generated by Pi's `buildSystemPrompt()`. Regenerate with `npm run fixtures:refresh` after reviewing the parser; the frozen `legacy-0.85.1-*.json` pair covers the pre-0.86 header layout.
-- `tests/pi-entry-contract.test.ts` reads Pi's own `docs/session-format.md` from the installed package and fails when Pi documents an entry type the parser does not model, or when a documented example parses with an `unknown-type`/`invalid-entry` warning.
-- `tests/pi-tool-provenance-contract.test.ts` builds `sourceInfo` values with Pi's own `createSyntheticSourceInfo`/`BUILTIN_PATH_PREFIX`/`getSyntheticPathSource` and asserts the viewer classifies and labels them the same way, including the synthetic `<sdk:...>` and `<inline:...>` paths that name no file.
-- `tests/pi-contract.test.ts` also pins the section set: the sections Pi's builder emits for standard options must equal `PI_SECTION_TAG_NAMES`, and the section Pi's MCP extension adds must equal `PI_EXTENSION_SECTION_NAMES` and parse into its own card. Adding a section in Pi fails these tests until the viewer models it.
-- `tests/pi-context-projection-contract.test.ts` compares the viewer's projection against Pi's own `buildSessionProjection` on every branch of up to 200 real sessions (skipped visibly where no sessions exist), and asserts the fixture omissions match Pi's zero-message entries exactly. The viewer never reimplements the projection: `src/server/context-projection.ts` loads Pi's function, and reports nothing when Pi cannot be loaded.
-- The same contract test also groups Pi's exclusions per edit and compares that grouping with the links the viewer renders (`event.contextEdit.affectedEntryIds`), so a link can never point at an entry Pi did not actually remove.
-- `npm run check:sessions` runs the parser over the Sessions admitted by the shared Session Catalog membership rule used by server listing and client aggregation. Its separate prompt scan still parses captured prompts in files the catalog excludes, and the command exits non-zero on unknown entry types, unknown sections, unclaimed text, or session parse failures. Run it after upgrading Pi.
+## 子代理与错误（Subagents and Errors）
+
+**子代理目标解析（Subagent Target Resolution）**：子代理引用可以指向可运行的子会话或仅供阅读的转录镜像。优先尝试 `<parent-session-dir>/<runId>/run-0/session.jsonl`，再检查已记录的产物路径；仅真正的 Pi Session 才允许作为会话打开。
+
+**操作错误（Action Error）**：一次动作失败（例如子代理产物不存在）时显示在时间轴上方的可关闭提示；不替换或清空当前已打开的会话。
+
+## 当前验证约束（Verification Gates）
+
+- `tests/pi-contract.test.ts` 使用已安装的 Pi 校验默认工具、规则、分区及 `tests/fixtures/prompts/current-*.json`。夹具由 `npm run fixtures:refresh` 调用 Pi 的 `buildSystemPrompt()` 生成，不能手工伪造。
+- `tests/pi-entry-contract.test.ts` 根据 Pi 当前 `docs/session-format.md` 检查支持的会话条目类型。
+- `tests/pi-tool-provenance-contract.test.ts` 以 Pi 自身的合成来源 API 校验工具来源分类。
+- `tests/pi-context-projection-contract.test.ts` 比较 Pi 的原生上下文投影与 Viewer 展示；本机没有真实会话时，对应真实会话用例明确跳过。
+- `tests/pi-live-roundtrip.test.ts` 运行真实 Pi CLI，使用本地模拟 Provider 检查提示词捕获及多轮执行。
+- `npm run check:sessions` 检查实际会话与捕获提示词的解析质量；发现未知条目、未知分区或未归属内容会以非零退出码报告。
+- `npm run verify` 执行单元与契约测试、正式构建及发布包检查；`npm run test:ui` 单独验证浏览器端到端流程。

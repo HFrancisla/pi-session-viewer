@@ -8,11 +8,10 @@ export const SYSTEM_PROMPT_ENTRY_TYPE = 'pi-session-viewer.system-prompt'
 
 interface PendingCapture {
   messageType: 'user' | 'custom'
-  targetUserEntryId?: string
   /** Pi forwards a mutable options object to later before_agent_start handlers. */
   options: BuildSystemPromptOptions
   promptAtCapture: string
-  recordedInitial?: boolean
+  recordedInitial: boolean
 }
 
 interface SerializablePromptOptions {
@@ -109,27 +108,21 @@ function recordPrompt(
   const prompt = ctx.getSystemPrompt()
   const hash = promptHash(prompt)
   const options = serializeOptions(pending.options)
-  const hasAllToolsApi = typeof pi.getAllTools === 'function'
-  const allTools = hasAllToolsApi ? pi.getAllTools() : []
-  const activeToolNames = typeof pi.getActiveTools === 'function' ? pi.getActiveTools() : undefined
-  const activeToolNameSet = new Set(activeToolNames ?? [])
+  const allTools = pi.getAllTools()
+  const activeToolNames = pi.getActiveTools()
+  const activeToolNameSet = new Set(activeToolNames)
   const hiddenToolNameSet = new Set(options.hiddenTools)
-  const activeTools = activeToolNames === undefined
-    ? allTools.filter((tool) => !hiddenToolNameSet.has(tool.name))
-    : allTools.filter((tool) => activeToolNameSet.has(tool.name) && !hiddenToolNameSet.has(tool.name))
-  const selectedTools = activeToolNames ?? allTools.map((tool) => tool.name)
-  const hasToolDefinitions = hasAllToolsApi || activeToolNames?.length === 0
-  const toolDefinitions: CapturedToolDefinition[] | undefined = hasToolDefinitions
-    ? activeTools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters,
-        promptGuidelines: tool.promptGuidelines,
-        sourceInfo: tool.sourceInfo as CapturedToolDefinition['sourceInfo'],
-      }))
-    : undefined
-  const definitionsHash = toolDefinitions === undefined ? undefined : toolDefinitionsHash(toolDefinitions)
-  const composition = { ...options, selectedTools: [...selectedTools], toolDefinitions }
+  const toolDefinitions: CapturedToolDefinition[] = allTools
+    .filter((tool) => activeToolNameSet.has(tool.name) && !hiddenToolNameSet.has(tool.name))
+    .map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+      promptGuidelines: tool.promptGuidelines,
+      sourceInfo: tool.sourceInfo as CapturedToolDefinition['sourceInfo'],
+    }))
+  const definitionsHash = toolDefinitionsHash(toolDefinitions)
+  const composition = { ...options, selectedTools: activeToolNames, toolDefinitions }
   const compositionHash = compositionFingerprint(composition)
   const compositionChanged = knownCompositions.get(hash) !== compositionHash
   if (!forceReference && hash === lastRecordedHash.value
@@ -142,7 +135,7 @@ function recordPrompt(
   // hidden tools, rules, or sections after they change independently.
   const capturedComposition = isNewSnapshot || compositionChanged
     ? composition
-    : toolDefinitions !== undefined ? { toolDefinitions } : undefined
+    : { toolDefinitions }
 
   pi.appendEntry(SYSTEM_PROMPT_ENTRY_TYPE, {
     schemaVersion: 1,
@@ -154,7 +147,6 @@ function recordPrompt(
     composition: capturedComposition,
     promptBeforeFinalExtensions: isNewSnapshot && pending.promptAtCapture !== prompt ? pending.promptAtCapture : undefined,
     targetUserEntryId,
-    relatedUserEntryId: targetUserEntryId ?? pending.targetUserEntryId,
     messageType: pending.messageType,
     sequence: sequence.value,
     capturedAt: new Date().toISOString(),
@@ -207,10 +199,6 @@ export default function systemPromptCapture(pi: ExtensionAPI): void {
     }
   })
 
-  pi.on('agent_start', () => {
-    // Prompt snapshot writing is deferred to before_provider_request once the run's starting message is persisted.
-  })
-
   pi.on('before_provider_request', (_event, ctx) => {
     if (!pending) return
 
@@ -218,7 +206,6 @@ export default function systemPromptCapture(pi: ExtensionAPI): void {
       const userEntryId = pending.messageType === 'user'
         ? latestUserEntryId(ctx.sessionManager.getBranch())
         : undefined
-      pending.targetUserEntryId = userEntryId
       recordPrompt(
         ctx,
         pi,

@@ -30,7 +30,7 @@ Restart Pi or run `/reload`. The extension loads automatically and begins captur
 
 - **Timeline & Causality**: Tracks user turns, thinking blocks, and paired tool calls with visual causality rails.
 - **System Prompt Breakdown**: Inspects prompt structure across base instructions, tool definitions, skills, and context files.
-- **Versioned Vanilla Diff**: The native prompt baseline is checked against Pi 1.5.0 and 1.6.0. For an unverified Pi release, the viewer disables this comparison rather than presenting a misleading diff.
+- **Verified Vanilla Diff**: The native prompt baseline is verified against the supported Pi 1.6.0 release. For any other Pi version, the viewer disables this comparison rather than presenting a misleading diff.
 - **Multi-Project Catalog**: Groups sessions by project working directory with automatic path collision disambiguation.
 - **Local JSONL Import**: Inspect arbitrary session files offline via file drag-and-drop.
 

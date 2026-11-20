@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseSessionJsonl } from './session-parser'
-import { buildSessionView, primaryEventForEntry, projectSessionView } from './session-view'
+import { buildSessionView, primaryEventForEntry } from './session-view'
 import type { ContextProjection } from './types'
 
 function jsonl(...lines: unknown[]): string {
@@ -79,9 +79,6 @@ describe('buildSessionView', () => {
     expect(thinking?.model).toEqual({ provider: 'demo', id: 'model-a' })
     expect(call?.model).toEqual({ provider: 'demo', id: 'model-a' })
 
-    // Also assert projectSessionView alias
-    const projected = projectSessionView(session)
-    expect(projected.events).toHaveLength(view.events.length)
   })
 
   it('marks every user turn without an associated system-prompt capture as unrecorded', () => {
@@ -174,13 +171,13 @@ describe('buildSessionView', () => {
       entry('s1', null, '2026-01-01T10:00:00.500Z', {
         role: 'system',
         content: 'You are a coding agent.',
-        sections: { preamble: 'You are a coding agent.', legacy: 'Remove me' },
+        sections: { preamble: 'You are a coding agent.', optional_note: 'Remove me' },
         toolsAdded: [{ name: 'read' }, { name: 'bash' }],
       }),
       entry('u1', 's1', '2026-01-01T10:00:01.000Z', { role: 'user', content: 'First turn' }),
       entry('s2', 'u1', '2026-01-01T10:00:01.500Z', {
         role: 'system',
-        sections: { addendum: 'Never delete files.', legacy: null },
+        sections: { addendum: 'Never delete files.', optional_note: null },
         toolsAdded: [{ name: 'grep' }],
         toolsRemoved: ['obsolete_tool'],
       }),
@@ -198,7 +195,7 @@ describe('buildSessionView', () => {
     expect(initial?.content).toContain('"name": "read"')
     expect(update?.summary).toContain('2 prompt section changes')
     expect(update?.content).toContain('Section <addendum>')
-    expect(update?.content).toContain('Removed section <legacy>')
+    expect(update?.content).toContain('Removed section <optional_note>')
     expect(update?.content).toContain('"name": "grep"')
     expect(update?.content).toContain('obsolete_tool')
     expect(events.some((event) => event.title === 'System prompt unrecorded')).toBe(false)
@@ -227,7 +224,7 @@ describe('buildSessionView', () => {
   it('only displays system prompt on the first turn unless the prompt changes in subsequent turns', () => {
     const promptData = {
       schemaVersion: 1,
-      piVersion: '1.5.0',
+      piVersion: '1.6.0',
       promptHash: 'hash-1',
       promptLength: 21,
       composition: {
@@ -271,7 +268,7 @@ describe('buildSessionView', () => {
     expect(promptEvents[0]).toMatchObject({
       title: 'System prompt',
       targetEntryId: 'u1',
-      systemPrompt: { piVersion: '1.5.0' },
+      systemPrompt: { piVersion: '1.6.0' },
     })
     expect(promptEvents[1]).toMatchObject({ title: 'System prompt update', targetEntryId: 'u3' })
     expect(view.turns[0].events[0]?.id).toBe('p1:system-prompt')
@@ -605,36 +602,6 @@ describe('buildSessionView', () => {
     expect(resultEvent?.toolDefinition?.name).toBe('mcpScript')
   })
 
-  it('infers user association for legacy snapshots without targetUserEntryId adjacent to user', () => {
-    const promptData = {
-      schemaVersion: 1,
-      promptHash: 'legacy-hash',
-      promptLength: 20,
-      recordType: 'snapshot',
-      captureStage: 'agent_start',
-      prompt: 'Legacy system prompt',
-    }
-    const source = jsonl(
-      header,
-      { type: 'model_change', id: 'm1', parentId: null, timestamp: '2026-01-01T10:00:00.200Z', provider: 'demo', modelId: 'model-a' },
-      { type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p1', parentId: 'm1', timestamp: '2026-01-01T10:00:00.500Z', data: promptData },
-      entry('u1', 'p1', '2026-01-01T10:00:01.000Z', { role: 'user', content: '第一轮提问' }),
-      entry('a1', 'u1', '2026-01-01T10:00:02.000Z', { role: 'assistant', content: [{ type: 'text', text: '回复' }] }),
-    )
-
-    const session = parseSessionJsonl(source)
-    const view = buildSessionView(session)
-
-    expect(view.turns).toHaveLength(2)
-    expect(view.turns[0].events.map((e) => e.kind)).toEqual(['system'])
-    expect(view.turns[1].events.map((e) => e.kind)).toEqual(['system-prompt', 'user', 'assistant'])
-    expect(view.turns[1].events[0]).toMatchObject({
-      title: 'System prompt',
-      content: 'Legacy system prompt',
-      targetEntryId: 'u1',
-    })
-  })
-
   it('places system prompt snapshot before user even when persisted after user in JSONL', () => {
     const promptData = {
       schemaVersion: 1,
@@ -647,7 +614,7 @@ describe('buildSessionView', () => {
     const source = jsonl(
       header,
       entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', content: '第一轮提问' }),
-      { type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p1', parentId: 'u1', timestamp: '2026-01-01T10:00:01.200Z', data: promptData },
+      { type: 'custom', customType: 'pi-session-viewer.system-prompt', id: 'p1', parentId: 'u1', timestamp: '2026-01-01T10:00:01.200Z', data: { ...promptData, targetUserEntryId: 'u1' } },
       entry('a1', 'p1', '2026-01-01T10:00:02.000Z', { role: 'assistant', content: [{ type: 'text', text: '回复' }] }),
     )
 

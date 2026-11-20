@@ -3,9 +3,7 @@
  * Parses every system prompt the viewer has captured on this machine and reports
  * anything the parser cannot fully explain.
  *
- * This is the check that was missing when Pi switched from plain-text prompt
- * headers to tagged sections: the fixtures showed a green suite while real
- * sessions had already changed shape. Run it after upgrading Pi:
+ * 这是校验真实会话与当前 Pi 契约是否一致的检查。升级 Pi 后运行：
  *
  *   npm run check:sessions
  *
@@ -147,7 +145,7 @@ async function main(): Promise<void> {
         sessions += 1
 
         // What the model actually received, computed by Pi's own projection.
-        if (contents.includes('"type":"context_edit"')) sessionsWithEdits += 1
+        if (parsed.entries.some((entry) => entry.type === 'context_edit')) sessionsWithEdits += 1
         const projections = await computeContextProjections(contents, path.relative(root, file))
         if (projections) {
           projectedSessions += 1

@@ -34,7 +34,6 @@ function loadFixture(name: string): PromptFixture {
   return JSON.parse(readFileSync(path.join('tests', 'fixtures', 'prompts', name), 'utf8')) as PromptFixture
 }
 
-const LEGACY_FIXTURE = 'legacy-0.85.1-full.json'
 const CURRENT_FIXTURE = 'current-full.json'
 
 describe('Pi contract: the viewer copies of Pi prompt data', () => {
@@ -136,14 +135,11 @@ describe('Pi contract: committed fixtures come from Pi itself', () => {  it.each
 })
 
 describe('Pi contract: parsing prompts Pi actually builds', () => {
-  it.each([
-    [LEGACY_FIXTURE, 'legacy'],
-    [CURRENT_FIXTURE, 'tagged'],
-  ] as const)('parses %s as %s and maps every input to its section', (file, expectedFormat) => {
-    const fixture = loadFixture(file)
+  it('parses the current fixture as tagged sections and maps every input', () => {
+    const fixture = loadFixture(CURRENT_FIXTURE)
     const sections = parseSystemPromptSections(fixture.prompt, fixture.options)
 
-    expect(sections.format).toBe(expectedFormat)
+    expect(sections.format).toBe('tagged')
     expect(sections.unrecognizedSections).toEqual([])
     expectGroundTruthMapped(sections, fixture.options)
     expectFullCoverage(fixture.prompt, sections)
@@ -194,7 +190,7 @@ describe('Pi contract: parsing prompts Pi actually builds', () => {
     const { prompt, options } = await buildFixturePrompt(PI_PACKAGE_DIR, 'full')
     const sections = parseSystemPromptSections(prompt, options as never)
 
-    expect(sections.format).toBe(prompt.includes('<tools>') ? 'tagged' : 'legacy')
+    expect(sections.format).toBe('tagged')
     expectGroundTruthMapped(sections, options as never)
     expectFullCoverage(prompt, sections)
     expect(sections.baseTemplate.content).toBe(PI_DEFAULT_PREAMBLE)

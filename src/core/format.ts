@@ -1,4 +1,4 @@
-// Shared core formatting helpers.
+// 时间轴与事件详情共用的格式化工具。
 const clockFormatter = new Intl.DateTimeFormat('en-US', {
   hour: '2-digit',
   minute: '2-digit',
@@ -38,14 +38,10 @@ export function formatDuration(milliseconds?: number): string {
 const WHITESPACE = /\s/
 
 /**
- * The leading part of `value.replace(/\s+/g, ' ').trim()` needed to decide the
- * result, read as a stream.
- *
- * Normalizing the whole string cost O(content) on multi-megabyte tool output even
- * though only `max` characters are kept, and the timeline builds summaries on
- * every view. Reading stops one character past `max`: that is enough to know
- * whether the ellipsis is needed. A whitespace run is only materialized when
- * something follows it, which is what `trim()` did at the end.
+ * 按流式扫描的方式计算 `value.replace(/\s+/g, ' ').trim()` 的前缀。
+ * 时间轴只需要最多 `max` 个字符，扫描到多一个字符即可确定是否加省略号，
+ * 避免对很长的工具输出做完整的空白归一化。尾部空格只有在后面
+ * 还有非空白字符时才加入，保持与 `trim()` 一致的结果。
  */
 function compactPrefix(value: string, max: number): string {
   const length = value.length

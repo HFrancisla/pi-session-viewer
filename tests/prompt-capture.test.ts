@@ -123,20 +123,6 @@ describe('system prompt capture extension', () => {
     expect(pi.entries[0].data.composition.toolDefinitions).toEqual([])
   })
 
-  it('falls back to all configured tools only when the active-tool API is unavailable', async () => {
-    const pi = fakePi()
-    Reflect.deleteProperty(pi, 'getActiveTools')
-    capturePrompt(pi as never)
-    const prompt = 'prompt with unknown active tools'
-    const options = { cwd: '/work/demo', selectedTools: [], toolSnippets: {}, promptGuidelines: [], contextFiles: [], skills: [] }
-
-    await pi.handlers.get('before_agent_start')?.({ systemPrompt: prompt, systemPromptOptions: options }, context(prompt))
-    await pi.handlers.get('before_provider_request')?.({}, context(prompt))
-
-    expect(pi.entries[0].data.composition.selectedTools).toEqual(['bash'])
-    expect(pi.entries[0].data.composition.toolDefinitions?.map((tool: { name: string }) => tool.name)).toEqual(['bash'])
-  })
-
   it('stores current API tool definitions on a prompt reference without repeating the prompt', async () => {
     const pi = fakePi()
     capturePrompt(pi as never)
@@ -263,7 +249,6 @@ describe('system prompt capture extension', () => {
         recordType: 'snapshot',
         captureStage: 'provider_request_update',
         prompt: 'base prompt\n\nDynamic tool instructions',
-        relatedUserEntryId: 'user-1',
       },
     })
     expect(pi.entries[1].data.targetUserEntryId).toBeUndefined()
