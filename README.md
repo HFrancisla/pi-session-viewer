@@ -30,6 +30,7 @@ Restart Pi or run `/reload`. The extension loads automatically and begins captur
 
 - **Timeline & Causality**: Tracks user turns, thinking blocks, and paired tool calls with visual causality rails.
 - **System Prompt Breakdown**: Inspects prompt structure across base instructions, tool definitions, skills, and context files.
+- **Versioned Vanilla Diff**: The native prompt baseline is checked against Pi 1.5.0 and 1.6.0. For an unverified Pi release, the viewer disables this comparison rather than presenting a misleading diff.
 - **Multi-Project Catalog**: Groups sessions by project working directory with automatic path collision disambiguation.
 - **Local JSONL Import**: Inspect arbitrary session files offline via file drag-and-drop.
 
@@ -38,6 +39,7 @@ Restart Pi or run `/reload`. The extension loads automatically and begins captur
 - **Local Only**: Listens strictly on `127.0.0.1` with a per-instance random bearer token. No cloud sync, telemetry, or remote access.
 - **Read-Only**: The web interface cannot mutate sessions or execute commands.
 - **Capture Scope**: Saves system prompts, skill metadata, and context file snapshots to local session files. Does **not** record API keys, request headers, or credentials.
+- **Prompt Fidelity**: Extension captures use Pi's `ctx.getSystemPrompt()` at the provider-request hook and Pi's active tool metadata. The browser also displays native, append-only system-message updates from the session. Provider-specific payload rewrites made by other `before_provider_request` handlers are **not** reflected in `ctx.getSystemPrompt()`; this is a Pi harness inspector, not a raw HTTP request recorder. Context-file contents can themselves contain sensitive data, so treat exported sessions as private.
 - **Historical Sessions**: Turns without an associated system-prompt capture record display as *unrecorded*; the reason is not inferred, and past prompts are never reconstructed from current configuration.
 
 ## Development
@@ -48,6 +50,9 @@ npm run dev        # Web dev server
 npm test           # Unit & integration tests
 npm run build      # Build web assets and extension bundle
 npm run verify     # Full verification suite
+npm run test:ui    # Browser end-to-end tests (requires Playwright Chromium)
 ```
 
 Session directory resolution order: `PI_CODING_AGENT_SESSION_DIR` → `~/.pi/agent/settings.json` → `~/.pi/agent/sessions`.
+
+The unit suite also launches a real Pi CLI with a local, fake OpenAI-compatible provider to verify multi-turn prompts, tool execution, session replacement, and resume without contacting a paid model service.

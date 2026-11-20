@@ -9,14 +9,18 @@ export const SYSTEM_PROMPT_ENTRY_TYPE = 'pi-session-viewer.system-prompt'
 interface PendingCapture {
   messageType: 'user' | 'custom'
   targetUserEntryId?: string
-  options: SerializablePromptOptions
+  /** Pi forwards a mutable options object to later before_agent_start handlers. */
+  options: BuildSystemPromptOptions
   promptAtCapture: string
   recordedInitial?: boolean
 }
 
 interface SerializablePromptOptions {
   customPrompt?: string
+  forceSystemPrompt?: string
   selectedTools: string[]
+  hiddenTools: string[]
+  toolGuidelines: Record<string, string[]>
   toolSnippets: Record<string, string>
   toolDefinitions?: CapturedToolDefinition[]
   promptGuidelines: string[]
@@ -42,9 +46,18 @@ function toolDefinitionsHash(tools: CapturedToolDefinition[]): string {
   return createHash('sha256').update(JSON.stringify(apiTools)).digest('hex')
 }
 
+function compositionFingerprint(composition: Record<string, unknown>): string {
+  const { toolDefinitions: _toolDefinitions, ...metadata } = composition
+  // Keep only a digest in memory; context files and custom prompts can be large.
+  return createHash('sha256').update(JSON.stringify(metadata)).digest('hex')
+}
+
 function serializeOptions(options: BuildSystemPromptOptions): SerializablePromptOptions {
   return {
     customPrompt: options.customPrompt,
+    forceSystemPrompt: options.forceSystemPrompt,
+    hiddenTools: [...(options.hiddenTools ?? [])],
+    toolGuidelines: Object.fromEntries(Object.entries(options.toolGuidelines ?? {}).map(([name, rules]) => [name, [...rules]])),
     selectedTools: [...(options.selectedTools ?? [])],
     toolSnippets: { ...(options.toolSnippets ?? {}) },
     promptGuidelines: [...(options.promptGuidelines ?? [])],
@@ -87,6 +100,7 @@ function recordPrompt(
   captureStage: 'agent_start' | 'provider_request_update',
   forceReference: boolean,
   knownPromptHashes: Set<string>,
+  knownCompositions: Map<string, string>,
   sequence: { value: number },
   lastRecordedHash: { value?: string; toolDefinitionsHash?: string },
   targetUserEntryId?: string,
@@ -94,13 +108,15 @@ function recordPrompt(
   if (!pending) return
   const prompt = ctx.getSystemPrompt()
   const hash = promptHash(prompt)
+  const options = serializeOptions(pending.options)
   const hasAllToolsApi = typeof pi.getAllTools === 'function'
   const allTools = hasAllToolsApi ? pi.getAllTools() : []
   const activeToolNames = typeof pi.getActiveTools === 'function' ? pi.getActiveTools() : undefined
   const activeToolNameSet = new Set(activeToolNames ?? [])
+  const hiddenToolNameSet = new Set(options.hiddenTools)
   const activeTools = activeToolNames === undefined
-    ? allTools
-    : allTools.filter((tool) => activeToolNameSet.has(tool.name))
+    ? allTools.filter((tool) => !hiddenToolNameSet.has(tool.name))
+    : allTools.filter((tool) => activeToolNameSet.has(tool.name) && !hiddenToolNameSet.has(tool.name))
   const selectedTools = activeToolNames ?? allTools.map((tool) => tool.name)
   const hasToolDefinitions = hasAllToolsApi || activeToolNames?.length === 0
   const toolDefinitions: CapturedToolDefinition[] | undefined = hasToolDefinitions
@@ -109,22 +125,22 @@ function recordPrompt(
         description: tool.description,
         parameters: tool.parameters,
         promptGuidelines: tool.promptGuidelines,
-        sourceInfo: (tool as any).sourceInfo,
+        sourceInfo: tool.sourceInfo as CapturedToolDefinition['sourceInfo'],
       }))
     : undefined
   const definitionsHash = toolDefinitions === undefined ? undefined : toolDefinitionsHash(toolDefinitions)
-  if (!forceReference && hash === lastRecordedHash.value && definitionsHash === lastRecordedHash.toolDefinitionsHash) return
+  const composition = { ...options, selectedTools: [...selectedTools], toolDefinitions }
+  const compositionHash = compositionFingerprint(composition)
+  const compositionChanged = knownCompositions.get(hash) !== compositionHash
+  if (!forceReference && hash === lastRecordedHash.value
+    && definitionsHash === lastRecordedHash.toolDefinitionsHash && !compositionChanged) return
 
   const isNewSnapshot = !knownPromptHashes.has(hash)
   sequence.value += 1
-  const composition = {
-    ...pending.options,
-    selectedTools: [...selectedTools],
-    toolDefinitions,
-  }
-  // Prompt text is deduplicated by promptHash, but API tool schemas can change
-  // independently and must remain specific to this capture record.
-  const capturedComposition = isNewSnapshot
+  // Prompt text is deduplicated; changed inputs must still follow a reference.
+  // Otherwise the viewer would incorrectly show the snapshot's old tool list,
+  // hidden tools, rules, or sections after they change independently.
+  const capturedComposition = isNewSnapshot || compositionChanged
     ? composition
     : toolDefinitions !== undefined ? { toolDefinitions } : undefined
 
@@ -147,18 +163,21 @@ function recordPrompt(
   })
 
   if (isNewSnapshot) knownPromptHashes.add(hash)
+  knownCompositions.set(hash, compositionHash)
   lastRecordedHash.value = hash
   lastRecordedHash.toolDefinitionsHash = definitionsHash
 }
 
 export default function systemPromptCapture(pi: ExtensionAPI): void {
   const knownPromptHashes = new Set<string>()
+  const knownCompositions = new Map<string, string>()
   const sequence = { value: 0 }
   const lastRecordedHash: { value?: string; toolDefinitionsHash?: string } = {}
   let pending: PendingCapture | undefined
 
   pi.on('session_start', (_event, ctx) => {
     knownPromptHashes.clear()
+    knownCompositions.clear()
     sequence.value = 0
     pending = undefined
     lastRecordedHash.value = undefined
@@ -170,6 +189,11 @@ export default function systemPromptCapture(pi: ExtensionAPI): void {
       if ('promptHash' in data && typeof data.promptHash === 'string' && 'prompt' in data && typeof data.prompt === 'string') {
         knownPromptHashes.add(data.promptHash)
       }
+      if ('promptHash' in data && typeof data.promptHash === 'string'
+        && 'composition' in data && data.composition && typeof data.composition === 'object'
+        && 'selectedTools' in data.composition) {
+        knownCompositions.set(data.promptHash, compositionFingerprint(data.composition as Record<string, unknown>))
+      }
       if ('sequence' in data && typeof data.sequence === 'number') sequence.value = Math.max(sequence.value, data.sequence)
     }
   })
@@ -177,7 +201,7 @@ export default function systemPromptCapture(pi: ExtensionAPI): void {
   pi.on('before_agent_start', (event) => {
     pending = {
       messageType: event.messageType === 'custom' ? 'custom' : 'user',
-      options: serializeOptions(event.systemPromptOptions),
+      options: event.systemPromptOptions,
       promptAtCapture: event.systemPrompt,
       recordedInitial: false,
     }
@@ -202,6 +226,7 @@ export default function systemPromptCapture(pi: ExtensionAPI): void {
         'agent_start',
         true,
         knownPromptHashes,
+        knownCompositions,
         sequence,
         lastRecordedHash,
         userEntryId,
@@ -217,6 +242,7 @@ export default function systemPromptCapture(pi: ExtensionAPI): void {
       'provider_request_update',
       false,
       knownPromptHashes,
+      knownCompositions,
       sequence,
       lastRecordedHash,
       undefined,

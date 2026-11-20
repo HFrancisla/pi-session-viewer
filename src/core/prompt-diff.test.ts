@@ -6,6 +6,7 @@ import {
   computeLineDiff,
   formatDiffLineTooltip,
   findPreviousPromptSnapshot,
+  isVanillaBaselineCompatible,
   resolvePromptDiff,
   type PromptDiffResult,
 } from './prompt-diff'
@@ -62,13 +63,21 @@ function expectDiffIsReversible(result: PromptDiffResult): void {
 }
 
 describe('prompt-diff: the Vanilla Pi baseline is versioned and verified', () => {
-  it('reproduces the committed Pi 1.5.0 vanilla fixture byte-for-byte', () => {
+  it('reproduces the committed Pi 1.6.0 vanilla fixture byte-for-byte', () => {
     const full = loadFixture('current-full.json')
     const vanilla = loadFixture('current-vanilla.json')
 
     const rebuilt = buildVanillaSystemPrompt(full.prompt, { cwd: full.options.cwd })
     expect(rebuilt).toBe(vanilla.prompt)
     expect(rebuilt.includes('<tools>')).toBe(true)
+  })
+
+  it('supports only Pi versions with verified identical vanilla prompts', () => {
+    expect(isVanillaBaselineCompatible('1.5.0')).toBe(true)
+    expect(isVanillaBaselineCompatible('1.6.0')).toBe(true)
+    expect(isVanillaBaselineCompatible('1.5.1')).toBe(false)
+    expect(isVanillaBaselineCompatible('1.7.0')).toBe(false)
+    expect(isVanillaBaselineCompatible(undefined)).toBe(false)
   })
 
   it('reproduces the vanilla prompt the installed Pi builds right now', async () => {

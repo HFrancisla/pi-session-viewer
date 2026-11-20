@@ -89,7 +89,7 @@ export function PromptDiffView({ event, previousPrompt }: { event: TimelineEvent
               title={!vanillaCompatible ? vanillaUnavailableMessage : undefined}
               onClick={() => setBaselineMode('vanilla')}
             >
-              {t.inspector.diff.baselineVanilla(PI_PROMPT_BASELINE_VERSION)}
+              {t.inspector.diff.baselineVanilla(vanillaCompatible ? piVersion! : PI_PROMPT_BASELINE_VERSION)}
             </button>
           </div>
         </div>

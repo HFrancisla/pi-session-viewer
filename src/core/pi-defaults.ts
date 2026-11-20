@@ -9,7 +9,9 @@
  */
 
 /** Pi release whose copied native prompt is the Vanilla baseline. */
-export const PI_PROMPT_BASELINE_VERSION = '1.5.0'
+export const PI_PROMPT_BASELINE_VERSION = '1.6.0'
+/** Only releases whose generated native prompt has been compared byte-for-byte. */
+export const PI_VERIFIED_VANILLA_VERSIONS: readonly string[] = ['1.5.0', '1.6.0']
 
 /** Tools Pi enables by default (`normalizeBuildSystemPromptOptions`). */
 export const PI_DEFAULT_TOOLS = ['read', 'bash', 'edit', 'write'] as const
@@ -103,7 +105,7 @@ export function buildPiRules(
   return rules
 }
 
-/** Pi 1.5.0's built-in preamble for a default (non-custom) system prompt. */
+/** Pi 1.5.0/1.6.0's built-in preamble for a default (non-custom) system prompt. */
 export const PI_DEFAULT_PREAMBLE =
   'You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.'
 

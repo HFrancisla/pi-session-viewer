@@ -380,7 +380,7 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
 
   await firstTurnEvents.first().click()
   await expect(page.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.locator('.content-view pre')).toContainText('You are an expert coding assistant operating inside pi')
+  await expect(page.locator('.content-view pre')).toContainText('You are a coding assistant running inside pi')
   await page.getByRole('tab', { name: 'Overview' }).click()
   await expect(inspector).toContainText('Relative Gap')
   await expect(inspector).not.toContainText('Duration')

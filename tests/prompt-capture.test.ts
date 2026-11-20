@@ -164,7 +164,7 @@ describe('system prompt capture extension', () => {
     })
     expect(pi.entries[1].data.prompt).toBeUndefined()
     expect(pi.entries[1].data.composition?.toolDefinitions?.map((tool: { name: string }) => tool.name)).toEqual(['bash', 'read'])
-    expect(pi.entries[1].data.composition).not.toHaveProperty('selectedTools')
+    expect(pi.entries[1].data.composition.selectedTools).toEqual(['bash', 'read'])
   })
 
   it('captures API tool schema updates during a run without changing the prompt text', async () => {
@@ -192,6 +192,57 @@ describe('system prompt capture extension', () => {
     })
     expect(pi.entries[1].data.prompt).toBeUndefined()
     expect(pi.entries[1].data.composition?.toolDefinitions?.map((tool: { name: string }) => tool.name)).toEqual(['bash', 'read'])
+  })
+
+  it('captures late section changes and excludes tools hidden by Pi prepareLoadout', async () => {
+    const pi = fakePi()
+    pi.activeTools = ['bash', 'read']
+    pi.getAllTools = () => [
+      { name: 'bash', description: 'Execute shell commands', parameters: { type: 'object' } },
+      { name: 'read', description: 'Read files', parameters: { type: 'object' } },
+    ]
+    capturePrompt(pi as never)
+    const options = {
+      cwd: '/work/demo',
+      selectedTools: ['bash', 'read'],
+      hiddenTools: [] as string[],
+      toolSnippets: { bash: 'Bash', read: 'Read' },
+      toolGuidelines: { bash: ['Never use bash to read secrets'] },
+      promptGuidelines: ['Use tests first'],
+      contextFiles: [],
+      skills: [],
+      sections: {} as Record<string, string>,
+    }
+    await pi.handlers.get('before_agent_start')?.({ systemPrompt: 'initial', systemPromptOptions: options }, context('final'))
+    // Pi passes mutable systemPromptOptions through later before_agent_start handlers.
+    options.hiddenTools.push('read')
+    options.sections.mcp_servers = 'Connected tools'
+    await pi.handlers.get('before_provider_request')?.({}, context('final'))
+
+    expect(pi.entries[0].data.composition).toMatchObject({
+      hiddenTools: ['read'],
+      toolGuidelines: { bash: ['Never use bash to read secrets'] },
+      sections: { mcp_servers: 'Connected tools' },
+    })
+    expect(pi.entries[0].data.composition.toolDefinitions.map((tool: { name: string }) => tool.name)).toEqual(['bash'])
+    expect(pi.entries[0].data.composition.selectedTools).toEqual(['bash', 'read'])
+  })
+
+  it('does not reuse stale composition metadata for the same prompt on a later run', async () => {
+    const pi = fakePi()
+    capturePrompt(pi as never)
+    const options = { cwd: '/work/demo', selectedTools: ['bash'], toolSnippets: {}, promptGuidelines: [], contextFiles: [], skills: [], sections: { a: 'first' } }
+    const run = async () => {
+      await pi.handlers.get('before_agent_start')?.({ systemPrompt: 'same', systemPromptOptions: options }, context('same'))
+      await pi.handlers.get('before_provider_request')?.({}, context('same'))
+      await pi.handlers.get('agent_end')?.({}, context('same'))
+    }
+    await run()
+    options.sections.a = 'updated'
+    await run()
+    expect(pi.entries).toHaveLength(2)
+    expect(pi.entries[1].data.recordType).toBe('reference')
+    expect(pi.entries[1].data.composition.sections).toEqual({ a: 'updated' })
   })
 
   it('records a new snapshot when the effective prompt changes before a provider request', async () => {

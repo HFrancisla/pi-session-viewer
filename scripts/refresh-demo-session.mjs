@@ -16,7 +16,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const DEFAULT_SESSION = 'tests/fixtures/sessions/demo/demo.jsonl'
-/** Run id of the subagent reference whose artifacts are deliberately absent. */
+/** Run id for the synthetic batch; worker-b's child Session is deliberately absent. */
 const MISSING_SUBAGENT_RUN_ID = '22222222-2222-2222-2222-222222222222'
 const DEFAULT_PI = 'node_modules/@earendil-works/pi-coding-agent'
 
@@ -78,9 +78,9 @@ if (isMain) {
   entry.data.piVersion = piPackage.version
   lines[index] = JSON.stringify(entry)
 
-  // Keep the synthetic subagent reference on the tool result: the Playwright test
-  // that a failed subagent jump does not wipe the timeline depends on it, and the
-  // prompt rebuild above would otherwise drop it.
+  // Keep a batch of child-session references on the result. worker-a resolves to
+  // the committed fixture, and worker-b deliberately does not: the end-to-end
+  // test covers both navigation and failed-jump recovery.
   const resultIndex = lines.findIndex((line) => line.includes('"id":"result"') || line.includes('"id": "result"'))
   if (resultIndex !== -1) {
     let resultEntry
@@ -94,9 +94,14 @@ if (isMain) {
         runId: MISSING_SUBAGENT_RUN_ID,
         results: [
           {
-            targetFile: `subagent-artifacts/${MISSING_SUBAGENT_RUN_ID}_scout_transcript.jsonl`,
-            agent: 'scout',
+            targetFile: 'subagent-artifacts/worker-a.jsonl',
+            agent: 'worker-a',
             task: 'check tests',
+          },
+          {
+            targetFile: 'subagent-artifacts/worker-b.jsonl',
+            agent: 'worker-b',
+            task: 'review changes',
           },
         ],
       }

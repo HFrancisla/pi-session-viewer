@@ -61,7 +61,10 @@ export interface CapturedToolDefinition {
 
 export interface SystemPromptComposition {
   customPrompt?: string
+  forceSystemPrompt?: string
   selectedTools: string[]
+  hiddenTools?: string[]
+  toolGuidelines?: Record<string, string[]>
   toolSnippets: Record<string, string>
   toolDefinitions?: CapturedToolDefinition[]
   promptGuidelines: string[]

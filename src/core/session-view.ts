@@ -226,6 +226,11 @@ function stringRecord(value: unknown): Record<string, string> {
   return Object.fromEntries(Object.entries(value).filter((item): item is [string, string] => typeof item[1] === 'string'))
 }
 
+function stringArrayRecord(value: unknown): Record<string, string[]> {
+  if (!isObject(value)) return {}
+  return Object.fromEntries(Object.entries(value).map(([name, rules]) => [name, stringArray(rules)]))
+}
+
 function promptComposition(value: unknown): SystemPromptComposition | undefined {
   if (!isObject(value)) return undefined
   const contextFiles = Array.isArray(value.contextFiles)
@@ -255,7 +260,10 @@ function promptComposition(value: unknown): SystemPromptComposition | undefined 
     : undefined
   return {
     customPrompt: stringValue(value.customPrompt),
+    forceSystemPrompt: stringValue(value.forceSystemPrompt),
     selectedTools: stringArray(value.selectedTools),
+    hiddenTools: stringArray(value.hiddenTools),
+    toolGuidelines: stringArrayRecord(value.toolGuidelines),
     toolSnippets: stringRecord(value.toolSnippets),
     toolDefinitions,
     promptGuidelines: stringArray(value.promptGuidelines),
@@ -263,6 +271,7 @@ function promptComposition(value: unknown): SystemPromptComposition | undefined 
     cwd: stringValue(value.cwd) ?? '',
     contextFiles,
     skills,
+    sections: isObject(value.sections) ? stringRecord(value.sections) : undefined,
   }
 }
 
@@ -458,19 +467,16 @@ function pairTools(events: TimelineEvent[], sourceName?: string): void {
   let previousTimestamp: number | undefined
 
   for (const event of events) {
-    if (event.toolDefinitions) {
-      for (const td of event.toolDefinitions) {
-        toolDefs.set(td.name, td)
-      }
+    // Tool schemas belong to the active prompt at this point in the transcript.
+    // A later Pi run can redefine a tool with the same name; never apply its
+    // definition retrospectively to an earlier invocation.
+    const definitions = event.toolDefinitions ?? event.systemPrompt?.composition?.toolDefinitions
+    if (definitions) {
+      // The loadout snapshot is authoritative: removed/hidden tools no longer
+      // belong to this model request (and must not retain stale definitions).
+      toolDefs.clear()
+      for (const tool of definitions) toolDefs.set(tool.name, tool)
     }
-    if (event.systemPrompt?.composition?.toolDefinitions) {
-      for (const td of event.systemPrompt.composition.toolDefinitions) {
-        toolDefs.set(td.name, td)
-      }
-    }
-  }
-
-  for (const event of events) {
     if (event.timestamp) {
       const time = new Date(event.timestamp).getTime()
       if (Number.isFinite(time)) {

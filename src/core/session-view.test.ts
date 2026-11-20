@@ -324,7 +324,9 @@ describe('buildSessionView', () => {
         data: {
           ...basePromptData,
           composition: {
-            selectedTools: ['read', 'edit'], toolSnippets: {}, promptGuidelines: [],
+            selectedTools: ['read', 'edit'], hiddenTools: ['read'],
+            toolGuidelines: { edit: ['Use edit precisely'] }, sections: { mcp_servers: 'Connected' },
+            toolSnippets: {}, promptGuidelines: [],
             cwd: '/work/demo', contextFiles: [], skills: [], toolDefinitions: toolsV2,
           },
           targetUserEntryId: 'u2',
@@ -342,6 +344,45 @@ describe('buildSessionView', () => {
     expect(toolEvents).toHaveLength(2)
     expect(toolEvents[0]).toMatchObject({ title: 'Tool Definitions', summary: 'Mounted 1 API tools', targetEntryId: 'u1' })
     expect(toolEvents[1]).toMatchObject({ title: 'Tool Definitions', summary: 'Mounted 2 API tools', targetEntryId: 'u2' })
+    expect(toolEvents[1].systemPrompt?.composition).toMatchObject({
+      hiddenTools: ['read'],
+      toolGuidelines: { edit: ['Use edit precisely'] },
+      sections: { mcp_servers: 'Connected' },
+    })
+  })
+
+  it('uses the tool schema active at each call, not a later redefinition', () => {
+    const snapshot = (id: string, parentId: string | null, description: string) => ({
+      type: 'custom', customType: 'pi-session-viewer.system-prompt',
+      id, parentId, timestamp: '2026-01-01T10:00:00.500Z',
+      data: {
+        schemaVersion: 1, recordType: 'snapshot', captureStage: 'agent_start',
+        promptHash: id, prompt: 'Prompt ' + id,
+        composition: {
+          selectedTools: ['task'], toolSnippets: {}, promptGuidelines: [],
+          cwd: '/work/demo', contextFiles: [], skills: [],
+          toolDefinitions: [{ name: 'task', description, parameters: { type: 'object' } }],
+        },
+      },
+    })
+    const source = jsonl(
+      header,
+      snapshot('p1', null, 'First schema'),
+      entry('u1', 'p1', '2026-01-01T10:00:01.000Z', { role: 'user', content: 'First turn' }),
+      entry('a1', 'u1', '2026-01-01T10:00:02.000Z', {
+        role: 'assistant', content: [{ type: 'toolCall', id: 'call-1', name: 'task', arguments: {} }],
+      }),
+      entry('r1', 'a1', '2026-01-01T10:00:02.200Z', {
+        role: 'toolResult', toolName: 'task', toolCallId: 'call-1', content: [{ type: 'text', text: 'ok' }],
+      }),
+      snapshot('p2', 'r1', 'Second schema'),
+      entry('u2', 'p2', '2026-01-01T10:00:03.000Z', { role: 'user', content: 'Second turn' }),
+      entry('a2', 'u2', '2026-01-01T10:00:04.000Z', {
+        role: 'assistant', content: [{ type: 'toolCall', id: 'call-2', name: 'task', arguments: {} }],
+      }),
+    )
+    const calls = buildSessionView(parseSessionJsonl(source)).events.filter((event) => event.kind === 'tool-call')
+    expect(calls.map((call) => call.toolDefinition?.description)).toEqual(['First schema', 'Second schema'])
   })
 
   it('surfaces mid-turn tool schema changes without claiming the prompt text changed', () => {

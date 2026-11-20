@@ -2,7 +2,7 @@ import type { SystemPromptComposition, TimelineEvent } from './types'
 import { parseSystemPromptSections } from './prompt-sections'
 import {
   PI_DEFAULT_PREAMBLE,
-  PI_PROMPT_BASELINE_VERSION,
+  PI_VERIFIED_VANILLA_VERSIONS,
   PI_TOOL_PROMPT_CONTRIBUTIONS,
   PI_TOOL_SNIPPETS,
   buildPiRules,
@@ -35,9 +35,9 @@ export interface PromptDiffResult {
 
 export type DiffBaselineMode = 'vanilla' | 'before-extensions' | 'previous' | 'unavailable'
 
-/** The copied Vanilla prompt is only verified against this exact Pi release. */
+/** The copied Vanilla prompt is verified only for explicitly checked Pi releases. */
 export function isVanillaBaselineCompatible(piVersion?: string): boolean {
-  return piVersion === PI_PROMPT_BASELINE_VERSION
+  return piVersion !== undefined && PI_VERIFIED_VANILLA_VERSIONS.includes(piVersion)
 }
 
 /** Finds the preceding resolved system-prompt snapshot on the selected branch. */
@@ -80,7 +80,7 @@ export const FALLBACK_DOCS = `Pi documentation (read only when the user asks abo
 - Before implementing harness changes, read the relevant docs and examples in full, following related cross-references.`
 
 /**
- * Builds the copied Pi 1.5.0 Vanilla prompt (without project AGENTS.md,
+ * Builds the copied Pi 1.5.0/1.6.0 Vanilla prompt (without project AGENTS.md,
  * skills, custom instructions, or extension-added tools).
  *
  * The baseline is emitted in the same layout as `prompt` so the diff compares
