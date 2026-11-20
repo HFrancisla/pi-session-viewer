@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, CornerDownRight, EyeOff, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleUserRound, Cog, CornerDownRight, EyeOff, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
 import { GroupedVirtuoso, type GroupedVirtuosoHandle, type GroupProps } from 'react-virtuoso'
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { buildCausalLayout, causalLaneX, type CausalEventLayout } from '../../core/causal-layout'
@@ -13,7 +13,7 @@ const kindMeta: Record<EventKind, { icon: ComponentType<{ size?: number; classNa
   user: { icon: CircleUserRound, color: '#485c66' },
   assistant: { icon: Bot, color: '#246b83' },
   thinking: { icon: Brain, color: '#765a9a' },
-  'tool-call': { icon: Wrench, color: '#a66a18' },
+  'tool-call': { icon: Wrench, color: '#87540f' },
   'tool-result': { icon: CheckCircle2, color: '#2f7d57' },
   system: { icon: Cog, color: '#66716d' },
 }
@@ -27,7 +27,7 @@ interface TimelineProps {
   selectedLeafId: string | null
   contextProjection?: ContextProjection
   enabledKinds: ReadonlySet<EventKind>
-  onSelectEvent: (event: TimelineEvent) => void
+  onSelectEvent: (event: TimelineEvent, showDetails?: boolean) => void
   onSelectBranch: (leafId: string) => void
   onToggleKind: (kind: EventKind) => void
   onToggleAllKinds: () => void
@@ -69,7 +69,7 @@ interface TimelineItem {
 }
 
 function VirtualizedTurnGroup({ children, style, ...dataAttributes }: GroupProps) {
-  return <section className="turn-group" role="group" style={style} {...dataAttributes}>{children}</section>
+  return <section className="turn-group" role="rowgroup" style={style} {...dataAttributes}>{children}</section>
 }
 
 const timelineComponents = { Group: VirtualizedTurnGroup }
@@ -109,11 +109,11 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
   mutedCallIds?: Set<string>
   clockLabel: string
   llmOutputBoundary?: LlmOutputBoundary
-  onSelectEvent: (event: TimelineEvent) => void
+  onSelectEvent: (event: TimelineEvent, showDetails?: boolean) => void
   onFocusEvent: (index: number) => void
   onOpenSubagent?: (subagent: SubagentReference, sourceEventId?: string) => void
 }) {
-  const { t, localizeTitle } = useI18n()
+  const { t, localizeTitle, localizeSummary } = useI18n()
   const [subagentChoicesOpen, setSubagentChoicesOpen] = useState(false)
   const subagentReferences = event.subagents?.length
     ? event.subagents
@@ -136,7 +136,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
   return (
     <div
       className={`event-row event--${event.kind}${selected ? ' is-selected' : ''}${focused ? ' is-focused' : ''}${isPairRelated ? ' is-pair-related' : ''}${llmOutputClasses}`}
-      role="option"
+      role="row"
       aria-selected={selected}
       id={`event-row-${event.id}`}
       data-event-id={event.id}
@@ -155,7 +155,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
       data-tool-call-id={event.toolCallId}
       style={{ '--event-color': event.isError ? '#b24b4b' : meta.color } as React.CSSProperties}
     >
-      <span className="event-time">
+      <span className="event-time" role="gridcell">
         <span>{clockLabel}</span>
         {event.gapMs != null && <small>+{formatDuration(event.gapMs)}</small>}
       </span>
@@ -174,7 +174,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
           )
         })}
       </span>
-      <span className="event-copy">
+      <span className="event-copy" role="gridcell">
         <span className="event-title-line">
           <strong>{localizeTitle(event.title)}</strong>
           {causal.eventLane != null && <span className="lane-label">#{causal.eventLane + 1}</span>}
@@ -197,7 +197,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
                 aria-controls={hasMultipleSubagents ? `subagent-options-${event.id}` : undefined}
                 onClick={(e) => {
                   e.stopPropagation()
-                  onSelectEvent(event)
+                  onSelectEvent(event, false)
                   if (hasMultipleSubagents) {
                     setSubagentChoicesOpen((open) => !open)
                   } else {
@@ -216,7 +216,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
                     ? `${subagentReferences.length} ${t.timeline.subagentTag}`
                     : (event.subagent.agentName ?? t.timeline.subagentTag)}
                 </span>
-                <span className="subagent-tag-arrow">{hasMultipleSubagents ? '▾' : '→'}</span>
+                <span className="subagent-tag-arrow" aria-hidden="true">{hasMultipleSubagents ? <ChevronDown size={12} /> : <ArrowRight size={12} />}</span>
               </button>
               {hasMultipleSubagents && subagentChoicesOpen && (
                 <span
@@ -237,7 +237,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
                         onClick={(e) => {
                           e.stopPropagation()
                           setSubagentChoicesOpen(false)
-                          onSelectEvent(event)
+                          onSelectEvent(event, false)
                           onOpenSubagent?.(reference, event.id)
                         }}
                         onKeyDown={(e) => {
@@ -247,7 +247,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
                       >
                         <Bot size={12} aria-hidden="true" />
                         <span>{agentName}</span>
-                        <span className="subagent-tag-arrow">→</span>
+                        <span className="subagent-tag-arrow" aria-hidden="true"><ArrowRight size={12} /></span>
                       </button>
                     )
                   })}
@@ -284,7 +284,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
             </span>
           )}
         </span>
-        <span className="event-summary">{event.summary}</span>
+        <span className="event-summary">{localizeSummary(event)}</span>
       </span>
     </div>
   )
@@ -308,6 +308,24 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
   onOpenSubagent,
 }, ref) {
   const { t, localizeTitle } = useI18n()
+  const filterScrollerRef = useRef<HTMLDivElement>(null)
+  const [filterScroll, setFilterScroll] = useState({ left: false, right: false })
+  const updateFilterScroll = useCallback(() => {
+    const scroller = filterScrollerRef.current
+    if (!scroller) return
+    const left = scroller.scrollLeft > 2
+    const right = scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 2
+    setFilterScroll((previous) => previous.left === left && previous.right === right ? previous : { left, right })
+  }, [])
+  useLayoutEffect(() => {
+    const scroller = filterScrollerRef.current
+    if (!scroller) return
+    const observer = new ResizeObserver(updateFilterScroll)
+    observer.observe(scroller)
+    if (scroller.firstElementChild) observer.observe(scroller.firstElementChild)
+    updateFilterScroll()
+    return () => observer.disconnect()
+  }, [updateFilterScroll, t])
   const causalLayout = useMemo(() => buildCausalLayout(allEvents), [allEvents])
   const selectedEvent = useMemo(
     () => allEvents.find((event) => event.id === selectedEventId),
@@ -320,7 +338,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
 
   const onSelectEventRef = useRef(onSelectEvent)
   onSelectEventRef.current = onSelectEvent
-  const stableSelectEvent = useCallback((event: TimelineEvent) => onSelectEventRef.current(event), [])
+  const stableSelectEvent = useCallback((event: TimelineEvent, showDetails?: boolean) => onSelectEventRef.current(event, showDetails), [])
 
   const onOpenSubagentRef = useRef(onOpenSubagent)
   onOpenSubagentRef.current = onOpenSubagent
@@ -503,6 +521,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
   }, [focusEventAtIndex, timelineItems.length])
 
   const onTimelineKeyDown = useCallback((keyboardEvent: React.KeyboardEvent<HTMLDivElement>) => {
+    // Nested subagent controls own their keyboard events; the grid handles only its own focus.
+    if (keyboardEvent.target !== keyboardEvent.currentTarget) return
     if (keyboardEvent.key === 'ArrowUp' || keyboardEvent.key === 'ArrowDown') {
       keyboardEvent.preventDefault()
       onMoveFocus(keyboardEvent.key === 'ArrowUp' ? -1 : 1)
@@ -652,18 +672,31 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
       <div className="visually-hidden" id="timeline-keyboard-help">{t.timeline.keyboardInstructions}</div>
       <div className="filter-bar">
         <span className="filter-label">{t.timeline.filterLabel}</span>
-        <div className="filter-options">
-          {allEventKinds.map((kind) => {
-            const FilterIcon = kindMeta[kind].icon
-            return (
-              <label key={kind} style={{ '--filter-color': kindMeta[kind].color } as React.CSSProperties}>
-                <input type="checkbox" checked={enabledKinds.has(kind)} onChange={() => onToggleKind(kind)} />
-                <FilterIcon className="filter-kind-icon" size={13} />
-                {t.timeline.kinds[kind]}
-              </label>
-            )
-          })}
+        <div ref={filterScrollerRef} className="filter-scroller" role="group" aria-label={t.timeline.filterLabel} tabIndex={0} onScroll={updateFilterScroll}>
+          <div className="filter-options">
+            {allEventKinds.map((kind) => {
+              const FilterIcon = kindMeta[kind].icon
+              return (
+                <label key={kind} style={{ '--filter-color': kindMeta[kind].color } as React.CSSProperties}>
+                  <input type="checkbox" checked={enabledKinds.has(kind)} onChange={() => onToggleKind(kind)} />
+                  <FilterIcon className="filter-kind-icon" size={13} />
+                  {t.timeline.kinds[kind]}
+                </label>
+              )
+            })}
+          </div>
         </div>
+        {(filterScroll.right || filterScroll.left) && (
+          <button
+            type="button"
+            className="filter-scroll-step"
+            aria-label={filterScroll.right ? t.timeline.moreFilters : t.timeline.previousFilters}
+            title={filterScroll.right ? t.timeline.moreFilters : t.timeline.previousFilters}
+            onClick={() => filterScrollerRef.current?.scrollBy({ left: filterScroll.right ? 220 : -220, behavior: 'smooth' })}
+          >
+            {filterScroll.right ? <ChevronRight size={16} aria-hidden="true" /> : <ChevronLeft size={16} aria-hidden="true" />}
+          </button>
+        )}
         <button
           type="button"
           className={`filter-select-all${allSelected ? ' is-all-selected' : ''}`}
@@ -704,7 +737,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
         <GroupedVirtuoso
           ref={virtuosoRef}
           className="timeline-scroll"
-          role="listbox"
+          role="grid"
           aria-label={t.timeline.ariaLabel}
           aria-describedby="timeline-keyboard-help"
           aria-activedescendant={focusedEventId ? `event-row-${focusedEventId}` : undefined}
@@ -721,11 +754,11 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
           groupContent={(groupIndex) => {
             const turn = turns[groupIndex]
             return (
-              <header>
-                <span>{localizeTitle(turn.label)}</span>
-                <span>{t.timeline.turnEvents(turn.events.length)}</span>
+              <header role="row">
+                <span role="gridcell">{localizeTitle(turn.label)}</span>
+                <span role="gridcell">{t.timeline.turnEvents(turn.events.length)}</span>
                 {turn.contextExcludedCount ? (
-                  <span className="turn-context-note">{t.timeline.turnContextExcluded(turn.contextExcludedCount)}</span>
+                  <span role="gridcell" className="turn-context-note">{t.timeline.turnContextExcluded(turn.contextExcludedCount)}</span>
                 ) : null}
               </header>
             )

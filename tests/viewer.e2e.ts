@@ -496,12 +496,13 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   // Labels explain themselves on hover; they are not controls.
   await expect(page.locator('.event-context-mark').first()).toHaveCSS('cursor', 'help')
 
-  // Timeline rows are options in the virtual listbox, with concise accessible
+  // Timeline rows are grid rows in the virtualized view, with concise accessible
   // names. A batch subagent result starts with one aggregate action in its row.
   const rowA11y = await page.evaluate(() => {
     const rows = [...document.querySelectorAll('.event-row')] as HTMLElement[]
     return {
-      allRoleOption: rows.every((row) => row.getAttribute('role') === 'option'),
+      allRoleRow: rows.every((row) => row.getAttribute('role') === 'row'),
+      allHaveCells: rows.every((row) => row.querySelectorAll('[role=gridcell]').length === 2),
       anyNativeButtonRow: rows.some((row) => row.tagName === 'BUTTON'),
       nestedActionButtons: rows.reduce((total, row) => total + row.querySelectorAll('button').length, 0),
       longestName: Math.max(...rows.map((row) => (row.getAttribute('aria-label') ?? '').length)),
@@ -512,13 +513,14 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
       }),
     }
   })
-  expect(rowA11y.allRoleOption).toBe(true)
+  expect(rowA11y.allRoleRow).toBe(true)
+  expect(rowA11y.allHaveCells).toBe(true)
   expect(rowA11y.anyNativeButtonRow).toBe(false)
   expect(rowA11y.nestedActionButtons).toBe(1)
   expect(rowA11y.longestName).toBeLessThan(100)
   expect(rowA11y.namesWithTitle).toBe(true)
 
-  // Keyboard: focus the virtual listbox, move its active option, then select it.
+  // Keyboard: focus the virtual grid, move its active row, then select it.
   await page.locator('#branch-select').focus()
   const timeline = page.locator('.timeline-scroll')
   await timeline.focus()
@@ -613,10 +615,10 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   await expect(actionError).toContainText('The operation failed.')
   await expect(page.locator('.event-row')).toHaveCount(rowsBeforeChildNavigation)
   await expect(page.locator('.load-state.is-error')).toHaveCount(0)
-  await page.getByRole('button', { name: 'EN / 中' }).click()
+  await page.locator('.lang-toggle-button').click()
   await expect(actionError).toContainText('加载子 Agent 会话失败')
   await expect(actionError).toContainText('操作失败。')
-  await page.getByRole('button', { name: 'EN / 中' }).click()
+  await page.locator('.lang-toggle-button').click()
   await expect(actionError).toContainText('Failed to load subagent session')
   await actionError.locator('button').click()
   await expect(actionError).toHaveCount(0)
@@ -648,7 +650,7 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
 test('switches language to Chinese via header toggle and persists preference', async ({ page }) => {
   await page.goto('/#token=dev-token')
   await expect(page.locator('.warning-strip')).toContainText('1 parse warning')
-  const langToggle = page.getByRole('button', { name: 'EN / 中' })
+  const langToggle = page.locator('.lang-toggle-button')
   await expect(langToggle).toBeVisible()
 
   // Toggle language to Chinese
@@ -672,7 +674,7 @@ test('switches language to Chinese via header toggle and persists preference', a
   await expect(page.locator('.content-view').getByRole('button', { name: '复制' })).toHaveText('复制')
 
   // Toggle back to English
-  await page.getByRole('button', { name: 'EN / 中' }).click()
+  await page.locator('.lang-toggle-button').click()
   await expect(page.locator('.warning-strip')).toContainText('1 parse warning')
   await expect(page.locator('.filter-select-all')).toHaveText('Select All')
   const backLocale = await page.evaluate(() => localStorage.getItem('pi_session_viewer_locale'))

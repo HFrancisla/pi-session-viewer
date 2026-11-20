@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { en, type Translations } from './locales/en'
 import { zhCN } from './locales/zh-CN'
+import type { TimelineEvent } from '../core/types'
 
 export type Locale = 'en' | 'zh-CN'
 
@@ -16,6 +17,7 @@ interface I18nContextValue {
   setLocale: (locale: Locale) => void
   t: Translations
   localizeTitle: (title: string) => string
+  localizeSummary: (event: TimelineEvent) => string
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null)
@@ -110,6 +112,38 @@ export function localizeEventTitle(title: string, locale: Locale): string {
   return title
 }
 
+/** Translate only viewer-generated metadata, never the recorded transcript. */
+export function localizeEventSummary(event: Pick<TimelineEvent, 'kind' | 'title' | 'summary'>, locale: Locale): string {
+  const summary = event.summary
+  if (locale !== 'zh-CN') return summary
+  if (event.kind === 'tool-definitions') {
+    const mounted = summary.match(/^Mounted (\d+) API tools$/)
+    return mounted ? `挂载 ${mounted[1]} 个 API 工具` : summary === 'No active API tools' ? '没有启用的 API 工具' : summary
+  }
+  if (event.kind === 'system-prompt') {
+    if (summary === 'Full snapshot') return '完整快照'
+    if (summary === 'Snapshot reference') return '快照引用'
+    if (summary === 'Captured empty effective system prompt') return '已捕获空的有效系统提示词'
+    if (summary === 'No system-prompt capture record is associated with this turn; the reason is unknown.') return '本轮没有关联的系统提示词捕获记录，原因未知'
+    const missing = summary.match(/^Unable to resolve prompt snapshot for hash (.+)$/)
+    if (missing) return `无法解析哈希为 ${missing[1]} 的提示词快照`
+    return summary.split(' · ').map((part) => {
+      const skills = part.match(/^Mounted (\d+) skills?$/)
+      if (skills) return `挂载 ${skills[1]} 个 Skill`
+      const context = part.match(/^(\d+) context files?$/)
+      return context ? `${context[1]} 个上下文文件` : part
+    }).join(' · ')
+  }
+  if (event.kind === 'system' && event.title.startsWith('Pi system context')) {
+    return summary
+      .replace(/^(\d+) prompt sections(?= ·|$)/, '$1 个提示词分区')
+      .replace(/^(\d+) prompt section changes \((\d+) removed\)(?= ·|$)/, '$1 个提示词分区变更（移除 $2 个）')
+      .replace(/Tools: \+(\d+) \/ -(\d+)/, '工具：新增 $1 / 移除 $2')
+  }
+  if (event.kind === 'assistant' && summary === 'No text content') return '没有文本内容'
+  return summary
+}
+
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(() => detectInitialLocale())
 
@@ -128,10 +162,11 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   const t = useMemo(() => translations[locale], [locale])
   const localizeTitle = useCallback((title: string) => localizeEventTitle(title, locale), [locale])
+  const localizeSummary = useCallback((event: TimelineEvent) => localizeEventSummary(event, locale), [locale])
 
   const value = useMemo(
-    () => ({ locale, setLocale, t, localizeTitle }),
-    [locale, setLocale, t, localizeTitle],
+    () => ({ locale, setLocale, t, localizeTitle, localizeSummary }),
+    [locale, setLocale, t, localizeTitle, localizeSummary],
   )
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>

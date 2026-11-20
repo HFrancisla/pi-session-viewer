@@ -4,10 +4,11 @@ import { formatDiffLineTooltip, isVanillaBaselineCompatible, resolvePromptDiff, 
 import { PI_PROMPT_BASELINE_VERSION } from '../../core/pi-defaults'
 import type { TimelineEvent } from '../../core/types'
 import { useI18n } from '../i18n'
+import { useCopyFeedback } from '../use-copy-feedback'
 
 export function PromptDiffView({ event, previousPrompt }: { event: TimelineEvent; previousPrompt?: string }) {
   const { t } = useI18n()
-  const [copied, setCopied] = useState(false)
+  const { copy, status } = useCopyFeedback()
   const hasPreviousPrompt = previousPrompt !== undefined
   const piVersion = event.systemPrompt?.piVersion
   const vanillaCompatible = isVanillaBaselineCompatible(piVersion)
@@ -28,20 +29,14 @@ export function PromptDiffView({ event, previousPrompt }: { event: TimelineEvent
   ), [event.content, event.systemPrompt?.composition, piVersion, event.systemPrompt?.promptBeforeFinalExtensions, previousPrompt, baselineMode])
 
   const handleCopy = async () => {
-    try {
-      const diffText = diffResult.lines
-        .map((l) => {
-          const prefix = l.type === 'added' ? '+ ' : l.type === 'removed' ? '- ' : '  '
-          return `${prefix}${l.text}`
-        })
-        .join('\n')
-      if (diffResult.baselineMode === 'unavailable') return
-      await navigator.clipboard.writeText(diffText)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // ignore clipboard error
-    }
+    if (diffResult.baselineMode === 'unavailable') return
+    const diffText = diffResult.lines
+      .map((l) => {
+        const prefix = l.type === 'added' ? '+ ' : l.type === 'removed' ? '- ' : '  '
+        return `${prefix}${l.text}`
+      })
+      .join('\n')
+    await copy(diffText)
   }
 
   const { addedCount, removedCount, lines } = diffResult
@@ -101,9 +96,10 @@ export function PromptDiffView({ event, previousPrompt }: { event: TimelineEvent
           title={isUnavailable ? vanillaUnavailableMessage : t.inspector.diff.copyDiff}
           disabled={isUnavailable}
         >
-          {copied ? <Check size={13} className="copy-success-icon" /> : <Copy size={13} />}
-          <span>{copied ? t.common.copied : t.inspector.diff.copyDiff}</span>
+          {status === 'success' ? <Check size={13} className="copy-success-icon" /> : <Copy size={13} />}
+          <span>{status === 'success' ? t.common.copied : status === 'error' ? t.common.copyFailed : t.inspector.diff.copyDiff}</span>
         </button>
+        {status !== 'idle' && <span role="status" className="visually-hidden">{status === 'success' ? t.common.copied : t.common.copyFailed}</span>}
       </div>
 
       {isUnavailable ? (

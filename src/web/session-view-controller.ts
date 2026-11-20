@@ -118,6 +118,7 @@ export type SessionViewIntent<FileHandle = unknown> =
   | { type: 'ensure-event-kind'; kind: EventKind }
   | { type: 'acknowledge-timeline-restore'; key: number }
   | { type: 'dismiss-action-error' }
+  | { type: 'dismiss-load-error' }
 
 export interface SessionViewControllerDependencies<FileHandle = unknown> {
   readServerSession(token: string): Promise<SessionFileResponse>
@@ -815,6 +816,7 @@ export function createSessionViewController<FileHandle = unknown>(
         if (snapshot.restoreIntent?.key === intent.key) update({ restoreIntent: null })
         return
       case 'dismiss-action-error': update({ actionError: null }); return
+      case 'dismiss-load-error': update({ loadError: null }); return
     }
   }
 

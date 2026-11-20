@@ -182,9 +182,9 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   const timestampedEvent = page.locator('.event-row[data-event-id="synthetic-user-0:user"]')
   const eventClockLabel = (await timestampedEvent.locator('.event-time > span').innerText()).trim()
   await expect(timestampedEvent).toHaveAttribute('aria-label', new RegExp(`at ${eventClockLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
-  await page.getByRole('button', { name: 'EN / 中' }).click()
+  await page.locator('.lang-toggle-button').click()
   await expect(timestampedEvent).toHaveAttribute('aria-label', new RegExp(`时间 ${eventClockLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
-  await page.getByRole('button', { name: 'EN / 中' }).click()
+  await page.locator('.lang-toggle-button').click()
 
   const initialMountedCount = await rows.count()
   const firstRenderMs = performance.now() - navigationStartedAt
@@ -213,7 +213,7 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   await page.locator('#branch-select').focus()
   await expect(page.locator('#branch-select')).toBeFocused()
   await page.keyboard.press('Tab')
-  const timelineList = page.getByRole('listbox', { name: 'Session timeline' })
+  const timelineList = page.getByRole('grid', { name: 'Session timeline' })
   await expect(timelineList).toBeFocused()
   await expect(timelineList).toHaveAttribute('aria-activedescendant', `event-row-${firstEventId}`)
   await page.keyboard.press('Enter')

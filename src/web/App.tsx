@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowLeft, Bot, Clock3, Copy, Menu, PanelRightOpen, RefreshCw, Rows3, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Bot, Clock3, Copy, FolderOpen, Menu, PanelRightOpen, RefreshCw, Rows3, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { fetchSession, fetchSessions, resolveSession } from './api'
 import { Inspector } from './components/Inspector'
@@ -10,6 +10,7 @@ import { buildSessionView } from '../core/session-view'
 import { browserAccessToken, browserInitialCwd } from './session-auth'
 import { sessionCache } from './session-cache'
 import { createSessionViewController } from './session-view-controller'
+import { useCopyFeedback } from './use-copy-feedback'
 import type {
   EventKind,
   SessionListItem,
@@ -19,52 +20,40 @@ import type {
 import { useI18n } from './i18n'
 
 const initialCatalogLoadControllers = new WeakSet<object>()
+const compactQuery = '(max-width: 1024px)'
 
-async function copyTextToClipboard(text: string) {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-      return
-    } catch {
-      // Fall back for browsers that expose the API but deny access in this context.
-    }
-  }
+function subscribeToCompactScreen(onChange: () => void) {
+  const media = window.matchMedia(compactQuery)
+  media.addEventListener('change', onChange)
+  return () => media.removeEventListener('change', onChange)
+}
 
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.appendChild(textarea)
-  textarea.select()
-  const copied = document.execCommand('copy')
-  textarea.remove()
-  if (!copied) throw new Error('Clipboard access is unavailable')
+function isCompactScreen() {
+  return window.matchMedia(compactQuery).matches
 }
 
 function CopySessionPathButton({ path }: { path: string }) {
   const { t } = useI18n()
-
-  const copyPath = async () => {
-    if (!path) return
-    try {
-      await copyTextToClipboard(path)
-    } catch {
-      // The browser may deny clipboard access; keep the control available without claiming success.
-    }
-  }
+  const { copy, status } = useCopyFeedback()
 
   return (
-    <button
-      type="button"
-      className="icon-button header-path-copy"
-      onClick={() => void copyPath()}
-      disabled={!path}
-      title={path || t.header.copySessionPath}
-      aria-label={t.header.copySessionPath}
-    >
-      <Copy size={14} />
-    </button>
+    <>
+      <button
+        type="button"
+        className="icon-button header-path-copy"
+        onClick={() => { if (path) void copy(path) }}
+        disabled={!path}
+        title={path || t.header.copySessionPath}
+        aria-label={t.header.copySessionPath}
+      >
+        <Copy size={14} />
+      </button>
+      {status !== 'idle' && (
+        <span role="status" className={`copy-status-toast${status === 'error' ? ' is-error' : ''}`}>
+          {status === 'success' ? t.common.copiedTooltip : t.common.copyFailed}
+        </span>
+      )}
+    </>
   )
 }
 
@@ -97,11 +86,69 @@ function measurePerformance<T>(name: string, work: () => T): T {
 
 function App() {
   const { t, locale, setLocale } = useI18n()
+  const compactScreen = useSyncExternalStore(subscribeToCompactScreen, isCompactScreen, () => false)
   const [accessToken] = useState<string | null>(() => browserAccessToken())
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const timelineRef = useRef<TimelineHandle>(null)
+  const drawerReturnFocusRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (!compactScreen) {
+      setSidebarOpen(false)
+      setInspectorOpen(false)
+    }
+  }, [compactScreen])
+
+  const activeDrawer = compactScreen ? sidebarOpen ? 'sidebar' : inspectorOpen ? 'inspector' : null : null
+  useEffect(() => {
+    if (!activeDrawer) return
+    const panel = document.querySelector<HTMLElement>(activeDrawer === 'sidebar' ? '.sidebar-layer' : '.inspector')
+    if (!panel) return
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const fallback = document.querySelector<HTMLElement>(
+      activeDrawer === 'sidebar' ? '.app-header > .mobile-only' : '.header-actions .mobile-only',
+    )
+    panel.querySelector<HTMLElement>(activeDrawer === 'sidebar' ? '.sidebar-close' : '.inspector-close')?.focus()
+
+    const onDrawerKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setSidebarOpen(false)
+        setInspectorOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), select:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => element.getClientRects().length > 0 && !element.closest('[inert]'))
+      if (!focusable.length) {
+        event.preventDefault()
+        panel.focus()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && (document.activeElement === first || !panel.contains(document.activeElement))) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (document.activeElement === last || !panel.contains(document.activeElement))) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onDrawerKeyDown, true)
+    return () => {
+      document.removeEventListener('keydown', onDrawerKeyDown, true)
+      const opener = drawerReturnFocusRef.current
+      const target = opener?.isConnected && !opener.closest('[inert]')
+        ? opener
+        : previousFocus?.isConnected && !previousFocus.closest('[inert]') ? previousFocus : fallback
+      target?.focus()
+      drawerReturnFocusRef.current = null
+    }
+  }, [activeDrawer])
 
   const [controller] = useState(() => createSessionViewController<File>({
     readServerSession: async (token) => {
@@ -183,6 +230,7 @@ function App() {
 
   const openSubagent = useCallback((reference: SubagentReference, sourceEventId?: string) => {
     const viewport = timelineRef.current?.getViewport() ?? null
+    setInspectorOpen(false)
     void controller.dispatch({ type: 'open-subagent', reference, sourceEventId, viewport })
   }, [controller])
 
@@ -196,19 +244,25 @@ function App() {
     void controller.dispatch({ type: 'import', source: { name: file.name, file } })
   }, [controller])
 
-  const selectEvent = useCallback((event: TimelineEvent) => {
+  const selectEvent = useCallback((event: TimelineEvent, showDetails = true) => {
     void controller.dispatch({ type: 'select-event', eventId: event.id })
-    setInspectorOpen(true)
-  }, [controller])
+    if (compactScreen && showDetails) {
+      if (!inspectorOpen) drawerReturnFocusRef.current = document.querySelector<HTMLElement>('.timeline-scroll')
+      setInspectorOpen(true)
+    }
+  }, [compactScreen, controller, inspectorOpen])
 
   const jumpToSelectedEvent = useCallback(() => {
-    if (selectedEvent) void controller.dispatch({ type: 'jump-to-event', eventId: selectedEvent.id })
-  }, [controller, selectedEvent])
+    if (selectedEvent) {
+      void controller.dispatch({ type: 'jump-to-event', eventId: selectedEvent.id })
+      if (compactScreen) setInspectorOpen(false)
+    }
+  }, [compactScreen, controller, selectedEvent])
 
   const jumpToEntry = useCallback((entryId: string) => {
     void controller.dispatch({ type: 'jump-to-entry', entryId })
-    setInspectorOpen(true)
-  }, [controller])
+    if (compactScreen) setInspectorOpen(false)
+  }, [compactScreen, controller])
 
   const errorMessage = (error: NonNullable<typeof sessionState.loadError>) => {
     switch (error.code) {
@@ -223,12 +277,13 @@ function App() {
     ? t.header.failedToLoadSubagent(errorMessage(sessionState.actionError))
     : null
   const displayError = loadError ?? (!accessToken && !importedFile ? t.header.missingToken : null)
+  const blockingError = parsedSession && view ? null : displayError
   const title = sessionState.sessionTitle ?? t.header.selectSession
 
   return (
     <div className="app-shell">
-      <header className="app-header">
-        <button className="icon-button mobile-only" type="button" onClick={() => { setInspectorOpen(false); setSidebarOpen(true) }} title={t.header.openSidebar} aria-label={t.header.openSidebar}>
+      <header className="app-header" inert={Boolean(activeDrawer)}>
+        <button className="icon-button mobile-only" type="button" onClick={(event) => { drawerReturnFocusRef.current = event.currentTarget; setInspectorOpen(false); setSidebarOpen(true) }} title={t.header.openSidebar} aria-label={t.header.openSidebar}>
           <Menu size={19} />
         </button>
         <div className="product-mark" aria-label={t.common.productName}>
@@ -270,8 +325,8 @@ function App() {
             type="button"
             className="lang-toggle-button"
             onClick={() => setLocale(locale === 'en' ? 'zh-CN' : 'en')}
-            title={locale === 'en' ? '切换为简体中文' : 'Switch to English'}
-            aria-label="EN / 中"
+            title={locale === 'en' ? t.header.switchToChinese : t.header.switchToEnglish}
+            aria-label={locale === 'en' ? t.header.switchToChinese : t.header.switchToEnglish}
           >
             <span className={locale === 'en' ? 'active' : ''}>EN</span>
             <span className="lang-separator">/</span>
@@ -287,14 +342,21 @@ function App() {
           >
             <RefreshCw className={sessionLoading || catalog.loading ? 'spin' : ''} size={18} />
           </button>
-          <button className="icon-button mobile-only" type="button" onClick={() => { setSidebarOpen(false); setInspectorOpen(true) }} title={t.header.openInspector} aria-label={t.header.openInspector}>
+          <button className="icon-button mobile-only" type="button" onClick={(event) => { drawerReturnFocusRef.current = event.currentTarget; setSidebarOpen(false); setInspectorOpen(true) }} title={t.header.openInspector} aria-label={t.header.openInspector}>
             <PanelRightOpen size={19} />
           </button>
         </div>
       </header>
 
       <div className="workspace">
-        <div className={`sidebar-layer${sidebarOpen ? ' is-open' : ''}`}>
+        <div
+          className={`sidebar-layer${sidebarOpen ? ' is-open' : ''}`}
+          inert={compactScreen && !sidebarOpen}
+          role={activeDrawer === 'sidebar' ? 'dialog' : undefined}
+          aria-modal={activeDrawer === 'sidebar' ? true : undefined}
+          aria-label={activeDrawer === 'sidebar' ? t.sidebar.heading : undefined}
+          tabIndex={-1}
+        >
           <SessionSidebar
             projects={catalog.projects}
             sessions={catalog.sessions}
@@ -309,18 +371,43 @@ function App() {
             onProjectFilterChange={(cwd) => void controller.dispatch({ type: 'set-project-filter', cwd })}
             onSelect={openServerSession}
             onImport={() => fileInput.current?.click()}
+            onClose={() => setSidebarOpen(false)}
           />
         </div>
 
-        <main className="main-stage">
-          {displayError ? (
+        <main className="main-stage" inert={Boolean(activeDrawer)}>
+          {parsedSession && view && (
+            <div className="mobile-session-heading">
+              <strong>{title}</strong>
+              <CopySessionPathButton path={fullJsonlPath} />
+            </div>
+          )}
+          {blockingError ? (
             <div className="load-state is-error" role="alert">
               <AlertCircle size={28} />
-              <h1>{t.overview.failedToOpen}</h1>
-              <p>{displayError}</p>
+              <h1>{!loadError && !accessToken && !importedFile ? t.overview.missingAccessTitle : t.overview.failedToOpen}</h1>
+              <p>{blockingError}</p>
+              {!accessToken && !importedFile && (
+                <div className="load-state-actions">
+                  <span>{t.overview.offlineImportHint}</span>
+                  <button type="button" className="empty-import-button" onClick={() => fileInput.current?.click()}>
+                    <FolderOpen size={16} aria-hidden="true" />
+                    {t.sidebar.openJsonl}
+                  </button>
+                </div>
+              )}
             </div>
           ) : parsedSession && view ? (
             <>
+              {loadError && (
+                <div className="action-error-strip" role="alert">
+                  <AlertCircle size={14} />
+                  <span>{t.overview.failedToOpen}: {loadError}</span>
+                  <button type="button" onClick={() => void controller.dispatch({ type: 'dismiss-load-error' })} aria-label={t.common.dismiss}>
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
               {actionError && (
                 <div className="action-error-strip" role="alert">
                   <AlertCircle size={14} />
@@ -368,13 +455,14 @@ function App() {
           event={selectedEvent}
           previousPrompt={previousPrompt}
           mobileOpen={inspectorOpen}
+          compactScreen={compactScreen}
           onClose={() => setInspectorOpen(false)}
           onJumpToEvent={jumpToSelectedEvent}
           onJumpToEntry={jumpToEntry}
         />
       </div>
 
-      {(sidebarOpen || inspectorOpen) && <button className="mobile-backdrop" type="button" onClick={() => { setSidebarOpen(false); setInspectorOpen(false) }} aria-label={t.header.closeOverlay} />}
+      {activeDrawer && <button className="mobile-backdrop" tabIndex={-1} type="button" onClick={() => { setSidebarOpen(false); setInspectorOpen(false) }} aria-label={t.header.closeOverlay} />}
 
       <input
         ref={fileInput}

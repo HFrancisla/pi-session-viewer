@@ -1,5 +1,5 @@
-import { FileJson2, FolderOpen, LoaderCircle, MessageSquareText } from 'lucide-react'
-import { forwardRef, useMemo } from 'react'
+import { ChevronDown, FileJson2, FolderOpen, LoaderCircle, MessageSquareText, X } from 'lucide-react'
+import { forwardRef, useMemo, useRef, type KeyboardEvent } from 'react'
 import { Virtuoso, type Components, type ScrollerProps } from 'react-virtuoso'
 import type { ProjectSummary, SessionListItem } from '../../core/types'
 import { normalizePath } from '../../core/path'
@@ -38,6 +38,7 @@ interface SessionSidebarProps {
   onProjectFilterChange: (cwd: string | null) => void
   onSelect: (session: SessionListItem) => void
   onImport: () => void
+  onClose: () => void
 }
 
 export function SessionSidebar({
@@ -54,6 +55,7 @@ export function SessionSidebar({
   onProjectFilterChange,
   onSelect,
   onImport,
+  onClose,
 }: SessionSidebarProps) {
   const { t, localizeTitle } = useI18n()
 
@@ -68,6 +70,21 @@ export function SessionSidebar({
   }, [projects, effectiveCurrentCwd])
 
   const currentProjectCount = currentProject?.count ?? 0
+  const scopeTabRefs = useRef<Record<'current' | 'all', HTMLButtonElement | null>>({ current: null, all: null })
+
+  const handleScopeKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const next = event.key === 'Home'
+      ? 'current'
+      : event.key === 'End'
+        ? 'all'
+        : event.key === 'ArrowRight'
+          ? (scopeMode === 'current' ? 'all' : 'current')
+          : (scopeMode === 'all' ? 'current' : 'all')
+    onScopeModeChange(next)
+    scopeTabRefs.current[next]?.focus()
+  }
 
   const filteredSessions = useMemo(() => {
     if (scopeMode === 'current') {
@@ -96,25 +113,37 @@ export function SessionSidebar({
           </p>
         </div>
         {loading && <LoaderCircle className="spin" size={18} aria-label={t.common.loading} />}
+        <button className="icon-button mobile-only sidebar-close" type="button" onClick={onClose} title={t.header.closeSidebar} aria-label={t.header.closeSidebar}>
+          <X size={18} />
+        </button>
       </div>
 
       <div className="sidebar-scope" aria-label={t.sidebar.scopeSwitcher}>
-        <div className="scope-tabs" role="tablist">
+        <div className="scope-tabs" role="tablist" aria-label={t.sidebar.scopeSwitcher} onKeyDown={handleScopeKeys}>
           <button
+            ref={(element) => { scopeTabRefs.current.current = element }}
+            id="sidebar-scope-current"
             className={`scope-tab${scopeMode === 'current' ? ' is-active' : ''}`}
             type="button"
             role="tab"
+            aria-label={t.sidebar.scopeCurrent(currentProjectCount)}
             aria-selected={scopeMode === 'current'}
+            aria-controls="sidebar-sessions-panel"
+            tabIndex={scopeMode === 'current' ? 0 : -1}
             onClick={() => onScopeModeChange('current')}
             title={t.sidebar.scopeCurrentTooltip(effectiveCurrentCwd)}
           >
-            {t.sidebar.scopeCurrent(currentProjectCount)}
+            {t.sidebar.scopeCurrentCompact(currentProjectCount)}
           </button>
           <button
+            ref={(element) => { scopeTabRefs.current.all = element }}
+            id="sidebar-scope-all"
             className={`scope-tab${scopeMode === 'all' ? ' is-active' : ''}`}
             type="button"
             role="tab"
             aria-selected={scopeMode === 'all'}
+            aria-controls="sidebar-sessions-panel"
+            tabIndex={scopeMode === 'all' ? 0 : -1}
             onClick={() => onScopeModeChange('all')}
             title={t.sidebar.scopeAllTooltip}
           >
@@ -142,54 +171,67 @@ export function SessionSidebar({
         )}
       </div>
 
-      {warnings.length > 0 && (
-        <div className="sidebar-warning" role="status">{warnings[0]}</div>
+      {warnings.length === 1 && <div className="sidebar-warning" role="status">{warnings[0]}</div>}
+      {warnings.length > 1 && (
+        <details className="sidebar-warning sidebar-warning-list">
+          <summary>{t.sidebar.warningsSummary(warnings.length)}<ChevronDown size={14} aria-hidden="true" /></summary>
+          <ul>{warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+        </details>
       )}
 
-      <Virtuoso
-        style={{ height: '100%' }}
-        data={filteredSessions}
-        context={{ label: t.sidebar.heading }}
-        components={{ Scroller: SessionListScroller }}
-        computeItemKey={(_, session) => session.token}
-        defaultItemHeight={61}
-        overscan={160}
-        itemContent={(_, session) => (
-          <button
-            className={`session-item${selectedToken === session.token ? ' is-selected' : ''}`}
-            type="button"
-            onClick={() => onSelect(session)}
-            aria-current={selectedToken === session.token ? 'page' : undefined}
-            title={session.cwd || undefined}
-          >
-            <MessageSquareText size={17} aria-hidden="true" />
-            <span className="session-item-copy">
-              <strong>{session.title}</strong>
-              <span>
-                {formatDateTime(session.timestamp ?? session.modifiedAt)}
-                {scopeMode === 'all' && session.projectName ? ` · ${localizeTitle(session.projectName)}` : ''}
-              </span>
-            </span>
-          </button>
+      <div
+        className="sidebar-sessions-panel"
+        id="sidebar-sessions-panel"
+        role="tabpanel"
+        aria-labelledby={scopeMode === 'current' ? 'sidebar-scope-current' : 'sidebar-scope-all'}
+      >
+        {(loading || filteredSessions.length > 0) && (
+          <Virtuoso
+            style={{ height: '100%' }}
+            data={filteredSessions}
+            context={{ label: t.sidebar.heading }}
+            components={{ Scroller: SessionListScroller }}
+            computeItemKey={(_, session) => session.token}
+            defaultItemHeight={64}
+            overscan={160}
+            itemContent={(_, session) => (
+              <button
+                className={`session-item${selectedToken === session.token ? ' is-selected' : ''}`}
+                type="button"
+                onClick={() => onSelect(session)}
+                aria-current={selectedToken === session.token ? 'page' : undefined}
+                title={session.cwd || undefined}
+              >
+                <MessageSquareText size={17} aria-hidden="true" />
+                <span className="session-item-copy">
+                  <strong>{session.title}</strong>
+                  <span>
+                    {formatDateTime(session.timestamp ?? session.modifiedAt)}
+                    {scopeMode === 'all' && session.projectName ? ` · ${localizeTitle(session.projectName)}` : ''}
+                  </span>
+                </span>
+              </button>
+            )}
+          />
         )}
-      />
 
-      {!loading && filteredSessions.length === 0 && sessions.length > 0 && scopeMode === 'current' && (
-        <div className="sidebar-empty">
-          <FileJson2 size={22} />
-          <p>{t.sidebar.emptyCurrent}</p>
-          <button className="text-link-button" type="button" onClick={() => onScopeModeChange('all')}>
-            {t.sidebar.viewAllProjectsButton(sessions.length)}
-          </button>
-        </div>
-      )}
+        {!loading && filteredSessions.length === 0 && sessions.length > 0 && scopeMode === 'current' && (
+          <div className="sidebar-empty">
+            <FileJson2 size={22} />
+            <p>{t.sidebar.emptyCurrent}</p>
+            <button className="text-link-button" type="button" onClick={() => onScopeModeChange('all')}>
+              {t.sidebar.viewAllProjectsButton(sessions.length)}
+            </button>
+          </div>
+        )}
 
-      {!loading && sessions.length === 0 && (
-        <div className="sidebar-empty">
-          <FileJson2 size={22} />
-          <p>{t.sidebar.emptyAll}</p>
-        </div>
-      )}
+        {!loading && sessions.length === 0 && (
+          <div className="sidebar-empty">
+            <FileJson2 size={22} />
+            <p>{t.sidebar.emptyAll}</p>
+          </div>
+        )}
+      </div>
 
       <div className="sidebar-footer">
         <button className="import-button" type="button" onClick={onImport}>
