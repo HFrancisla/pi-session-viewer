@@ -15,6 +15,7 @@ import { truncate } from './format'
 import { sanitizeToolForApi } from './tool-provenance'
 import { extractSubagentReferences, normalizeSessionRelativePath, subagentReferencesAlias, workflowChildTranscriptPath } from './subagent-detector'
 import { getPath } from './session-parser'
+import { isPromptCaptureEntry, readCurrentPromptCapture } from './prompt-capture-record'
 
 function isObject(value: unknown): value is RawObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -213,8 +214,6 @@ function messageEvents(entry: ParsedEntry, sourceName?: string, isInitialSystemM
   return events
 }
 
-const SYSTEM_PROMPT_CUSTOM_TYPE = 'pi-session-viewer.system-prompt'
-
 type PromptSnapshotData = RawObject
 
 function stringArray(value: unknown): string[] {
@@ -278,16 +277,17 @@ function promptComposition(value: unknown): SystemPromptComposition | undefined 
 function collectPromptSnapshots(entries: ParsedEntry[]): Map<string, PromptSnapshotData> {
   const snapshots = new Map<string, PromptSnapshotData>()
   for (const entry of entries) {
-    if (entry.type !== 'custom' || entry.raw.customType !== SYSTEM_PROMPT_CUSTOM_TYPE || !isObject(entry.raw.data)) continue
-    const hash = stringValue(entry.raw.data.promptHash)
-    if (hash && typeof entry.raw.data.prompt === 'string') snapshots.set(hash, entry.raw.data)
+    const data = readCurrentPromptCapture(entry.raw)
+    if (!data) continue
+    const hash = stringValue(data.promptHash)
+    if (hash && typeof data.prompt === 'string') snapshots.set(hash, data)
   }
   return snapshots
 }
 
 function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotData>): TimelineEvent | undefined {
-  if (entry.type !== 'custom' || entry.raw.customType !== SYSTEM_PROMPT_CUSTOM_TYPE || !isObject(entry.raw.data)) return undefined
-  const data = entry.raw.data
+  const data = readCurrentPromptCapture(entry.raw)
+  if (!data) return undefined
   const hash = stringValue(data.promptHash)
   const snapshot = typeof data.prompt === 'string' ? data : hash ? snapshots.get(hash) : undefined
   const prompt = typeof snapshot?.prompt === 'string' ? snapshot.prompt : undefined
@@ -334,7 +334,7 @@ function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, Pr
       promptBeforeFinalExtensions: stringValue(snapshot?.promptBeforeFinalExtensions),
       capturedAt: stringValue(data.capturedAt),
       sequence: typeof data.sequence === 'number' ? data.sequence : undefined,
-      piVersion: stringValue(data.piVersion) ?? stringValue(snapshot?.piVersion),
+      piVersion: stringValue(data.piVersion),
       model: modelValue ? { provider: stringValue(modelValue.provider), id: stringValue(modelValue.id) } : undefined,
     },
     model: modelValue ? { provider: stringValue(modelValue.provider), id: stringValue(modelValue.id) } : undefined,
@@ -423,6 +423,8 @@ function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotD
     return list
   }
 
+  if (isPromptCaptureEntry(entry.raw)) return []
+
   const raw = entry.raw
   const usageKind = entry.type === 'usage' ? stringValue(raw.kind) : undefined
   const labels: Record<string, string> = {
@@ -461,12 +463,13 @@ function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotD
   }]
 }
 
-function pairTools(events: TimelineEvent[], sourceName?: string): void {
+function pairTools(events: TimelineEvent[], sourceName?: string, resetBefore = new Set<string>()): void {
   const calls = new Map<string, TimelineEvent>()
   const toolDefs = new Map<string, CapturedToolDefinition>()
   let previousTimestamp: number | undefined
 
   for (const event of events) {
+    if (resetBefore.has(event.id)) toolDefs.clear()
     // Tool schemas belong to the active prompt at this point in the transcript.
     // A later Pi run can redefine a tool with the same name; never apply its
     // definition retrospectively to an earlier invocation.
@@ -631,8 +634,8 @@ function missingSystemPromptEvent(user: TimelineEvent): TimelineEvent {
     entryId: `missing-system-prompt:${user.entryId}`,
     kind: 'system-prompt',
     title: 'System prompt unrecorded',
-    summary: 'No system-prompt capture record is associated with this turn; the reason is unknown.',
-    content: 'This Pi session contains no captured system prompt associated with this turn. This does not establish whether the run had no system prompt or why capture is absent. Historical prompts are never reconstructed from current configuration.',
+    summary: 'No supported system-prompt capture is associated with this turn.',
+    content: 'No supported system-prompt capture is available for this turn. Only captures from the verified Pi version are analyzed; this does not establish whether the run had no system prompt. Prompts are never reconstructed from current configuration.',
     timestamp: user.timestamp,
     targetEntryId: user.entryId,
     systemPrompt: { recordType: 'missing' },
@@ -926,10 +929,23 @@ export function buildSessionView(
     && isObject(entry.raw.message)
     && entry.raw.message.role === 'system'
   ))?.id
-  const rawEvents = branchEntries.flatMap((entry) => entry.type === 'message'
-    ? messageEvents(entry, session.sourceName, entry.id === firstSystemMessageId)
-    : systemEvents(entry, snapshots))
-  pairTools(rawEvents, session.sourceName)
+  const resetToolDefinitionsBefore = new Set<string>()
+  let resetToolDefinitions = false
+  const rawEvents = branchEntries.flatMap((entry) => {
+    if (isPromptCaptureEntry(entry.raw) && !readCurrentPromptCapture(entry.raw)) {
+      resetToolDefinitions = true
+      return []
+    }
+    const events = entry.type === 'message'
+      ? messageEvents(entry, session.sourceName, entry.id === firstSystemMessageId)
+      : systemEvents(entry, snapshots)
+    if (resetToolDefinitions && events.length > 0) {
+      resetToolDefinitionsBefore.add(events[0].id)
+      resetToolDefinitions = false
+    }
+    return events
+  })
+  pairTools(rawEvents, session.sourceName, resetToolDefinitionsBefore)
   linkAsyncSubagentNotifications(rawEvents, session.sourceName)
   const events = placeSystemPromptsBeforeUsers(rawEvents)
   applyContextProjection(events, contextProjection)

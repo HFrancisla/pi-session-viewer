@@ -4,7 +4,7 @@ import type { CapturedToolDefinition } from '../core/types'
 import { sanitizeToolForApi } from '../core/tool-provenance'
 import { resolvePiVersion } from '../server/pi-runtime'
 
-export const SYSTEM_PROMPT_ENTRY_TYPE = 'pi-session-viewer.system-prompt'
+import { SYSTEM_PROMPT_ENTRY_TYPE, readCurrentPromptCapture, isCurrentPromptVersion } from '../core/prompt-capture-record'
 
 interface PendingCapture {
   messageType: 'user' | 'custom'
@@ -174,10 +174,11 @@ export default function systemPromptCapture(pi: ExtensionAPI): void {
     pending = undefined
     lastRecordedHash.value = undefined
     lastRecordedHash.toolDefinitionsHash = undefined
+    // Do not reuse a snapshot written by an unsupported Pi version after an upgrade.
+    if (!isCurrentPromptVersion(resolvePiVersion())) return
     for (const entry of ctx.sessionManager.getEntries()) {
-      if (entry.type !== 'custom' || entry.customType !== SYSTEM_PROMPT_ENTRY_TYPE) continue
-      const data = entry.data
-      if (!data || typeof data !== 'object') continue
+      const data = readCurrentPromptCapture(entry)
+      if (!data) continue
       if ('promptHash' in data && typeof data.promptHash === 'string' && 'prompt' in data && typeof data.prompt === 'string') {
         knownPromptHashes.add(data.promptHash)
       }

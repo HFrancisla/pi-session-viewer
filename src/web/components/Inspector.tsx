@@ -100,11 +100,11 @@ function PromptCompositionView({ prompt, composition }: {
   const { t, localizeTitle } = useI18n()
   const sections = parseSystemPromptSections(prompt, composition)
 
-  if (sections.format === 'unknown' || sections.format === 'opaque') {
+  if (sections.format === 'opaque') {
     return (
       <div className="prompt-composition">
         <p className="prompt-format-note">
-          {sections.format === 'opaque' ? t.inspector.opaquePrompt : t.inspector.unstructuredPrompt}
+          {t.inspector.opaquePrompt}
         </p>
         <div className="content-body-wrap event--system-prompt"><pre>{prompt}</pre></div>
       </div>

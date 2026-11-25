@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseSessionJsonl } from './session-parser'
 import { buildSessionView, primaryEventForEntry } from './session-view'
 import type { ContextProjection } from './types'
+import { PI_PROMPT_BASELINE_VERSION } from './pi-defaults'
 
 function jsonl(...lines: unknown[]): string {
   return lines.map((line) => typeof line === 'string' ? line : JSON.stringify(line)).join('\n')
@@ -63,7 +64,7 @@ describe('buildSessionView', () => {
     ])
     expect(view.events[0]).toMatchObject({
       title: 'System prompt unrecorded',
-      summary: 'No system-prompt capture record is associated with this turn; the reason is unknown.',
+      summary: 'No supported system-prompt capture is associated with this turn.',
       targetEntryId: 'u1',
       systemPrompt: { recordType: 'missing' },
     })
@@ -110,7 +111,7 @@ describe('buildSessionView', () => {
         parentId: null,
         timestamp: '2026-01-01T10:00:00.500Z',
         data: {
-          schemaVersion: 1,
+          schemaVersion: 1, piVersion: PI_PROMPT_BASELINE_VERSION,
           promptHash: 'empty-hash',
           promptLength: 0,
           recordType: 'snapshot',
@@ -143,7 +144,7 @@ describe('buildSessionView', () => {
         parentId: null,
         timestamp: '2026-01-01T10:00:00.500Z',
         data: {
-          schemaVersion: 1,
+          schemaVersion: 1, piVersion: PI_PROMPT_BASELINE_VERSION,
           promptHash: 'missing-hash',
           promptLength: 42,
           recordType: 'reference',
@@ -163,6 +164,47 @@ describe('buildSessionView', () => {
       systemPrompt: { recordType: 'reference', promptHash: 'missing-hash', promptLength: 42 },
     })
     expect(promptEvent?.content).toContain('not in the current session file')
+  })
+
+  it('ignores unsupported snapshots and references without altering branch topology', () => {
+    const timestamp = '2026-01-01T10:00:01.000Z'
+    const capture = (id: string, parentId: string | null, data: Record<string, unknown>) => ({
+      type: 'custom', customType: 'pi-session-viewer.system-prompt', id, parentId, timestamp,
+      data: { schemaVersion: 1, ...data },
+    })
+    const version = PI_PROMPT_BASELINE_VERSION
+    const supported = 'Current prompt\n\n<cwd>\n/work/demo\n</cwd>'
+    const source = jsonl(header,
+      capture('old', null, { prompt: 'Old text', promptHash: 'old-only', piVersion: '1.5.0', targetUserEntryId: 'u1',
+        composition: { toolDefinitions: [{ name: 'bash', description: 'Legacy tool' }] } }),
+      capture('unversioned', 'old', { prompt: 'Unversioned text', promptHash: 'same', targetUserEntryId: 'u1' }),
+      entry('u1', 'unversioned', timestamp, { role: 'user', content: 'First turn' }),
+      capture('old-ref', 'u1', { recordType: 'reference', promptHash: 'same', piVersion: '1.5.0', targetUserEntryId: 'u1' }),
+      entry('a1', 'old-ref', timestamp, { role: 'assistant', content: [{ type: 'toolCall', id: 'call1', name: 'bash', arguments: {} }] }),
+      capture('current', 'a1', { prompt: supported, promptHash: 'same', piVersion: version, targetUserEntryId: 'u2',
+        composition: { toolDefinitions: [{ name: 'bash', description: 'Current tool' }] } }),
+      entry('u2', 'current', timestamp, { role: 'user', content: 'Second turn' }),
+      entry('a2', 'u2', timestamp, { role: 'assistant', content: [{ type: 'toolCall', id: 'call2', name: 'bash', arguments: {} }] }),
+      capture('future', 'a2', { prompt: 'Future text', promptHash: 'same', piVersion: '999.0.0', targetUserEntryId: 'u3' }),
+      entry('u3', 'future', timestamp, { role: 'user', content: 'Third turn' }),
+      entry('a3', 'u3', timestamp, { role: 'assistant', content: [{ type: 'toolCall', id: 'call3', name: 'bash', arguments: {} }] }),
+      capture('current-ref', 'a3', { recordType: 'reference', promptHash: 'same', piVersion: version, targetUserEntryId: 'u4' }),
+      entry('u4', 'current-ref', timestamp, { role: 'user', content: 'Fourth turn' }),
+      capture('dangling-ref', 'u4', { recordType: 'reference', promptHash: 'old-only', piVersion: version, targetUserEntryId: 'u5' }),
+      entry('u5', 'dangling-ref', timestamp, { role: 'user', content: 'Fifth turn' }),
+    )
+    const view = buildSessionView(parseSessionJsonl(source))
+    expect(view.branchEntries.map((record) => record.id)).toContain('old')
+    expect(view.events.map((event) => event.entryId)).not.toEqual(expect.arrayContaining(['old', 'unversioned', 'old-ref', 'future']))
+    for (const id of ['old', 'unversioned', 'old-ref', 'future']) {
+      expect(view.events.some((event) => event.entryId === id)).toBe(false)
+    }
+    expect(view.events.filter((event) => event.kind === 'user')).toHaveLength(5)
+    expect(view.events.find((event) => event.entryId === 'current' && event.kind === 'system-prompt')?.content).toBe(supported)
+    expect(view.events.find((event) => event.entryId === 'dangling-ref')?.title).toBe('System prompt missing')
+    expect(view.events.filter((event) => event.kind === 'tool-call').map((event) => event.toolDefinition?.description))
+      .toEqual([undefined, 'Current tool', undefined])
+    expect(view.events.filter((event) => event.kind === 'tool-definitions').every((event) => event.systemPrompt?.piVersion === version)).toBe(true)
   })
 
   it('renders native Pi system snapshots and append-only prompt/tool patches', () => {
@@ -224,7 +266,7 @@ describe('buildSessionView', () => {
   it('only displays system prompt on the first turn unless the prompt changes in subsequent turns', () => {
     const promptData = {
       schemaVersion: 1,
-      piVersion: '1.6.0',
+      piVersion: PI_PROMPT_BASELINE_VERSION,
       promptHash: 'hash-1',
       promptLength: 21,
       composition: {
@@ -268,7 +310,7 @@ describe('buildSessionView', () => {
     expect(promptEvents[0]).toMatchObject({
       title: 'System prompt',
       targetEntryId: 'u1',
-      systemPrompt: { piVersion: '1.6.0' },
+      systemPrompt: { piVersion: PI_PROMPT_BASELINE_VERSION },
     })
     expect(promptEvents[1]).toMatchObject({ title: 'System prompt update', targetEntryId: 'u3' })
     expect(view.turns[0].events[0]?.id).toBe('p1:system-prompt')
@@ -278,7 +320,7 @@ describe('buildSessionView', () => {
 
   it('shows API tool schema changes separately when the system prompt hash is unchanged', () => {
     const basePromptData = {
-      schemaVersion: 1,
+      schemaVersion: 1, piVersion: PI_PROMPT_BASELINE_VERSION,
       promptHash: 'hash-stable',
       promptLength: 21,
       prompt: 'System prompt text unchanged',
@@ -353,7 +395,7 @@ describe('buildSessionView', () => {
       type: 'custom', customType: 'pi-session-viewer.system-prompt',
       id, parentId, timestamp: '2026-01-01T10:00:00.500Z',
       data: {
-        schemaVersion: 1, recordType: 'snapshot', captureStage: 'agent_start',
+        schemaVersion: 1, piVersion: PI_PROMPT_BASELINE_VERSION, recordType: 'snapshot', captureStage: 'agent_start',
         promptHash: id, prompt: 'Prompt ' + id,
         composition: {
           selectedTools: ['task'], toolSnippets: {}, promptGuidelines: [],
@@ -384,7 +426,7 @@ describe('buildSessionView', () => {
 
   it('surfaces mid-turn tool schema changes without claiming the prompt text changed', () => {
     const basePromptData = {
-      schemaVersion: 1,
+      schemaVersion: 1, piVersion: PI_PROMPT_BASELINE_VERSION,
       promptHash: 'hash-stable',
       promptLength: 21,
       prompt: 'System prompt text unchanged',
@@ -444,7 +486,7 @@ describe('buildSessionView', () => {
     ]
 
     const promptData = {
-      schemaVersion: 1,
+      schemaVersion: 1, piVersion: PI_PROMPT_BASELINE_VERSION,
       promptHash: 'hash-tools-1',
       promptLength: 100,
       composition: {
@@ -492,7 +534,7 @@ describe('buildSessionView', () => {
 
   it('displays mounted skills in system-prompt event summary without tool counts', () => {
     const promptData = {
-      schemaVersion: 1,
+      schemaVersion: 1, piVersion: PI_PROMPT_BASELINE_VERSION,
       promptHash: 'hash-skills-1',
       promptLength: 80,
       composition: {
@@ -547,7 +589,7 @@ describe('buildSessionView', () => {
     ]
 
     const promptData = {
-      schemaVersion: 1,
+      schemaVersion: 1, piVersion: PI_PROMPT_BASELINE_VERSION,
       promptHash: 'hash-prov-1',
       promptLength: 60,
       composition: {
@@ -604,7 +646,7 @@ describe('buildSessionView', () => {
 
   it('places system prompt snapshot before user even when persisted after user in JSONL', () => {
     const promptData = {
-      schemaVersion: 1,
+      schemaVersion: 1, piVersion: PI_PROMPT_BASELINE_VERSION,
       promptHash: 'late-hash',
       promptLength: 20,
       recordType: 'snapshot',

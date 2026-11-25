@@ -32,7 +32,7 @@ The three-column workspace is designed for desktop browsers at 1024px and wider.
 
 - **Timeline & Causality**: Tracks user turns, thinking blocks, and paired tool calls with visual causality rails.
 - **System Prompt Breakdown**: Inspects prompt structure across base instructions, tool definitions, skills, and context files.
-- **Verified Vanilla Diff**: The native prompt baseline is verified against the supported Pi 1.6.0 release. For any other Pi version, the viewer disables this comparison rather than presenting a misleading diff.
+- **Verified Vanilla Diff**: The native prompt baseline is verified against the supported Pi 1.6.0 release. Only captures explicitly marked with that Pi version are analyzed.
 - **Multi-Project Catalog**: Groups sessions by project working directory with automatic path collision disambiguation.
 - **Local JSONL Import**: Inspect arbitrary session files offline using the file picker.
 
@@ -46,7 +46,7 @@ The three-column workspace is designed for desktop browsers at 1024px and wider.
 
 Pi manages the JSONL session files; the viewer uses no separate database. Catalog and response caches are in memory only. Development and standalone servers print a startup URL containing the access token.
 
-Unstructured captures remain readable as complete raw text. `npm run check:sessions` reports unversioned, unverifiable layouts separately; versioned unknown layouts and section/coverage errors still fail the check.
+Captures without an exact supported Pi version are excluded from prompt and tool-definition analysis, including diffs. `npm run check:sessions` skips those captures before parsing and strictly validates admitted layouts. Original Pi JSONL files are never modified.
 
 ## Development
 

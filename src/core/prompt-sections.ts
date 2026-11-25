@@ -9,7 +9,7 @@ import type { SystemPromptComposition } from './types'
  * - `opaque`: the recorded forced prompt exactly matches the effective text;
  *   Pi emits this as raw content, not as structured sections.
  * - `unknown`: non-empty text without recognized section boundaries or proof
- *   that Pi emitted an opaque prompt. Preserve it verbatim.
+ *   that Pi emitted an opaque prompt. This is a validation error.
  */
 export type PromptFormat = 'tagged' | 'opaque' | 'unknown' | 'empty'
 
@@ -316,7 +316,7 @@ export function parseSystemPromptSections(
 
   const unrecognizedSections = unrecognizedFromTags
   const { fields } = collectRegions(rawPrompt, claims, boundary)
-  if (format === 'unknown' || format === 'opaque') {
+  if (format === 'opaque') {
     fields.baseTemplate.texts = [rawPrompt]
     fields.baseTemplate.ranges = [{ start: 0, end: rawPrompt.length }]
   }

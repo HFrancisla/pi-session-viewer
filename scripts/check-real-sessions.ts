@@ -1,31 +1,26 @@
 #!/usr/bin/env tsx
 /**
- * Parses every system prompt the viewer has captured on this machine and reports
+ * Validates captures from the currently supported Pi release and reports
  * anything the parser cannot fully explain.
  *
  * 这是校验真实会话与当前 Pi 契约是否一致的检查。升级 Pi 后运行：
  *
  *   npm run check:sessions
  *
- * Exit code 1 reports structural or coverage errors, including unknown layouts
- * of versioned captures. Unversioned text with no verified structure is reported
- * separately as raw data, not counted as a successful structured parse.
+ * Unsupported versions (including missing version metadata) never enter prompt
+ * validation. Unknown layouts or section/coverage errors in admitted captures fail.
  */
 import { readdir, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { parseSystemPromptSections, type PromptFormat } from '../src/core/prompt-sections'
+import { isPromptCaptureEntry, readCurrentPromptCapture, SYSTEM_PROMPT_ENTRY_TYPE } from '../src/core/prompt-capture-record'
+import { PI_PROMPT_BASELINE_VERSION } from '../src/core/pi-defaults'
 import { parseSessionJsonl } from '../src/core/session-parser'
 import { buildSessionView } from '../src/core/session-view'
 import { computeContextProjections, loadPiContextApi } from '../src/server/context-projection'
 import { discoverSessionCatalog } from '../src/server/session-discovery'
 import type { ParseWarning, SystemPromptComposition } from '../src/core/types'
-
-interface CaptureEntry {
-  prompt?: string
-  composition?: SystemPromptComposition
-  piVersion?: string
-}
 
 export interface RealSessionFinding {
   session: string
@@ -82,7 +77,7 @@ export function inspectPrompt(prompt: string, composition?: SystemPromptComposit
     unrecognized: sections.unrecognizedSections.map((section) => section.name),
     uncovered: uncovered.map((text) => (text.length > 60 ? `${text.slice(0, 60)}…` : text)),
     overlaps,
-    rawTextMismatch: (sections.format === 'unknown' || sections.format === 'opaque')
+    rawTextMismatch: sections.format === 'opaque'
       && (sections.baseTemplate.content !== prompt || ranges.length !== 1 || ranges[0].start !== 0 || ranges[0].end !== prompt.length),
   }
 }
@@ -121,12 +116,13 @@ async function main(): Promise<void> {
   const files = await collectSessionFiles(scanRoot, limit)
 
   const findings: RealSessionFinding[] = []
-  const unverifiedRaw: RealSessionFinding[] = []
   const formats = new Map<PromptFormat, number>()
   const warningCounts = new Map<ParseWarning['code'], number>()
   const structuralWarnings: string[] = []
   const sessionFailures: string[] = []
   let prompts = 0
+  let ignoredSnapshots = 0
+  let ignoredReferences = 0
   let sessions = 0
   let withoutHeader = 0
   let projectedSessions = 0
@@ -176,34 +172,34 @@ async function main(): Promise<void> {
       }
     }
     for (const line of contents.split('\n')) {
-      if (!line.includes('pi-session-viewer.system-prompt')) continue
-      let entry: { customType?: string; data?: CaptureEntry }
+      if (!line.includes(SYSTEM_PROMPT_ENTRY_TYPE)) continue
+      let entry: unknown
       try {
         entry = JSON.parse(line)
       } catch {
         continue
       }
-      if (entry.customType !== 'pi-session-viewer.system-prompt') continue
-      const prompt = entry.data?.prompt
+      if (!isPromptCaptureEntry(entry)) continue
+      const capture = readCurrentPromptCapture(entry)
+      if (!capture) {
+        const data = entry.data
+        if (data && typeof data === 'object' && 'prompt' in data && typeof data.prompt === 'string') ignoredSnapshots += 1
+        else ignoredReferences += 1
+        continue
+      }
+      const prompt = capture.prompt
       if (typeof prompt !== 'string') continue
 
       prompts += 1
-      const finding = inspectPrompt(prompt, entry.data?.composition)
+      const finding = inspectPrompt(prompt, capture.composition as SystemPromptComposition | undefined)
       formats.set(finding.format, (formats.get(finding.format) ?? 0) + 1)
-      const record = { session: path.relative(root, file), ...finding }
-      const hasVersion = typeof entry.data?.piVersion === 'string' && entry.data.piVersion.trim().length > 0
-      // With no recorded version, an unstructured prompt cannot establish a
-      // regression in Pi's versioned format contract. Require complete raw
-      // coverage anyway, and keep the unverifiable records visible in the report.
-      const rawOnly = finding.format === 'unknown' && !hasVersion
-        && problemCategories(finding).every((category) => category === 'unknown layout')
-      if (rawOnly) unverifiedRaw.push(record)
-      else if (isProblem(finding)) findings.push(record)
+      if (isProblem(finding)) findings.push({ session: path.relative(root, file), ...finding })
     }
   }
 
   console.log(`Scanned ${files.length} session files under ${root}`)
-  console.log(`Parsed ${sessions} sessions (${withoutHeader} without a header); ${prompts} captured system prompts`)
+  console.log(`Parsed ${sessions} sessions (${withoutHeader} without a header); ${prompts} captured system prompts (Pi ${PI_PROMPT_BASELINE_VERSION})`)
+  console.log(`Ignored unsupported captures: ${ignoredSnapshots} snapshots, ${ignoredReferences} references`)
   console.log(`Layouts: ${[...formats.entries()].map(([format, count]) => `${format}=${count}`).join(', ') || 'none'}`)
   const warningSummary = [...warningCounts.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -235,16 +231,11 @@ async function main(): Promise<void> {
     process.exitCode = 1
   }
 
-  if (unverifiedRaw.length > 0) {
-    console.log(`\n${unverifiedRaw.length} unversioned prompt(s) preserved as raw text (structure not verified):`)
-    for (const record of unverifiedRaw) console.log(`- ${record.session} (${record.promptLength} chars)`)
-  }
-
   if (findings.length === 0) {
     if (!process.exitCode) {
-      console.log(unverifiedRaw.length === 0
-        ? 'OK: every captured prompt was fully explained by the parser.'
-        : 'OK: all verifiable prompt layouts and raw-text coverage checks passed.')
+      console.log(prompts > 0
+        ? 'OK: every supported captured prompt was fully explained by the parser.'
+        : 'No supported prompt snapshots found; session checks passed, prompt layout validation had no samples.')
     }
     return
   }

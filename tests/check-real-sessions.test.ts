@@ -48,7 +48,7 @@ describe('real-session checker', () => {
       parentId: null,
       timestamp,
       customType: 'pi-session-viewer.system-prompt',
-      data: { prompt: fixture.prompt, composition: fixture.options },
+      data: { prompt: fixture.prompt, composition: fixture.options, piVersion: PI_VERSION },
     })
     const putSession = async (relativePath: string, id: string, extra: Record<string, unknown> = {}) => {
       const file = path.join(root, relativePath)
@@ -76,10 +76,10 @@ describe('real-session checker', () => {
 
     expect(stdout).toContain('Scanned 3 session files under')
     expect(stdout).toContain('Parsed 1 sessions (0 without a header); 3 captured system prompts')
-    expect(stdout).toContain('OK: every captured prompt was fully explained by the parser.')
+    expect(stdout).toContain('OK: every supported captured prompt was fully explained by the parser.')
   })
 
-  it('reports unversioned raw captures separately without losing strict validation of versioned layouts', async () => {
+  it('ignores every unsupported version but strictly validates current captures', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'pi-viewer-prompt-layout-'))
     directories.push(root)
     const file = path.join(root, 'session.jsonl')
@@ -90,7 +90,8 @@ describe('real-session checker', () => {
       type: 'custom', id, parentId: null, timestamp, customType: 'pi-session-viewer.system-prompt', data,
     })
     const header = piSessionHeader('session', timestamp, root)
-    const records = [header, capture('old', { prompt: raw }), capture('forced', {
+    const records = [header, capture('old', { prompt: raw }), capture('legacy', { prompt: '<unexpected>\nBody\n</unexpected>', piVersion: '1.5.0' }),
+      capture('future', { prompt: raw, piVersion: '999.0.0' }), capture('old-ref', { recordType: 'reference', promptHash: 'old' }), capture('forced', {
       prompt: forced, piVersion: PI_VERSION, composition: { forceSystemPrompt: forced },
     })]
     const run = () => execFileAsync(process.execPath, ['--import', 'tsx', path.resolve('scripts/check-real-sessions.ts')], {
@@ -98,13 +99,18 @@ describe('real-session checker', () => {
     })
     await writeFile(file, records.join('\n') + '\n')
     const { stdout } = await run()
-    expect(stdout).toContain('unknown=1')
+    expect(stdout).not.toContain('unknown=')
     expect(stdout).toContain('opaque=1')
-    expect(stdout).toContain('1 unversioned prompt(s) preserved as raw text (structure not verified)')
-    expect(stdout).toContain('all verifiable prompt layouts and raw-text coverage checks passed')
+    expect(stdout).toContain('Ignored unsupported captures: 3 snapshots, 1 references')
+    expect(stdout).toContain('every supported captured prompt was fully explained')
+
+    await writeFile(file, records.slice(0, -1).join('\n') + '\n')
+    const empty = await run()
+    expect(empty.stdout).toContain('No supported prompt snapshots found')
+    expect(empty.stdout).toContain('Layouts: none')
 
     await writeFile(file, [...records, capture('regression', { prompt: raw, piVersion: PI_VERSION }),
-      capture('unknown-section', { prompt: '<unexpected>\nBody\n</unexpected>' })].join('\n') + '\n')
+      capture('unknown-section', { prompt: '<unexpected>\nBody\n</unexpected>', piVersion: PI_VERSION })].join('\n') + '\n')
     await expect(run()).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('unknown layout: 1') })
     await expect(run()).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('unknown Pi sections (unexpected): 1') })
   })

@@ -1,8 +1,8 @@
 import type { SystemPromptComposition, TimelineEvent } from './types'
 import { parseSystemPromptSections } from './prompt-sections'
+import { isCurrentPromptVersion } from './prompt-capture-record'
 import {
   PI_DEFAULT_PREAMBLE,
-  PI_PROMPT_BASELINE_VERSION,
   PI_TOOL_PROMPT_CONTRIBUTIONS,
   PI_TOOL_SNIPPETS,
   buildPiRules,
@@ -34,7 +34,7 @@ export type DiffBaselineMode = 'vanilla' | 'before-extensions' | 'previous' | 'u
 
 /** Vanilla 对比基线仅适用于当前契约测试验证的 Pi 版本。 */
 export function isVanillaBaselineCompatible(piVersion?: string): boolean {
-  return piVersion === PI_PROMPT_BASELINE_VERSION
+  return isCurrentPromptVersion(piVersion)
 }
 
 /** Finds the preceding resolved system-prompt snapshot on the selected branch. */
@@ -44,6 +44,7 @@ export function findPreviousPromptSnapshot(events: TimelineEvent[], eventId: str
     const candidate = events[index]
     if (
       candidate.kind === 'system-prompt'
+      && isCurrentPromptVersion(candidate.systemPrompt?.piVersion)
       && candidate.systemPrompt?.recordType !== 'missing'
       && candidate.title !== 'System prompt missing'
       && candidate.title !== 'System prompt unrecorded'
@@ -284,7 +285,7 @@ export function resolvePromptDiff(
   const hasExtensionsBaseline = Boolean(systemPromptData?.promptBeforeFinalExtensions)
   const hasPreviousBaseline = systemPromptData?.previousPrompt !== undefined
   const hasVanillaBaseline = isVanillaBaselineCompatible(systemPromptData?.piVersion)
-  const effectiveMode: DiffBaselineMode = baselineMode === 'unavailable'
+  const effectiveMode: DiffBaselineMode = !hasVanillaBaseline || baselineMode === 'unavailable'
     ? 'unavailable'
     : baselineMode === 'previous' && hasPreviousBaseline
       ? 'previous'

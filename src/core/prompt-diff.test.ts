@@ -123,7 +123,7 @@ describe('prompt-diff: resolvePromptDiff against real prompts', () => {
   it('uses the previous effective prompt as a reversible incremental baseline', () => {
     const previousPrompt = 'Base prompt\nExisting rule'
     const currentPrompt = `${previousPrompt}\nNewly appended rule`
-    const result = resolvePromptDiff(currentPrompt, { previousPrompt }, 'previous')
+    const result = resolvePromptDiff(currentPrompt, { ...currentBaseline, previousPrompt }, 'previous')
 
     expect(result.baselineMode).toBe('previous')
     expect(result.baselinePrompt).toBe(previousPrompt)
@@ -149,7 +149,7 @@ describe('prompt-diff: resolvePromptDiff against real prompts', () => {
     }
   })
 
-  it('still uses an exact previous snapshot when the Vanilla baseline is incompatible', () => {
+  it('rejects all diff modes for unsupported captures', () => {
     const previousPrompt = 'Previous Pi prompt'
     const result = resolvePromptDiff(
       full.prompt,
@@ -157,15 +157,15 @@ describe('prompt-diff: resolvePromptDiff against real prompts', () => {
       'previous',
     )
 
-    expect(result.baselineMode).toBe('previous')
-    expect(result.baselinePrompt).toBe(previousPrompt)
+    expect(result.baselineMode).toBe('unavailable')
+    expect(result.baselinePrompt).toBeUndefined()
   })
 
   it('finds the preceding resolved snapshot and skips missing prompt records', () => {
     const events = [
-      { id: 'initial', entryId: 'initial', kind: 'system-prompt', title: 'System prompt', summary: '', content: 'Initial prompt', systemPrompt: { recordType: 'snapshot' }, raw: {} },
-      { id: 'missing', entryId: 'missing', kind: 'system-prompt', title: 'System prompt missing', summary: '', content: 'unresolved', systemPrompt: { recordType: 'reference' }, raw: {} },
-      { id: 'update', entryId: 'update', kind: 'system-prompt', title: 'System prompt update', summary: '', content: 'Updated prompt', systemPrompt: { recordType: 'snapshot' }, raw: {} },
+      { id: 'initial', entryId: 'initial', kind: 'system-prompt', title: 'System prompt', summary: '', content: 'Initial prompt', systemPrompt: { recordType: 'snapshot', piVersion: PI_PROMPT_BASELINE_VERSION }, raw: {} },
+      { id: 'missing', entryId: 'missing', kind: 'system-prompt', title: 'System prompt missing', summary: '', content: 'unresolved', systemPrompt: { recordType: 'reference', piVersion: PI_PROMPT_BASELINE_VERSION }, raw: {} },
+      { id: 'update', entryId: 'update', kind: 'system-prompt', title: 'System prompt update', summary: '', content: 'Updated prompt', systemPrompt: { recordType: 'snapshot', piVersion: PI_PROMPT_BASELINE_VERSION }, raw: {} },
     ] as TimelineEvent[]
 
     expect(findPreviousPromptSnapshot(events, 'update')).toBe('Initial prompt')

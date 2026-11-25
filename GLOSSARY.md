@@ -32,7 +32,7 @@
 
 ## 提示词与上下文（Prompts and Context）
 
-**提示词格式（Prompt Format）**：`parseSystemPromptSections` 的结构识别结果。`tagged` 表示 Pi 当前使用的 XML 风格顶层分区；`opaque` 表示与已记录 `forceSystemPrompt` 完全一致的原文；`unknown` 表示无法验证分区结构的非空内容；`empty` 表示空白提示词。原文与未知格式直接完整展示，不假定分区含义。
+**提示词格式（Prompt Format）**：`parseSystemPromptSections` 的结构识别结果。`tagged` 表示 Pi 当前使用的 XML 风格顶层分区；`opaque` 表示与已记录 `forceSystemPrompt` 完全一致的原文；`unknown` 表示无法验证分区结构的非空内容；`empty` 表示空白提示词。强制原文按原样展示；当前版本的未知格式属于校验错误。
 
 **提示词分区（Prompt Section）**：系统提示词中的一个命名块。Pi 的标准分区包括 `tools`、`rules`、`docs`、`addendum`、`project_context`、`skills`、`cwd`；扩展还可以通过 `sections` 添加 `mcp_servers`。各块独立展示。
 
@@ -40,11 +40,13 @@
 
 **未识别分区（Unrecognized Section）**：提示词包含未建模的顶层标签时，解析器将其加入 `unrecognizedSections`，并在界面中独立展示，不塞入其他已知块。
 
+**提示词版本准入（Prompt Version Admission）**：仅接受明确记录的 `piVersion` 与当前已验证的 `PI_PROMPT_BASELINE_VERSION` 完全一致的捕获快照与引用；其他版本及无版本记录不进入提示词、工具定义、对比和真实提示词检查。原始会话条目及分支关系保持不变。
+
 **提示词捕获（Prompt Capture）**：扩展在 `before_agent_start` 读取初始配置，在 `before_provider_request` 记录 `ctx.getSystemPrompt()` 与当前活动工具定义。首条用户消息已持久化时，用 `targetUserEntryId` 精确关联；不凭事件相邻位置猜测归属。这描述的是 Pi Harness 状态，并非 HTTP 请求的最终 Payload。
 
 **提示词快照（Prompt Snapshot）**：携带完整文本的 `snapshot`，或通过 `promptHash` 引用已有文本的 `reference`。每次配置发生变化时仍需记录新的有效组成或工具定义；无法解析的引用显示为缺失，而不是使用当前配置补写历史。
 
-**原生提示词基线（Vanilla Prompt Baseline）**：基于 `PI_PROMPT_BASELINE_VERSION` 对当前 Pi 默认工具和规则构造的比较基线。仅当捕获版本与该已验证版本完全一致时，才能选择 Vanilla Diff；其他版本可使用确切的前一快照或扩展修改前快照进行比较。
+**原生提示词基线（Vanilla Prompt Baseline）**：基于 `PI_PROMPT_BASELINE_VERSION` 对当前 Pi 默认工具和规则构造的比较基线。所有参与对比的捕获必须通过提示词版本准入；不支持跨版本对比。
 
 **上下文编辑（Context Edit）**：Pi 的追加式 `context_edit` 条目，针对未来模型上下文指定 `targetId` 与 `replacement`。`replacement: null` 表示排除目标，非空替换表示替换内容；原 JSONL 条目本身不会被就地改写。
 
@@ -69,5 +71,5 @@
 - `tests/pi-tool-provenance-contract.test.ts` 以 Pi 自身的合成来源 API 校验工具来源分类。
 - `tests/pi-context-projection-contract.test.ts` 比较 Pi 的原生上下文投影与 Viewer 展示；本机没有真实会话时，对应真实会话用例明确跳过。
 - `tests/pi-live-roundtrip.test.ts` 运行真实 Pi CLI，使用本地模拟 Provider 检查提示词捕获及多轮执行。
-- `npm run check:sessions` 检查实际会话与捕获提示词的解析质量；发现未知条目、未知分区、已记录 Pi 版本的未知格式或未归属内容会以非零退出码报告。无版本且无可验证分区结构的提示词单独报告为原文，不计作结构化解析成功，但仍检查原文覆盖完整性。
+- `npm run check:sessions` 检查实际会话与捕获提示词的解析质量；仅检查受支持版本的提示词；其他版本和无版本的记录在解析前排除，仅统计数量。未知条目、当前提示词的未知格式、未知分区或未归属内容仍以非零退出码报告。没有当前版本快照时明确报告无样本，不声称布局验证通过。
 - `npm run verify` 执行单元与契约测试、正式构建、发布包检查和桌面浏览器端到端测试。

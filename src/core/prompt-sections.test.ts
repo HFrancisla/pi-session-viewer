@@ -162,15 +162,6 @@ describe('parseSystemPromptSections: sections the viewer does not model', () => 
     expectFullCoverage(prompt, sections)
   })
 
-  it('preserves the exact unstructured text including surrounding whitespace', () => {
-    const prompt = '  Available tools:\n- bash: Execute commands\n\n  '
-    const sections = parseSystemPromptSections(prompt)
-    expect(sections.format).toBe('unknown')
-    expect(sections.baseTemplate.content).toBe(prompt)
-    expect(sections.baseTemplate.ranges).toEqual([{ start: 0, end: prompt.length }])
-    expectFullCoverage(prompt, sections)
-  })
-
   it('treats Pi forced content as opaque even when it contains section-like tags', async () => {
     const pi = await loadPiSystemPrompt()
     const options = { cwd: '/work/demo', forceSystemPrompt: 'Raw instructions.\n\n<tools>\nExample only.\n</tools>' }

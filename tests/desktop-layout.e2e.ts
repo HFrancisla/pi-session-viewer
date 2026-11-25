@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { PI_PROMPT_BASELINE_VERSION } from '../src/core/pi-defaults'
 
 test('keeps the workspace inside the viewport at supported desktop widths', async ({ page }) => {
   await page.goto('/#token=dev-token')
@@ -181,23 +182,37 @@ test('uses a clear stats hierarchy, quieter metadata, and singular catalog copy'
 })
 
 
-test('shows the complete unstructured prompt without invented composition sections', async ({ page }) => {
-  const prompt = '  Available tools:\n- bash: Execute commands\n\nGuidelines:\n- Use tests first\n '
+test('ignores unsupported captures in offline JSONL and preserves current forced prompts', async ({ page }) => {
+  const prompt = '  Forced prompt.\n\n<tools>\nLiteral example\n</tools>\n '
   const timestamp = '2026-01-01T10:00:00.000Z'
   const lines = [
-    { type: 'session', version: 3, id: 'raw-prompt-session', timestamp, cwd: '/work/demo' },
+    { type: 'session', version: 3, id: 'versioned-prompt-session', timestamp, cwd: '/work/demo' },
     { type: 'message', id: 'user', parentId: null, timestamp, message: { role: 'user', content: 'Hello', timestamp: 1767261600000 } },
-    { type: 'custom', id: 'prompt', parentId: 'user', timestamp, customType: 'pi-session-viewer.system-prompt', data: {
-      schemaVersion: 1, recordType: 'snapshot', captureStage: 'agent_start', targetUserEntryId: 'user', messageType: 'user', prompt,
-      composition: { cwd: '/work/demo', skills: [{ name: 'example', description: 'Example skill', filePath: '/skills/example/SKILL.md' }] },
+    { type: 'custom', id: 'legacy', parentId: 'user', timestamp, customType: 'pi-session-viewer.system-prompt', data: {
+      schemaVersion: 1, recordType: 'snapshot', captureStage: 'agent_start', targetUserEntryId: 'user', prompt: 'Legacy secret prompt', piVersion: '1.5.0',
+    } },
+    { type: 'custom', id: 'unversioned', parentId: 'legacy', timestamp, customType: 'pi-session-viewer.system-prompt', data: {
+      schemaVersion: 1, recordType: 'snapshot', captureStage: 'agent_start', targetUserEntryId: 'user', prompt: 'Unversioned secret prompt',
+    } },
+    { type: 'message', id: 'assistant', parentId: 'unversioned', timestamp, message: { role: 'assistant', content: [{ type: 'text', text: 'Reply' }] } },
+    { type: 'message', id: 'user2', parentId: 'assistant', timestamp, message: { role: 'user', content: 'Next turn' } },
+    { type: 'custom', id: 'prompt', parentId: 'user2', timestamp, customType: 'pi-session-viewer.system-prompt', data: {
+      schemaVersion: 1, recordType: 'snapshot', captureStage: 'agent_start', targetUserEntryId: 'user2', messageType: 'user', prompt,
+      piVersion: PI_PROMPT_BASELINE_VERSION, composition: { forceSystemPrompt: prompt, cwd: '/work/demo' },
     } },
   ].map((entry) => JSON.stringify(entry)).join('\n')
   await page.goto('/')
-  await page.locator('input[type="file"]').setInputFiles({ name: 'raw-prompt.jsonl', mimeType: 'application/json', buffer: Buffer.from(lines) })
-  await page.locator('.event-row.event--system-prompt').click()
+  await page.locator('input[type="file"]').setInputFiles({ name: 'versioned-prompt.jsonl', mimeType: 'application/json', buffer: Buffer.from(lines) })
+  const rows = page.locator('.event-row.event--system-prompt')
+  await expect(rows).toHaveCount(2)
+  await rows.first().click()
+  await expect(page.locator('.inspector')).toContainText('No supported system-prompt capture')
+  await expect(page.getByRole('tab', { name: 'Composition' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Diff' })).toHaveCount(0)
+  await rows.last().click()
   await page.getByRole('tab', { name: 'Composition' }).click()
   const composition = page.locator('.prompt-composition')
-  await expect(composition).toContainText('no verified section structure')
+  await expect(composition).toContainText('forced prompt as raw text')
   await expect(composition.locator('details')).toHaveCount(0)
   expect(await composition.locator('pre').textContent()).toBe(prompt)
 })

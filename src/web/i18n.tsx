@@ -124,7 +124,7 @@ export function localizeEventSummary(event: Pick<TimelineEvent, 'kind' | 'title'
     if (summary === 'Full snapshot') return '完整快照'
     if (summary === 'Snapshot reference') return '快照引用'
     if (summary === 'Captured empty effective system prompt') return '已捕获空的有效系统提示词'
-    if (summary === 'No system-prompt capture record is associated with this turn; the reason is unknown.') return '本轮没有关联的系统提示词捕获记录，原因未知'
+    if (summary === 'No supported system-prompt capture is associated with this turn.') return '本轮没有受支持的系统提示词捕获记录'
     const missing = summary.match(/^Unable to resolve prompt snapshot for hash (.+)$/)
     if (missing) return `无法解析哈希为 ${missing[1]} 的提示词快照`
     return summary.split(' · ').map((part) => {

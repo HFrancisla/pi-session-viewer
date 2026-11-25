@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import capturePrompt from '../src/extension/prompt-capture'
+import { PI_VERSION } from './helpers/pi-runtime'
+import { createHash } from 'node:crypto'
 
 type Handler = (event: any, context: any) => unknown
 
@@ -256,6 +258,25 @@ describe('system prompt capture extension', () => {
 })
 
 describe('system prompt capture records which Pi produced the snapshot', () => {
+  it('creates a fresh current snapshot instead of referencing an older or unversioned hash', async () => {
+    for (const piVersion of [undefined, '1.5.0']) {
+      const pi = fakePi()
+      capturePrompt(pi as never)
+      const prompt = 'Identical prompt after Pi upgrade'
+      const hash = createHash('sha256').update(prompt).digest('hex')
+      const ctx = context(prompt)
+      ctx.sessionManager.getEntries = () => [{
+        type: 'custom', customType: 'pi-session-viewer.system-prompt', data: {
+          piVersion, prompt, promptHash: hash, sequence: 1,
+        },
+      }] as never[]
+      await pi.handlers.get('session_start')?.({}, ctx)
+      await pi.handlers.get('before_agent_start')?.({ systemPrompt: prompt, systemPromptOptions: {} }, ctx)
+      await pi.handlers.get('before_provider_request')?.({}, ctx)
+      expect(pi.entries[0].data).toMatchObject({ piVersion: PI_VERSION, recordType: 'snapshot', prompt, promptHash: hash })
+    }
+  })
+
   it('stores the Pi version so an upgrade can be traced back to a prompt', async () => {
     const pi = fakePi()
     capturePrompt(pi as never)
@@ -265,7 +286,6 @@ describe('system prompt capture records which Pi produced the snapshot', () => {
     await pi.handlers.get('before_provider_request')?.({}, context(prompt))
 
     // Resolved from the Pi that is actually installed, not a hardcoded string.
-    const { PI_VERSION } = await import('./helpers/pi-runtime')
     expect(pi.entries[0].data.piVersion).toBe(PI_VERSION)
   })
 })
