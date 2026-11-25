@@ -5,6 +5,7 @@ import { parseSystemPromptSections } from './prompt-sections'
 import { PI_DEFAULT_PREAMBLE } from './pi-defaults'
 import type { SystemPromptComposition } from './types'
 import { expectFullCoverage, expectGroundTruthMapped } from '../../tests/helpers/prompt-assertions'
+import { loadPiSystemPrompt } from '../../tests/helpers/pi-runtime'
 
 interface PromptFixture {
   generatedFrom: string
@@ -159,6 +160,28 @@ describe('parseSystemPromptSections: sections the viewer does not model', () => 
     expect(sections.baseTemplate.content).toBe(prompt)
     expect(sections.availableTools.isEmpty).toBe(true)
     expectFullCoverage(prompt, sections)
+  })
+
+  it('preserves the exact unstructured text including surrounding whitespace', () => {
+    const prompt = '  Available tools:\n- bash: Execute commands\n\n  '
+    const sections = parseSystemPromptSections(prompt)
+    expect(sections.format).toBe('unknown')
+    expect(sections.baseTemplate.content).toBe(prompt)
+    expect(sections.baseTemplate.ranges).toEqual([{ start: 0, end: prompt.length }])
+    expectFullCoverage(prompt, sections)
+  })
+
+  it('treats Pi forced content as opaque even when it contains section-like tags', async () => {
+    const pi = await loadPiSystemPrompt()
+    const options = { cwd: '/work/demo', forceSystemPrompt: 'Raw instructions.\n\n<tools>\nExample only.\n</tools>' }
+    const prompt = pi.buildSystemPrompt(options)
+    expect(prompt).toBe(options.forceSystemPrompt)
+    const sections = parseSystemPromptSections(prompt, options)
+    expect(sections.format).toBe('opaque')
+    expect(sections.baseTemplate.content).toBe(prompt)
+    expect(sections.availableTools.isEmpty).toBe(true)
+    expectFullCoverage(prompt, sections)
+    expect(parseSystemPromptSections('Different text', options).format).toBe('unknown')
   })
 
   it('treats an empty prompt as empty rather than unknown', () => {

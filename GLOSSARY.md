@@ -32,7 +32,7 @@
 
 ## 提示词与上下文（Prompts and Context）
 
-**提示词格式（Prompt Format）**：`parseSystemPromptSections` 的结构识别结果。`tagged` 表示 Pi 当前使用的 XML 风格顶层分区；`unknown` 表示无法识别的非空内容；`empty` 表示空白提示词。无法识别时保留完整原文，不假定分区含义。
+**提示词格式（Prompt Format）**：`parseSystemPromptSections` 的结构识别结果。`tagged` 表示 Pi 当前使用的 XML 风格顶层分区；`opaque` 表示与已记录 `forceSystemPrompt` 完全一致的原文；`unknown` 表示无法验证分区结构的非空内容；`empty` 表示空白提示词。原文与未知格式直接完整展示，不假定分区含义。
 
 **提示词分区（Prompt Section）**：系统提示词中的一个命名块。Pi 的标准分区包括 `tools`、`rules`、`docs`、`addendum`、`project_context`、`skills`、`cwd`；扩展还可以通过 `sections` 添加 `mcp_servers`。各块独立展示。
 
@@ -69,5 +69,5 @@
 - `tests/pi-tool-provenance-contract.test.ts` 以 Pi 自身的合成来源 API 校验工具来源分类。
 - `tests/pi-context-projection-contract.test.ts` 比较 Pi 的原生上下文投影与 Viewer 展示；本机没有真实会话时，对应真实会话用例明确跳过。
 - `tests/pi-live-roundtrip.test.ts` 运行真实 Pi CLI，使用本地模拟 Provider 检查提示词捕获及多轮执行。
-- `npm run check:sessions` 检查实际会话与捕获提示词的解析质量；发现未知条目、未知分区或未归属内容会以非零退出码报告。
+- `npm run check:sessions` 检查实际会话与捕获提示词的解析质量；发现未知条目、未知分区、已记录 Pi 版本的未知格式或未归属内容会以非零退出码报告。无版本且无可验证分区结构的提示词单独报告为原文，不计作结构化解析成功，但仍检查原文覆盖完整性。
 - `npm run verify` 执行单元与契约测试、正式构建、发布包检查和桌面浏览器端到端测试。

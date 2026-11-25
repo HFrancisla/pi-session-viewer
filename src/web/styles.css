@@ -695,6 +695,7 @@ select:hover { border-color: #9db4bc; }
 }
 
 .prompt-composition { padding-bottom: 28px; }
+.prompt-format-note { margin: 0; padding: 12px 16px; color: var(--muted); font-size: 12px; line-height: 1.55; border-bottom: 1px solid var(--line); }
 .prompt-block { border-bottom: 1px solid var(--line); background: var(--paper); }
 .prompt-block > summary { min-height: 34px; height: 34px; padding: 0 16px; display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 12px; font-weight: 500; cursor: pointer; list-style: none; user-select: none; }
 .prompt-block > summary::-webkit-details-marker { display: none; }

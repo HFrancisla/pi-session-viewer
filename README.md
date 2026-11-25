@@ -46,6 +46,8 @@ The three-column workspace is designed for desktop browsers at 1024px and wider.
 
 Pi manages the JSONL session files; the viewer uses no separate database. Catalog and response caches are in memory only. Development and standalone servers print a startup URL containing the access token.
 
+Unstructured captures remain readable as complete raw text. `npm run check:sessions` reports unversioned, unverifiable layouts separately; versioned unknown layouts and section/coverage errors still fail the check.
+
 ## Development
 
 Requires Node.js 22.19 or newer (Node.js 24 LTS recommended for development). Install Chromium before running the full verification suite: `npx playwright install chromium`.

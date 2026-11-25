@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { piSessionHeader } from './helpers/pi-session'
+import { PI_VERSION } from './helpers/pi-runtime'
 
 const execFileAsync = promisify(execFile)
 const directories: string[] = []
@@ -77,4 +78,35 @@ describe('real-session checker', () => {
     expect(stdout).toContain('Parsed 1 sessions (0 without a header); 3 captured system prompts')
     expect(stdout).toContain('OK: every captured prompt was fully explained by the parser.')
   })
+
+  it('reports unversioned raw captures separately without losing strict validation of versioned layouts', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'pi-viewer-prompt-layout-'))
+    directories.push(root)
+    const file = path.join(root, 'session.jsonl')
+    const timestamp = '2026-01-01T10:00:00.000Z'
+    const raw = '  Available tools:\n- bash: Execute commands\n\nGuidelines:\n- Use tests first\n '
+    const forced = 'Forced content.\n\n<tools>\nLiteral example\n</tools>'
+    const capture = (id: string, data: Record<string, unknown>) => JSON.stringify({
+      type: 'custom', id, parentId: null, timestamp, customType: 'pi-session-viewer.system-prompt', data,
+    })
+    const header = piSessionHeader('session', timestamp, root)
+    const records = [header, capture('old', { prompt: raw }), capture('forced', {
+      prompt: forced, piVersion: PI_VERSION, composition: { forceSystemPrompt: forced },
+    })]
+    const run = () => execFileAsync(process.execPath, ['--import', 'tsx', path.resolve('scripts/check-real-sessions.ts')], {
+      cwd: process.cwd(), env: { ...process.env, PI_CODING_AGENT_SESSION_DIR: root }, maxBuffer: 1024 * 1024,
+    })
+    await writeFile(file, records.join('\n') + '\n')
+    const { stdout } = await run()
+    expect(stdout).toContain('unknown=1')
+    expect(stdout).toContain('opaque=1')
+    expect(stdout).toContain('1 unversioned prompt(s) preserved as raw text (structure not verified)')
+    expect(stdout).toContain('all verifiable prompt layouts and raw-text coverage checks passed')
+
+    await writeFile(file, [...records, capture('regression', { prompt: raw, piVersion: PI_VERSION }),
+      capture('unknown-section', { prompt: '<unexpected>\nBody\n</unexpected>' })].join('\n') + '\n')
+    await expect(run()).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('unknown layout: 1') })
+    await expect(run()).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('unknown Pi sections (unexpected): 1') })
+  })
+
 })

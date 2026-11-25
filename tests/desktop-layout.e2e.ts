@@ -179,3 +179,25 @@ test('uses a clear stats hierarchy, quieter metadata, and singular catalog copy'
   const metrics = await page.evaluate(() => ({ viewport: innerWidth, pageWidth: document.documentElement.scrollWidth }))
   expect(metrics.pageWidth).toBeLessThanOrEqual(metrics.viewport)
 })
+
+
+test('shows the complete unstructured prompt without invented composition sections', async ({ page }) => {
+  const prompt = '  Available tools:\n- bash: Execute commands\n\nGuidelines:\n- Use tests first\n '
+  const timestamp = '2026-01-01T10:00:00.000Z'
+  const lines = [
+    { type: 'session', version: 3, id: 'raw-prompt-session', timestamp, cwd: '/work/demo' },
+    { type: 'message', id: 'user', parentId: null, timestamp, message: { role: 'user', content: 'Hello', timestamp: 1767261600000 } },
+    { type: 'custom', id: 'prompt', parentId: 'user', timestamp, customType: 'pi-session-viewer.system-prompt', data: {
+      schemaVersion: 1, recordType: 'snapshot', captureStage: 'agent_start', targetUserEntryId: 'user', messageType: 'user', prompt,
+      composition: { cwd: '/work/demo', skills: [{ name: 'example', description: 'Example skill', filePath: '/skills/example/SKILL.md' }] },
+    } },
+  ].map((entry) => JSON.stringify(entry)).join('\n')
+  await page.goto('/')
+  await page.locator('input[type="file"]').setInputFiles({ name: 'raw-prompt.jsonl', mimeType: 'application/json', buffer: Buffer.from(lines) })
+  await page.locator('.event-row.event--system-prompt').click()
+  await page.getByRole('tab', { name: 'Composition' }).click()
+  const composition = page.locator('.prompt-composition')
+  await expect(composition).toContainText('no verified section structure')
+  await expect(composition.locator('details')).toHaveCount(0)
+  expect(await composition.locator('pre').textContent()).toBe(prompt)
+})

@@ -114,6 +114,8 @@ export const en = {
       diff: 'Diff',
       raw: 'Raw',
     },
+    opaquePrompt: 'Pi supplied this forced prompt as raw text. No structured sections were emitted.',
+    unstructuredPrompt: 'This prompt has no verified section structure. Showing the complete captured text without inferring sections.',
     diff: {
       baselineLabel: 'Baseline',
       baselinePrevious: 'Previous snapshot',

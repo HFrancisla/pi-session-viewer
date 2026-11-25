@@ -6,10 +6,12 @@ import type { SystemPromptComposition } from './types'
  * - `tagged`: Pi wraps every section except the preamble in XML-ish
  *   tags (`<tools>`, `<rules>`, `<docs>`, `<addendum>`, `<project_context>`,
  *   `<skills>`, `<cwd>`), joined with blank lines.
- * - `unknown`: a non-empty prompt matching neither layout. Nothing is thrown
- *   away: the whole prompt is reported as the base template and flagged.
+ * - `opaque`: the recorded forced prompt exactly matches the effective text;
+ *   Pi emits this as raw content, not as structured sections.
+ * - `unknown`: non-empty text without recognized section boundaries or proof
+ *   that Pi emitted an opaque prompt. Preserve it verbatim.
  */
-export type PromptFormat = 'tagged' | 'unknown' | 'empty'
+export type PromptFormat = 'tagged' | 'opaque' | 'unknown' | 'empty'
 
 export interface PromptSectionRange {
   /** Inclusive offset of the first character of the region in the source prompt. */
@@ -291,6 +293,8 @@ export function parseSystemPromptSections(
 
   if (!rawPrompt.trim()) {
     format = 'empty'
+  } else if (composition?.forceSystemPrompt === rawPrompt) {
+    format = 'opaque'
   } else {
     const tagged = parseTaggedPrompt(rawPrompt)
     if (tagged.claims.length > 0) {
@@ -312,12 +316,9 @@ export function parseSystemPromptSections(
 
   const unrecognizedSections = unrecognizedFromTags
   const { fields } = collectRegions(rawPrompt, claims, boundary)
-  if (format === 'unknown') {
-    const range = trimRegion(rawPrompt, 0, rawPrompt.length)
-    if (range) {
-      fields.baseTemplate.texts = [rawPrompt.slice(range.start, range.end)]
-      fields.baseTemplate.ranges = [range]
-    }
+  if (format === 'unknown' || format === 'opaque') {
+    fields.baseTemplate.texts = [rawPrompt]
+    fields.baseTemplate.ranges = [{ start: 0, end: rawPrompt.length }]
   }
 
   const join = (parts: SectionParts): string => parts.texts.join('\n\n')

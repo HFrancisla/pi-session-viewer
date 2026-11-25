@@ -46,6 +46,8 @@ pi install npm:@hfrancisla/pi-session-viewer
 
 会话文件由 Pi 管理，Viewer 不使用独立数据库；会话目录和响应缓存仅驻留内存。开发服务和独立服务会在终端输出带访问令牌的启动链接。
 
+无可验证分区结构的提示词直接展示完整原文。`npm run check:sessions` 单独报告未记录版本的未知格式；已记录版本的未知格式、分区错误及原文覆盖错误仍会导致检查失败。
+
 ## 本地开发
 
 需要 Node.js 22.19 或更新版本（开发推荐 Node.js 24 LTS）。完整验证前执行 `npx playwright install chromium`。

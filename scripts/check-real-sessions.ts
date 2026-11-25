@@ -7,8 +7,9 @@
  *
  *   npm run check:sessions
  *
- * Exit code 1 means the parser met a prompt shape it does not model (a new Pi
- * section, or a new layout entirely) — real data, not a fixture.
+ * Exit code 1 reports structural or coverage errors, including unknown layouts
+ * of versioned captures. Unversioned text with no verified structure is reported
+ * separately as raw data, not counted as a successful structured parse.
  */
 import { readdir, readFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -23,7 +24,7 @@ import type { ParseWarning, SystemPromptComposition } from '../src/core/types'
 interface CaptureEntry {
   prompt?: string
   composition?: SystemPromptComposition
-  recordType?: string
+  piVersion?: string
 }
 
 export interface RealSessionFinding {
@@ -33,6 +34,7 @@ export interface RealSessionFinding {
   unrecognized: string[]
   uncovered: string[]
   overlaps: number
+  rawTextMismatch: boolean
 }
 
 async function collectSessionFiles(root: string, limit: number): Promise<string[]> {
@@ -80,6 +82,8 @@ export function inspectPrompt(prompt: string, composition?: SystemPromptComposit
     unrecognized: sections.unrecognizedSections.map((section) => section.name),
     uncovered: uncovered.map((text) => (text.length > 60 ? `${text.slice(0, 60)}…` : text)),
     overlaps,
+    rawTextMismatch: (sections.format === 'unknown' || sections.format === 'opaque')
+      && (sections.baseTemplate.content !== prompt || ranges.length !== 1 || ranges[0].start !== 0 || ranges[0].end !== prompt.length),
   }
 }
 
@@ -96,6 +100,7 @@ function problemCategories(finding: Omit<RealSessionFinding, 'session'>): string
   if (unknownSections.length > 0) categories.push(`unknown Pi sections (${unknownSections.join(', ')})`)
   if (finding.uncovered.length > 0) categories.push('unclaimed text')
   if (finding.overlaps > 0) categories.push('overlapping sections')
+  if (finding.rawTextMismatch) categories.push('raw text mismatch')
   return categories
 }
 
@@ -116,6 +121,7 @@ async function main(): Promise<void> {
   const files = await collectSessionFiles(scanRoot, limit)
 
   const findings: RealSessionFinding[] = []
+  const unverifiedRaw: RealSessionFinding[] = []
   const formats = new Map<PromptFormat, number>()
   const warningCounts = new Map<ParseWarning['code'], number>()
   const structuralWarnings: string[] = []
@@ -184,7 +190,15 @@ async function main(): Promise<void> {
       prompts += 1
       const finding = inspectPrompt(prompt, entry.data?.composition)
       formats.set(finding.format, (formats.get(finding.format) ?? 0) + 1)
-      if (isProblem(finding)) findings.push({ session: path.relative(root, file), ...finding })
+      const record = { session: path.relative(root, file), ...finding }
+      const hasVersion = typeof entry.data?.piVersion === 'string' && entry.data.piVersion.trim().length > 0
+      // With no recorded version, an unstructured prompt cannot establish a
+      // regression in Pi's versioned format contract. Require complete raw
+      // coverage anyway, and keep the unverifiable records visible in the report.
+      const rawOnly = finding.format === 'unknown' && !hasVersion
+        && problemCategories(finding).every((category) => category === 'unknown layout')
+      if (rawOnly) unverifiedRaw.push(record)
+      else if (isProblem(finding)) findings.push(record)
     }
   }
 
@@ -221,10 +235,17 @@ async function main(): Promise<void> {
     process.exitCode = 1
   }
 
+  if (unverifiedRaw.length > 0) {
+    console.log(`\n${unverifiedRaw.length} unversioned prompt(s) preserved as raw text (structure not verified):`)
+    for (const record of unverifiedRaw) console.log(`- ${record.session} (${record.promptLength} chars)`)
+  }
+
   if (findings.length === 0) {
-    console.log(sessionFailures.length === 0
-      ? 'OK: every captured prompt was fully explained by the parser.'
-      : 'OK: every captured prompt was fully explained, but sessions failed to parse above.')
+    if (!process.exitCode) {
+      console.log(unverifiedRaw.length === 0
+        ? 'OK: every captured prompt was fully explained by the parser.'
+        : 'OK: all verifiable prompt layouts and raw-text coverage checks passed.')
+    }
     return
   }
 

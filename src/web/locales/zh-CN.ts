@@ -115,6 +115,8 @@ export const zhCN: Translations = {
       diff: '差异',
       raw: '原始数据',
     },
+    opaquePrompt: 'Pi 以原文方式提供此强制系统提示词，未生成结构化分区。',
+    unstructuredPrompt: '此提示词没有可验证的分区结构。完整展示捕获原文，不推断分区。',
     diff: {
       baselineLabel: '基准',
       baselinePrevious: '上一份有效提示词',

@@ -97,8 +97,19 @@ function PromptCompositionView({ prompt, composition }: {
   prompt: string
   composition?: SystemPromptComposition
 }) {
-  const { localizeTitle } = useI18n()
+  const { t, localizeTitle } = useI18n()
   const sections = parseSystemPromptSections(prompt, composition)
+
+  if (sections.format === 'unknown' || sections.format === 'opaque') {
+    return (
+      <div className="prompt-composition">
+        <p className="prompt-format-note">
+          {sections.format === 'opaque' ? t.inspector.opaquePrompt : t.inspector.unstructuredPrompt}
+        </p>
+        <div className="content-body-wrap event--system-prompt"><pre>{prompt}</pre></div>
+      </div>
+    )
+  }
 
   return (
     <div className="prompt-composition">
