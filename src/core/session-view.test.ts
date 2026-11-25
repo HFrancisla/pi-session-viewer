@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { getSystemMessageText } from '@earendil-works/pi-ai/utils/text'
 import { parseSessionJsonl } from './session-parser'
 import { buildSessionView, primaryEventForEntry } from './session-view'
 import type { ContextProjection } from './types'
@@ -80,8 +81,8 @@ describe('buildSessionView', () => {
       header,
       entry('s1', null, '2026-01-01T10:00:00.500Z', {
         role: 'system', timestamp: 1,
-        content: 'You are a coding agent.',
-        sections: { preamble: 'You are a coding agent.', optional_note: 'Remove me' },
+        content: '',
+        sections: { preamble: 'You are a coding agent.', tools: '<tools>\n- read: Read files\n</tools>', optional_note: 'Remove me' },
         toolsAdded: [{ name: 'read' }, { name: 'bash' }],
       }),
       entry('u1', 's1', '2026-01-01T10:00:01.000Z', { role: 'user', content: 'First turn' }),
@@ -101,13 +102,14 @@ describe('buildSessionView', () => {
     const initial = events.find((event) => event.title === 'Pi system context snapshot')
     const update = events.find((event) => event.title === 'Pi system context update')
 
-    expect(initial?.content).toContain('You are a coding agent.')
-    expect(initial?.content).toContain('"name": "read"')
+    expect(initial?.content).toBe('You are a coding agent.\n\n<tools>\n- read: Read files\n</tools>\n\nRemove me')
     expect(update?.summary).toContain('2 prompt section changes')
-    expect(update?.content).toContain('Section <addendum>')
-    expect(update?.content).toContain('Removed section <optional_note>')
-    expect(update?.content).toContain('"name": "grep"')
-    expect(update?.content).toContain('obsolete_tool')
+    expect(update?.content).toBe('You are a coding agent.\n\n<tools>\n- read: Read files\n</tools>\n\nNever delete files.')
+    for (const event of [initial, update]) {
+      expect(event?.content).toBe(getSystemMessageText(event!.persistedState!.message))
+    }
+    expect(events.find(event => event.entryId === 's1' && event.kind === 'tool-definitions')?.content).toContain('"name": "read"')
+    expect(events.find(event => event.entryId === 's2' && event.kind === 'tool-definitions')?.content).toContain('"name": "grep"')
     expect(events.some((event) => event.title === 'System prompt unrecorded')).toBe(false)
   })
 

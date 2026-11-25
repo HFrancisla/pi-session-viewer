@@ -27,7 +27,7 @@ test('all event filters are directly reachable at minimum desktop width', async 
   await expect(page.locator('.event-row').first()).toBeVisible()
   const group = page.getByRole('group', { name: 'Event filter' })
   const options = group.getByRole('checkbox')
-  await expect(options).toHaveCount(7)
+  await expect(options).toHaveCount(8)
   for (const option of await options.all()) {
     await expect(option).toBeVisible()
     const box = await option.boundingBox()

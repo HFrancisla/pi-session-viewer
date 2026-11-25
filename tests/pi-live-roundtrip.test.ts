@@ -241,6 +241,16 @@ export default function(pi) {
     expect(toolCall?.toolDefinition?.name).toBe('bash')
     if (withViewer) expect(toolCall?.toolDefinition?.sourceInfo).toBeDefined()
     else expect(toolCall?.toolDefinition?.sourceInfo).toBeUndefined()
+    const definitions = view.events.find(event => event.kind === 'tool-definitions')
+    const declaredBash = definitions?.toolDefinitions?.find(tool => tool.name === 'bash')
+    expect(declaredBash).toBeDefined()
+    if (withViewer) {
+      const observed = captures[0].data.toolSources.find((tool: { name: string }) => tool.name === 'bash').sourceInfo
+      expect(declaredBash?.sourceInfo).toEqual(observed)
+      expect(view.events.find(event => event.id === toolCall?.pairedEventId)?.toolDefinition?.sourceInfo).toEqual(observed)
+    } else {
+      expect(definitions?.toolDefinitions?.every(tool => tool.sourceInfo === undefined)).toBe(true)
+    }
     expect(toolCall?.persistedState?.message.sections).toBeDefined()
     expect(view.stats.turnCount).toBe(2)
     if (!withViewer) {

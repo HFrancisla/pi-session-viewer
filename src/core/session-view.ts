@@ -11,8 +11,10 @@ import type {
 import { truncate } from './format'
 import { extractSubagentReferences, normalizeSessionRelativePath, subagentReferencesAlias, workflowChildTranscriptPath } from './subagent-detector'
 import { getPath } from './session-parser'
-import { replayBranchState } from './native-state'
+import { collectToolDefinitionSources, replayBranchState, type PersistedSystemState } from './native-state'
+import { getSystemMessageText } from '@earendil-works/pi-ai/utils/text'
 import { isViewerRecord } from './observation'
+import { sanitizeToolForApi } from './tool-provenance'
 
 function isObject(value: unknown): value is RawObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -54,6 +56,7 @@ function piSystemContextEvent(
   message: RawObject,
   timestamp: string | undefined,
   isInitialSystemMessage: boolean,
+  state?: PersistedSystemState,
 ): TimelineEvent {
   const sections = isObject(message.sections) ? Object.entries(message.sections) : []
   const toolsAdded = Array.isArray(message.toolsAdded) ? message.toolsAdded.filter(isObject) : []
@@ -61,31 +64,6 @@ function piSystemContextEvent(
   const hasFullSnapshot = isInitialSystemMessage
     && (typeof message.content === 'string' && message.content.length > 0
       || sections.some(([name, value]) => name === 'preamble' && typeof value === 'string'))
-  const contentParts: string[] = []
-  const recordedContent = contentText(message.content)
-  if (recordedContent) contentParts.push(recordedContent)
-
-  if (sections.length > 0) {
-    contentParts.push(hasFullSnapshot ? 'Prompt sections in this Pi system snapshot:' : 'Prompt section changes:')
-    for (const [name, value] of sections) {
-      if (value === null) {
-        contentParts.push(`Removed section <${name}>`)
-      } else {
-        const sectionContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-        contentParts.push(`Section <${name}>:\n${sectionContent}`)
-      }
-    }
-  }
-
-  if (toolsAdded.length > 0) {
-    contentParts.push('Tools added:', ...toolsAdded.map((tool) => JSON.stringify(tool, null, 2)))
-  }
-  if (toolsRemoved.length > 0) {
-    contentParts.push('Tools removed:', ...toolsRemoved.map((tool) => (
-      isObject(tool) ? stringValue(tool.name) ?? JSON.stringify(tool) : stringValue(tool) ?? JSON.stringify(tool)
-    )))
-  }
-
   const summaryParts: string[] = []
   if (sections.length > 0) {
     const removedSections = sections.filter(([, value]) => value === null).length
@@ -96,7 +74,8 @@ function piSystemContextEvent(
   if (toolsAdded.length > 0 || toolsRemoved.length > 0) {
     summaryParts.push(`Tools: +${toolsAdded.length} / -${toolsRemoved.length}`)
   }
-  const content = contentParts.length > 0 ? contentParts.join('\n\n') : contentText(message.content)
+  // 正文使用 Pi 原生提示词渲染；分区名及工具声明不属于提示词正文。
+  const content = state ? getSystemMessageText(state.message) : ''
 
   return {
     id: `${entry.id}:system-context`, entryId: entry.id, kind: 'system-prompt',
@@ -106,7 +85,7 @@ function piSystemContextEvent(
   }
 }
 
-function messageEvents(entry: ParsedEntry, sourceName?: string, isInitialSystemMessage = false): TimelineEvent[] {
+function messageEvents(entry: ParsedEntry, sourceName?: string, isInitialSystemMessage = false, state?: PersistedSystemState): TimelineEvent[] {
   const message = isObject(entry.raw.message) ? entry.raw.message : {}
   const role = stringValue(message.role) ?? 'unknown'
   const timestamp = timestampValue(entry, message)
@@ -134,7 +113,7 @@ function messageEvents(entry: ParsedEntry, sourceName?: string, isInitialSystemM
   }
 
   if (role === 'system') {
-    return [piSystemContextEvent(entry, message, timestamp, isInitialSystemMessage)]
+    return [piSystemContextEvent(entry, message, timestamp, isInitialSystemMessage, state)]
   }
 
   if (role !== 'assistant') {
@@ -472,6 +451,7 @@ const JUMP_KIND_PRIORITY: Record<string, number> = {
   'tool-result': 3,
   system: 2,
   'system-prompt': 1,
+  'tool-definitions': 0,
   thinking: 0,
   'tool-call': 0,
 }
@@ -579,17 +559,45 @@ export function buildSessionView(
     entry.type === 'message' && isObject(entry.raw.message) && entry.raw.message.role === 'system'
   ))?.id
   const history = replayBranchState(branchEntries)
+  const definitionSources = collectToolDefinitionSources(branchEntries, history)
+  let toolDefinitionsEntryId: string | undefined
   const events = branchEntries.flatMap((entry) => {
-    const rows = entry.type === 'message'
-      ? messageEvents(entry, session.sourceName, entry.id === firstSystemMessageId)
-      : systemEvents(entry)
     const position = history.get(entry.id)
+    const state = position?.state
+    const rows = entry.type === 'message'
+      ? messageEvents(entry, session.sourceName, entry.id === firstSystemMessageId, state)
+      : systemEvents(entry)
+    const native = entry.type === 'compaction' ? entry.raw.systemMessage : entry.raw.message
+    if (!state) toolDefinitionsEntryId = undefined
+    // 工具定义行与原生声明/压缩检查点使用同一条 JSONL 原始记录。
+    // 普通消息、补充来源记录及无工具变化的提示词更新不生成额外事件。
+    if (state && state.entryId === entry.id && isObject(native)) {
+      const declared = Array.isArray(native.toolsAdded) && native.toolsAdded.length > 0
+        || Array.isArray(native.toolsRemoved) && native.toolsRemoved.length > 0
+      const checkpoint = entry.type === 'compaction'
+      if (declared || checkpoint && (state.message.toolsAdded?.length || toolDefinitionsEntryId)) {
+        const sources = definitionSources.get(entry.id) ?? position?.sources
+        const tools = (state.message.toolsAdded ?? []).map(tool => ({
+          ...tool, sourceInfo: sources?.get(tool.name),
+        }))
+        toolDefinitionsEntryId = entry.id
+        rows.push({
+          id: `${entry.id}:tool-definitions`, entryId: entry.id, kind: 'tool-definitions',
+          title: 'Tool Definitions', summary: tools.length > 0 ? `Mounted ${tools.length} API tools` : 'No active API tools',
+          content: JSON.stringify(tools.map(sanitizeToolForApi), null, 2),
+          timestamp: rows[0]?.timestamp ?? entry.timestamp, raw: entry.raw, toolDefinitions: tools,
+        })
+      } else if (checkpoint) {
+        toolDefinitionsEntryId = undefined
+      }
+    }
     for (const row of rows) {
-      row.persistedState = position?.state
+      row.persistedState = state
       row.observation = position?.observation
       row.toolSources = position?.sources
+      row.toolDefinitionsEntryId = toolDefinitionsEntryId
       if (row.kind === 'tool-call' && row.toolName) {
-        const tool = position?.state?.message.toolsAdded?.find(tool => tool.name === row.toolName)
+        const tool = state?.message.toolsAdded?.find(tool => tool.name === row.toolName)
         const sourceInfo = position?.sources?.get(row.toolName)
         if (tool) row.toolDefinition = { ...tool, ...(sourceInfo ? { sourceInfo } : {}) }
       }

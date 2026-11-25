@@ -19,9 +19,9 @@ test('keeps the workspace inside the viewport at supported desktop widths', asyn
 test('makes every inspector tab usable on desktop and supports arrow-key navigation', async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 740 })
   await page.goto('/#token=dev-token')
-  await page.locator('.event-row').first().click()
+  await page.locator('.event-row.event--system-prompt').first().click()
 
-  for (const name of ['Overview', 'Persisted State', 'Content', 'Diff', 'Raw']) {
+  for (const name of ['Overview', 'Composition', 'Content', 'Diff', 'Raw']) {
     const tab = page.getByRole('tab', { name, exact: true })
     await expect(tab).toBeVisible()
     await tab.click()
@@ -38,6 +38,13 @@ test('makes every inspector tab usable on desktop and supports arrow-key navigat
   await expect(page.getByRole('tab', { name: 'Raw' })).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('Home')
   await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+
+  await page.getByRole('tab', { name: 'Diff' }).click()
+  for (const kind of ['user', 'assistant', 'thinking', 'tool-call', 'tool-result', 'tool-definitions']) {
+    await page.locator(`.event-row.event--${kind}`).first().click()
+    await expect(page.locator('.inspector [role="tab"]')).toHaveText(['Overview', 'Content', 'Raw'])
+    await expect(page.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true')
+  }
 })
 
 test('shows event metadata, the session title, and Diff actions without clipping', async ({ page }) => {
@@ -55,7 +62,7 @@ test('shows event metadata, the session title, and Diff actions without clipping
     )
     expect(clippedMetadata, `clipped event metadata at ${width}px`).toEqual([])
 
-    await page.locator('.event-row').first().click()
+    await page.locator('.event-row.event--system-prompt').first().click()
     await page.getByRole('tab', { name: 'Diff' }).click()
     const toolbarBounds = await page.locator('.diff-view .content-header-toolbar').evaluate((element) => ({
       client: element.clientWidth,
@@ -67,7 +74,7 @@ test('shows event metadata, the session title, and Diff actions without clipping
   }
 
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.locator('.event-row').first().click()
+  await page.locator('.event-row.event--system-prompt').first().click()
   await page.getByRole('tab', { name: 'Diff' }).click()
   const desktopToolbar = page.locator('.diff-view .content-header-toolbar')
   expect(await desktopToolbar.evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(
@@ -106,7 +113,7 @@ test('keeps filtering controls discoverable and shows a copy error when clipboar
   await expect(page.locator('.event-row').first()).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Current Project (1)' })).toHaveText('Current (1)')
   await expect(page.getByRole('button', { name: 'Select All' })).toBeVisible()
-  await expect(page.getByRole('group', { name: 'Event filter' }).getByRole('checkbox')).toHaveCount(7)
+  await expect(page.getByRole('group', { name: 'Event filter' }).getByRole('checkbox')).toHaveCount(8)
 
   await page.locator('.header-session .header-path-copy').click()
   await expect(page.locator('.copy-status-toast')).toHaveText('Copy failed')
@@ -115,9 +122,13 @@ test('keeps filtering controls discoverable and shows a copy error when clipboar
   await expect(page.getByRole('button', { name: 'Copy', exact: true })).toHaveAttribute('data-copy-status', 'error')
   await expect(page.locator('.copy-status-toast')).toHaveCount(1)
   await expect(page.locator('.header-path-copy')).toHaveAttribute('data-copy-status', 'idle')
+  await page.locator('.event-row.event--system-prompt').first().click()
   await page.getByRole('tab', { name: 'Diff' }).click()
   await expect(page.locator('.copy-status-toast')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Copy Diff' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Previous snapshot' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Vanilla \(/ })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Copy Diff' }).click()
+  await expect(page.getByRole('button', { name: 'Copy Diff' })).toHaveAttribute('data-copy-status', 'error')
 })
 
 test('wraps import errors and keeps the branch label legible at minimum desktop width', async ({ page }) => {
@@ -195,15 +206,148 @@ test('offline native state ignores old captures and distinguishes empty forced o
   await page.goto('/')
   await page.locator('input[type="file"]').setInputFiles({ name: 'native.jsonl', mimeType: 'application/json', buffer: Buffer.from(lines) })
   await expect(page.locator('.event-row.event--system-prompt')).toHaveCount(1)
+  const inspector = page.locator('.inspector')
   await page.locator('.event-row.event--user').click()
-  await page.getByRole('tab', { name: 'Persisted State' }).click()
-  await expect(page.locator('.inspector')).toContainText('Persisted system state unknown')
+  await expect(inspector.locator('[role="tab"]')).toHaveText(['Overview', 'Content', 'Raw'])
+  await page.getByRole('tab', { name: 'Overview' }).click()
+  await expect(inspector.locator('.event-facts dt').filter({hasText: /^System prompt$/})).toHaveCount(0)
+  await expect(inspector.locator('.overview-composition, .state-section, .prompt-composition')).toHaveCount(0)
   await page.locator('.event-row.event--system-prompt').click()
-  await page.getByRole('tab', { name: 'Persisted State' }).click()
-  await expect(page.locator('.inspector')).toContainText('custom_section')
+  await page.getByRole('tab', { name: 'Content' }).click()
+  await expect(inspector.locator('.content-body-wrap pre')).toHaveText('exact text')
+  await expect(inspector.locator('.content-header-tokens')).toHaveText('10 chars')
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText: async (text: string) => { document.documentElement.dataset.copiedPrompt = text },
+    } })
+  })
+  await inspector.getByRole('button', { name: 'Copy', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-copied-prompt', 'exact text')
+  await page.getByRole('tab', { name: 'Composition' }).click()
+  await expect(inspector.locator('.prompt-block-title')).toContainText('custom_section')
+  await inspector.locator('.prompt-block summary').click()
+  await expect(inspector.locator('.prompt-block pre')).toContainText('exact text')
+  await expect(inspector).not.toContainText('Legacy secret prompt')
   await page.locator('.event-row.event--assistant').click()
-  await page.getByRole('tab', { name: 'Persisted State' }).click()
-  await expect(page.locator('.inspector')).toContainText('Explicitly observed empty string')
-  await expect(page.locator('.inspector')).not.toContainText('Legacy secret prompt')
+  await page.getByRole('tab', { name: 'Overview' }).click()
+  await expect(inspector.locator('.overview-composition, .state-section')).toHaveCount(0)
+  await expect(inspector.locator('.event-facts dt').filter({hasText: /^System prompt$/})).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Composition' }).click()
+  const forced = inspector.locator('.prompt-block').filter({ hasText: 'Observed forced prompt' })
+  await forced.locator('summary').click()
+  await expect(forced.locator('pre')).toContainText('Explicitly observed empty string')
+  await expect(inspector).not.toContainText('Supplemental observation')
   expect(apiRequests).toEqual([])
+})
+
+test('原生分区恢复原有组成和工具定义样式，差异逐行展示', async ({ page }) => {
+  const timestamp = '2026-01-01T10:00:00.000Z'
+  const tools = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'codemode', 'web_enable', 'subagent', 'contact_supervisor', 'bg_wait', 'skill', 'ask_user_question', 'subagent_supervisor']
+    .map(name => ({ name, description: 'A native tool declaration', parameters: { type: 'object' } }))
+  const lines = [
+    { type: 'session', version: 3, id: 'inspector-layout', timestamp, cwd: '/work/demo' },
+    { type: 'message', id: 'native-first', parentId: null, timestamp, message: { role: 'system', timestamp: 1, content: '', sections: { preamble: 'Base', tools: 'Tools', rules: 'Rules before', docs: 'Docs', project_context: 'Project', skills: 'Skills', cwd: '/work/demo', advertised_subagents: 'Agents', mcp_servers: 'MCP' }, toolsAdded: tools } },
+    { type: 'message', id: 'native-next', parentId: 'native-first', timestamp, message: { role: 'system', timestamp: 2, content: '', sections: { rules: 'Rules after', mcp_servers: null, custom_section: 'Exact custom text' } } },
+  ].map(entry => JSON.stringify(entry)).join('\n')
+  await page.addInitScript(() => localStorage.setItem('pi_session_viewer_locale', 'zh-CN'))
+  await page.goto('/')
+  await page.locator('input[type="file"]').setInputFiles({ name: 'inspector-layout.jsonl', mimeType: 'application/json', buffer: Buffer.from(lines) })
+  await page.locator('.event-row[data-event-id="native-first:system-context"]').click()
+  await page.getByRole('tab', { name: '组成' }).click()
+  const inspector = page.locator('.inspector')
+  const panel = inspector.locator('.prompt-composition')
+  await expect(panel.locator('.prompt-block summary')).toHaveCount(9)
+  await expect(panel.locator('.prompt-block-index').first()).toHaveText('1.')
+  await expect(panel.locator('.prompt-block-title').first()).toContainText('基础模板')
+  await expect(panel.locator('.prompt-block summary').first()).toHaveCSS('font-size', '12px')
+  await expect(panel.locator('.prompt-block-meta').first()).toHaveText('4 字符')
+  await expect(panel).not.toContainText('状态记录')
+  await expect(panel).not.toContainText('补充观测')
+  await expect(panel.locator('.state-section, .tool-definitions-view')).toHaveCount(0)
+  for (const width of [1024, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 })
+    expect(await panel.locator('summary').evaluateAll(rows => rows.every(row => row.scrollWidth <= row.clientWidth + 1))).toBe(true)
+  }
+
+  await page.getByRole('tab', { name: '差异' }).click()
+  await expect(page.getByRole('button', { name: '上一份有效提示词' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Vanilla \(/ })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.diff-row--removed').filter({hasText:'You are a coding assistant running inside pi'})).toBeVisible()
+  await expect(page.getByRole('button', { name: '复制 Diff' })).toBeEnabled()
+
+  await page.locator('.event-row.event--tool-definitions').click()
+  await expect(inspector.locator('[role="tab"]')).toHaveText(['概览', '内容', '原始数据'])
+  await expect(inspector.locator('.tool-definitions-view details')).toHaveCount(15)
+  await expect(inspector.locator('.tool-source-badge--unknown')).toHaveCount(15)
+  await expect(inspector).not.toContainText('个注册来源未记录')
+  await inspector.locator('.tool-definitions-view summary').first().click()
+  await expect(inspector.locator('.tool-definitions-view pre').first()).toContainText('A native tool declaration')
+  await page.getByRole('tab', { name: '概览' }).click()
+  await expect(inspector).toContainText('15 个 API 工具')
+
+  await page.locator('.event-row[data-event-id="native-next:system-context"]').click()
+  await page.getByRole('tab', { name: '差异' }).click()
+  await expect(page.locator('.prompt-diff-baseline-pill')).toHaveCount(2)
+  await expect(page.locator('.prompt-diff-baseline-pill.is-active')).toHaveAttribute('title', 'native-first')
+  await expect(page.locator('.prompt-diff-badges')).toContainText('+3')
+  await expect(page.locator('.prompt-diff-badges')).toContainText('-3')
+  await expect(page.locator('.diff-table .diff-row--removed')).toHaveCount(3)
+  await expect(page.locator('.diff-table .diff-row--added')).toHaveCount(3)
+  await expect(page.locator('.diff-row--removed').filter({hasText:'Rules before'})).toBeVisible()
+  await expect(page.locator('.diff-row--added').filter({hasText:'Rules after'})).toBeVisible()
+  await expect(page.locator('.diff-row--unchanged').filter({hasText:'Base'}).first()).toBeVisible()
+  await expect(page.locator('.state-diff-list')).toHaveCount(0)
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText: async (text: string) => { document.documentElement.dataset.copiedDiff = text },
+    } })
+  })
+  await page.getByRole('button', { name: '复制 Diff' }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-copied-diff', /- Rules before/)
+  await expect(page.locator('html')).toHaveAttribute('data-copied-diff', /\+ Rules after/)
+  await page.getByRole('button', { name: /^Vanilla \(/ }).click()
+  await expect(page.locator('.diff-row--added').filter({hasText:'Exact custom text'})).toBeVisible()
+  await page.getByRole('button', { name: '上一份有效提示词' }).click()
+  await expect(page.locator('.prompt-diff-badges')).toContainText('+3')
+  await expect(page.locator('.prompt-diff-badges')).toContainText('-3')
+})
+
+test('工具定义显示首次关联请求真实观测的来源', async ({ page }) => {
+  const timestamp = '2026-01-01T10:00:00.000Z'
+  const tools = ['read', 'write', 'web_search'].map(name => ({name,description:name,parameters:{}}))
+  const rows = [
+    {type:'session',version:3,id:'source-view',timestamp,cwd:'/work/demo'},
+    {type:'message',id:'s',parentId:null,timestamp,message:{role:'system',timestamp:1,content:'',toolsAdded:tools}},
+    {type:'message',id:'u',parentId:'s',timestamp,message:{role:'user',content:'hello'}},
+    {type:'message',id:'a',parentId:'u',timestamp,message:{role:'assistant',stopReason:'toolUse',content:[{type:'text',text:'ok'},{type:'toolCall',id:'call-write',name:'write',arguments:{}}]}},
+    {type:'custom',id:'o',parentId:'a',timestamp,customType:'pi-session-viewer.observation',data:{
+      schemaVersion:1,piVersion:'1.6.0',anchorEntryId:'u',assistantEntryId:'a',
+      toolSources:[
+        {name:'read',sourceInfo:{path:'builtin:read',source:'builtin'}},
+        {name:'write',sourceInfo:{path:'/work/node_modules/pi-cc-extensions/dist/index.js',source:'npm:pi-cc-extensions'}},
+        {name:'web_search',sourceInfo:{path:'/work/node_modules/pi-web-access/dist/index.js',source:'npm:pi-web-access'}},
+      ],
+    }},
+    {type:'message',id:'r',parentId:'o',timestamp,message:{role:'toolResult',toolCallId:'call-write',toolName:'write',content:[{type:'text',text:'ok'}],isError:false}},
+  ]
+  await page.goto('/')
+  await page.locator('input[type="file"]').setInputFiles({name:'source-view.jsonl',mimeType:'application/json',buffer:Buffer.from(rows.map(r=>JSON.stringify(r)).join('\n'))})
+  await page.locator('.event-row.event--tool-definitions').click()
+  const list = page.locator('.tool-definitions-view')
+  await expect(list.locator('.tool-source-badge--builtin')).toHaveCount(1)
+  await expect(list.locator('.tool-source-badge--extension')).toHaveCount(2)
+  await expect(list.locator('.tool-source-badge--unknown')).toHaveCount(0)
+  await expect(list).toContainText('pi-cc-extensions')
+  await expect(list).toContainText('pi-web-access')
+  await page.getByRole('tab',{name:'Raw'}).click()
+  await expect(page.locator('.inspector pre')).not.toContainText('sourceInfo')
+  const inspector = page.locator('.inspector')
+  for (const kind of ['user', 'assistant', 'tool-call', 'tool-result', 'system-prompt', 'tool-definitions']) {
+    await page.locator(`.event-row.event--${kind}`).first().click()
+    await page.getByRole('tab', {name:'Overview'}).click()
+    await expect(inspector.locator('.event-facts dt').filter({hasText:/^(System prompt|Tool definitions|Tool definition|Observed tool sources)$/})).toHaveCount(0)
+    if (kind === 'tool-call' || kind === 'tool-result') {
+      await expect(inspector.locator('.tool-name-fact .tool-source-badge')).toHaveText('pi-cc-extensions')
+    }
+  }
 })

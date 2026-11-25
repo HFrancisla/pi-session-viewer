@@ -41,7 +41,7 @@ export interface BranchOption {
   isCurrent: boolean
 }
 
-export type EventKind = 'system-prompt' | 'user' | 'assistant' | 'thinking' | 'tool-call' | 'tool-result' | 'system'
+export type EventKind = 'system-prompt' | 'tool-definitions' | 'user' | 'assistant' | 'thinking' | 'tool-call' | 'tool-result' | 'system'
 
 export interface ToolSourceInfo {
   path?: string
@@ -128,6 +128,8 @@ export interface TimelineEvent {
   persistedState?: PersistedSystemState
   observation?: SupplementalObservation
   toolSources?: ReadonlyMap<string, ToolSourceInfo>
+  toolDefinitions?: ToolDeclarationWithSource[]
+  toolDefinitionsEntryId?: string
   toolDefinition?: ToolDeclarationWithSource
   isError?: boolean
   pairedEventId?: string

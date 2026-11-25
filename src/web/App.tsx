@@ -321,6 +321,7 @@ function App() {
         <Inspector
           key={JSON.stringify([selectedToken, importedFile?.name, importedFile?.lastModified, parsedSession?.header?.id, selectedEventId])}
           event={selectedEvent}
+          cwd={parsedSession?.header?.cwd}
           onJumpToEvent={jumpToSelectedEvent}
           onJumpToEntry={jumpToEntry}
         />

@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowRight, Bot, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, CornerDownRight, EyeOff, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, CornerDownRight, EyeOff, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
 import { GroupedVirtuoso, type GroupedVirtuosoHandle, type GroupProps } from 'react-virtuoso'
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { buildCausalLayout, causalLaneX, type CausalEventLayout } from '../../core/causal-layout'
@@ -9,6 +9,7 @@ import { useI18n } from '../i18n'
 
 const kindMeta: Record<EventKind, { icon: ComponentType<{ size?: number; className?: string }>; color: string }> = {
   'system-prompt': { icon: ScrollText, color: '#8a4f68' },
+  'tool-definitions': { icon: Boxes, color: '#2f6f8f' },
   user: { icon: CircleUserRound, color: '#485c66' },
   assistant: { icon: Bot, color: '#246b83' },
   thinking: { icon: Brain, color: '#765a9a' },

@@ -43,6 +43,7 @@ export function localizeEventTitle(title: string, locale: Locale): string {
     'User': '用户',
     'Pi Response': 'Pi 回复',
     'Thinking': 'Thinking',
+    'Tool Definitions': '工具定义',
     'Pi system context snapshot': 'Pi 系统上下文快照',
     'Pi system context update': 'Pi 系统上下文变更',
     'Model Switch': '模型切换',
@@ -57,7 +58,15 @@ export function localizeEventTitle(title: string, locale: Locale): string {
     'Current branch': '当前分支',
     'Unknown Project': '未知项目',
     'Unknown working directory': '未知工作目录',
+    'Base Template': '基础模板',
+    'Available Tools': '可用工具',
+    'Guidelines': '行为准则',
+    'System Documentation': '系统文档指引',
+    'Append Instructions': '追加指令',
+    'Project Context': '项目上下文',
     'Skills': 'Skills',
+    'Working Directory': '工作目录',
+    'MCP Servers': 'MCP 服务',
   }
 
   if (directMap[title]) return directMap[title]
@@ -100,6 +109,10 @@ export function localizeEventTitle(title: string, locale: Locale): string {
 export function localizeEventSummary(event: Pick<TimelineEvent, 'kind' | 'title' | 'summary'>, locale: Locale): string {
   const summary = event.summary
   if (locale !== 'zh-CN') return summary
+  if (event.kind === 'tool-definitions') {
+    const mounted = summary.match(/^Mounted (\d+) API tools$/)
+    return mounted ? `挂载 ${mounted[1]} 个 API 工具` : summary === 'No active API tools' ? '没有启用的 API 工具' : summary
+  }
   if (event.kind === 'system-prompt' && event.title.startsWith('Pi system context')) {
     return summary
       .replace(/^(\d+) prompt sections(?= ·|$)/, '$1 个提示词分区')

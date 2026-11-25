@@ -287,7 +287,7 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   // usage) are filtered out when the viewer opens.
   const systemFilter = page.getByLabel('System', { exact: true })
   await expect(systemFilter).not.toBeChecked()
-  await expect(page.locator('.event-row')).toHaveCount(9)
+  await expect(page.locator('.event-row')).toHaveCount(10)
   const llmOutputStarts = page.locator('.event-row.llm-output-group-start')
   await expect(llmOutputStarts).toHaveCount(2)
   const firstGroupId = await llmOutputStarts.first().getAttribute('data-llm-output-group')
@@ -297,7 +297,7 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   await expect(firstLlmOutput).toHaveCount(4)
   await expect(firstLlmOutput.locator('.event--tool-result')).toHaveCount(0)
   await expect(secondLlmOutput).toHaveCount(1)
-  await expect(page.locator('.filter-kind-icon')).toHaveCount(7)
+  await expect(page.locator('.filter-kind-icon')).toHaveCount(8)
   await expect(page.locator('.filter-swatch')).toHaveCount(0)
   const colorMismatches = await page.locator('.event-row').evaluateAll((rows) => rows
     .map((row) => {
@@ -336,7 +336,7 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   // Entry types Pi documents beyond messages: a context edit and a usage entry.
   // Both are `system` events, so the filter has to bring them back first.
   await systemFilter.check()
-  await expect(page.locator('.event-row')).toHaveCount(13)
+  await expect(page.locator('.event-row')).toHaveCount(14)
   const contextEditRow = page.locator('.event-row').filter({ hasText: 'Context Edit' })
   await expect(contextEditRow).toHaveCount(1)
   await contextEditRow.click()
@@ -365,15 +365,18 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   const nativeRow = firstTurnEvents.and(page.locator('.event--system-prompt'))
   await expect(nativeRow).toHaveCount(1)
   await nativeRow.click()
-  await page.getByRole('tab', { name: 'Persisted State' }).click()
+  await page.getByRole('tab', { name: 'Composition' }).click()
   const inspector = page.locator('.inspector')
-  await expect(inspector).toContainText('Native persisted state')
-  await expect(inspector).toContainText('Native tool declarations')
+  await expect(inspector.locator('.prompt-composition')).toContainText('Project Context')
+  await expect(inspector.locator('.tool-definitions-view')).toHaveCount(0)
+  const definitionsRow = firstTurnEvents.and(page.locator('.event--tool-definitions'))
+  await expect(definitionsRow).toHaveCount(1)
+  await definitionsRow.click()
+  await expect(inspector.locator('[role="tab"]')).toHaveText(['Overview', 'Content', 'Raw'])
   await expect(inspector.locator('.tool-definitions-view details')).toHaveCount(1)
   await inspector.locator('.tool-definitions-view summary').click()
   await expect(inspector.locator('.tool-definitions-view pre')).toContainText('"command"')
-  await expect(inspector.locator('.prompt-composition')).toContainText('project_context')
-  await page.getByRole('tab', { name: 'Content' }).click()
+  await expect(inspector.locator('.tool-source-badge--unknown')).toHaveCount(1)
 
   const testCall = page.locator('.event--tool-call').filter({ hasText: 'npm test' })
   await testCall.click()

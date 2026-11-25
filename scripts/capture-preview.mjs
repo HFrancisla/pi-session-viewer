@@ -108,7 +108,7 @@ try {
   }
 
   // Switch to Composition tab in Inspector
-  const compositionTab = page.getByRole('tab', { name: 'Persisted State' })
+  const compositionTab = page.getByRole('tab', { name: 'Composition' })
   if (await compositionTab.isVisible()) {
     await compositionTab.click()
     await page.waitForTimeout(400)
