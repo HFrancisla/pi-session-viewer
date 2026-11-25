@@ -88,7 +88,7 @@ function omittedTargets(projected: ReturnType<PiContextApi['buildSessionProjecti
 }
 
 /**
- * Computes what the model actually received on each branch of a session.
+ * 计算会话各分支的原生持久化上下文投影；并非最终 Provider 请求。
  *
  * Returns `undefined` when Pi's projection API is unavailable — the caller must
  * show no context marks rather than a guess.

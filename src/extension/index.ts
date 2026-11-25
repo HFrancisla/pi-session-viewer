@@ -2,7 +2,7 @@ import packageManifest from '../../package.json'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { fileURLToPath } from 'node:url'
 import { registerSessionViewerCommand } from './commands'
-import systemPromptCapture from './prompt-capture'
+import registerObservation from './observation'
 import { openDefaultBrowser } from './open-browser'
 import { createServerController, type ServerController } from './server-controller'
 import { configuredSessionRoot } from '../server/session-discovery'
@@ -17,7 +17,7 @@ export interface ExtensionDependencies {
 const packageVersion = typeof packageManifest.version === 'string' ? packageManifest.version : 'unknown'
 
 export function registerExtension(pi: ExtensionAPI, dependencies: ExtensionDependencies = {}): void {
-  systemPromptCapture(pi)
+  registerObservation(pi)
 
   const controller = dependencies.controller ?? createServerController({
     sessionRoot: dependencies.sessionRoot ?? configuredSessionRoot(),

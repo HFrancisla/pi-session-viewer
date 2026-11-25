@@ -1,21 +1,18 @@
 import type {
-  CapturedToolDefinition,
   ContextProjection,
   ParsedEntry,
   ParsedSession,
   RawObject,
   SessionStats,
   SessionView,
-  SystemPromptComposition,
   TimelineEvent,
   TimelineTurn,
-  ToolSourceInfo,
 } from './types'
 import { truncate } from './format'
-import { sanitizeToolForApi } from './tool-provenance'
 import { extractSubagentReferences, normalizeSessionRelativePath, subagentReferencesAlias, workflowChildTranscriptPath } from './subagent-detector'
 import { getPath } from './session-parser'
-import { isPromptCaptureEntry, readCurrentPromptCapture } from './prompt-capture-record'
+import { replayBranchState } from './native-state'
+import { isViewerRecord } from './observation'
 
 function isObject(value: unknown): value is RawObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -65,6 +62,8 @@ function piSystemContextEvent(
     && (typeof message.content === 'string' && message.content.length > 0
       || sections.some(([name, value]) => name === 'preamble' && typeof value === 'string'))
   const contentParts: string[] = []
+  const recordedContent = contentText(message.content)
+  if (recordedContent) contentParts.push(recordedContent)
 
   if (sections.length > 0) {
     contentParts.push(hasFullSnapshot ? 'Prompt sections in this Pi system snapshot:' : 'Prompt section changes:')
@@ -100,7 +99,7 @@ function piSystemContextEvent(
   const content = contentParts.length > 0 ? contentParts.join('\n\n') : contentText(message.content)
 
   return {
-    id: `${entry.id}:system-context`, entryId: entry.id, kind: 'system',
+    id: `${entry.id}:system-context`, entryId: entry.id, kind: 'system-prompt',
     title: hasFullSnapshot ? 'Pi system context snapshot' : 'Pi system context update',
     summary: summaryParts.join(' · ') || truncate(content),
     content, timestamp, raw: entry.raw,
@@ -135,13 +134,7 @@ function messageEvents(entry: ParsedEntry, sourceName?: string, isInitialSystemM
   }
 
   if (role === 'system') {
-    const hasSystemContextPatch = (isObject(message.sections) && Object.keys(message.sections).length > 0)
-      || (Array.isArray(message.toolsAdded) && message.toolsAdded.length > 0)
-      || (Array.isArray(message.toolsRemoved) && message.toolsRemoved.length > 0)
-      || (typeof message.content === 'string' && message.content.length > 0)
-    if (hasSystemContextPatch) {
-      return [piSystemContextEvent(entry, message, timestamp, isInitialSystemMessage)]
-    }
+    return [piSystemContextEvent(entry, message, timestamp, isInitialSystemMessage)]
   }
 
   if (role !== 'assistant') {
@@ -214,172 +207,6 @@ function messageEvents(entry: ParsedEntry, sourceName?: string, isInitialSystemM
   return events
 }
 
-type PromptSnapshotData = RawObject
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
-}
-
-function stringRecord(value: unknown): Record<string, string> {
-  if (!isObject(value)) return {}
-  return Object.fromEntries(Object.entries(value).filter((item): item is [string, string] => typeof item[1] === 'string'))
-}
-
-function stringArrayRecord(value: unknown): Record<string, string[]> {
-  if (!isObject(value)) return {}
-  return Object.fromEntries(Object.entries(value).map(([name, rules]) => [name, stringArray(rules)]))
-}
-
-function promptComposition(value: unknown): SystemPromptComposition | undefined {
-  if (!isObject(value)) return undefined
-  const contextFiles = Array.isArray(value.contextFiles)
-    ? value.contextFiles.filter(isObject).map((file) => ({
-        path: stringValue(file.path) ?? 'Unknown path',
-        content: stringValue(file.content) ?? '',
-      }))
-    : []
-  const skills = Array.isArray(value.skills)
-    ? value.skills.filter(isObject).map((skill) => ({
-        name: stringValue(skill.name) ?? 'Unnamed skill',
-        description: stringValue(skill.description) ?? '',
-        filePath: stringValue(skill.filePath) ?? '',
-        baseDir: stringValue(skill.baseDir),
-        disableModelInvocation: skill.disableModelInvocation === true,
-      }))
-    : []
-  const toolDefinitions: CapturedToolDefinition[] | undefined = Array.isArray(value.toolDefinitions)
-    ? value.toolDefinitions.filter(isObject).map((tool) => ({
-        ...tool,
-        name: stringValue(tool.name) ?? 'Unnamed tool',
-        description: stringValue(tool.description),
-        parameters: tool.parameters,
-        promptGuidelines: stringArray(tool.promptGuidelines),
-        sourceInfo: isObject(tool.sourceInfo) ? (tool.sourceInfo as ToolSourceInfo) : undefined,
-      }))
-    : undefined
-  return {
-    customPrompt: stringValue(value.customPrompt),
-    forceSystemPrompt: stringValue(value.forceSystemPrompt),
-    selectedTools: stringArray(value.selectedTools),
-    hiddenTools: stringArray(value.hiddenTools),
-    toolGuidelines: stringArrayRecord(value.toolGuidelines),
-    toolSnippets: stringRecord(value.toolSnippets),
-    toolDefinitions,
-    promptGuidelines: stringArray(value.promptGuidelines),
-    appendSystemPrompt: stringValue(value.appendSystemPrompt),
-    cwd: stringValue(value.cwd) ?? '',
-    contextFiles,
-    skills,
-    sections: isObject(value.sections) ? stringRecord(value.sections) : undefined,
-  }
-}
-
-function collectPromptSnapshots(entries: ParsedEntry[]): Map<string, PromptSnapshotData> {
-  const snapshots = new Map<string, PromptSnapshotData>()
-  for (const entry of entries) {
-    const data = readCurrentPromptCapture(entry.raw)
-    if (!data) continue
-    const hash = stringValue(data.promptHash)
-    if (hash && typeof data.prompt === 'string') snapshots.set(hash, data)
-  }
-  return snapshots
-}
-
-function capturedSystemPromptEvent(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotData>): TimelineEvent | undefined {
-  const data = readCurrentPromptCapture(entry.raw)
-  if (!data) return undefined
-  const hash = stringValue(data.promptHash)
-  const snapshot = typeof data.prompt === 'string' ? data : hash ? snapshots.get(hash) : undefined
-  const prompt = typeof snapshot?.prompt === 'string' ? snapshot.prompt : undefined
-  const snapshotComposition = isObject(snapshot?.composition) ? snapshot.composition : undefined
-  const recordComposition = isObject(data.composition) ? data.composition : undefined
-  const composition = snapshotComposition || recordComposition
-    ? promptComposition({ ...snapshotComposition, ...recordComposition })
-    : undefined
-  const promptLength = typeof data.promptLength === 'number' ? data.promptLength : prompt?.length
-  const modelValue = isObject(data.model) ? data.model : undefined
-  const recordType = data.recordType === 'reference' ? 'reference' : 'snapshot'
-  const captureStage = data.captureStage === 'provider_request_update' ? 'provider_request_update' : 'agent_start'
-  const summaryParts: string[] = []
-  if (composition?.skills.length) summaryParts.push(`Mounted ${composition.skills.length} ${composition.skills.length === 1 ? 'skill' : 'skills'}`)
-  if (composition?.contextFiles.length) summaryParts.push(`${composition.contextFiles.length} context ${composition.contextFiles.length === 1 ? 'file' : 'files'}`)
-  const defaultSummary = recordType === 'snapshot' ? 'Full snapshot' : recordType === 'reference' ? 'Snapshot reference' : 'System prompt'
-  const title = prompt === undefined
-    ? 'System prompt missing'
-    : prompt.length === 0
-      ? 'System prompt empty'
-      : captureStage === 'provider_request_update' ? 'System prompt update' : 'System prompt'
-  const summary = prompt === undefined
-    ? `Unable to resolve prompt snapshot for hash ${hash ?? 'unknown'}`
-    : prompt.length === 0
-      ? 'Captured empty effective system prompt'
-      : summaryParts.length ? summaryParts.join(' · ') : defaultSummary
-
-  return {
-    id: `${entry.id}:system-prompt`,
-    entryId: entry.id,
-    kind: 'system-prompt',
-    title,
-    summary,
-    content: prompt ?? 'The complete system prompt snapshot for this reference is not in the current session file.',
-    timestamp: entry.timestamp,
-    targetEntryId: stringValue(data.targetUserEntryId),
-    systemPrompt: {
-      promptHash: hash,
-      recordType,
-      captureStage,
-      messageType: data.messageType === 'user' || data.messageType === 'custom' ? data.messageType : undefined,
-      promptLength,
-      composition,
-      promptBeforeFinalExtensions: stringValue(snapshot?.promptBeforeFinalExtensions),
-      capturedAt: stringValue(data.capturedAt),
-      sequence: typeof data.sequence === 'number' ? data.sequence : undefined,
-      piVersion: stringValue(data.piVersion),
-      model: modelValue ? { provider: stringValue(modelValue.provider), id: stringValue(modelValue.id) } : undefined,
-    },
-    model: modelValue ? { provider: stringValue(modelValue.provider), id: stringValue(modelValue.id) } : undefined,
-    raw: entry.raw,
-  }
-}
-
-function buildToolDefinitionsEvent(promptEvent: TimelineEvent): TimelineEvent | undefined {
-  const composition = promptEvent.systemPrompt?.composition
-  if (!composition || composition.toolDefinitions === undefined) return undefined
-
-  const tools = composition.toolDefinitions
-  const apiTools = tools.map(sanitizeToolForApi)
-  const jsonContent = JSON.stringify(apiTools, null, 2)
-  const charCount = jsonContent.length
-  const estimatedTokens = Math.ceil(charCount / 4)
-
-  return {
-    id: `${promptEvent.entryId}:tool-definitions`,
-    entryId: promptEvent.entryId,
-    kind: 'tool-definitions',
-    title: 'Tool Definitions',
-    summary: tools.length > 0 ? `Mounted ${tools.length} API tools` : 'No active API tools',
-    content: jsonContent,
-    timestamp: promptEvent.timestamp,
-    targetEntryId: promptEvent.targetEntryId,
-    systemPrompt: promptEvent.systemPrompt,
-    toolDefinitions: tools,
-    raw: {
-      type: 'tool-definitions',
-      tools: apiTools,
-      charCount,
-      estimatedTokens,
-    },
-  }
-}
-
-function toolDefinitionsFingerprint(event: TimelineEvent): string | undefined {
-  if (event.kind !== 'tool-definitions') return undefined
-  const apiTools = (event.toolDefinitions ?? [])
-    .map(sanitizeToolForApi)
-    .sort((a, b) => a.name.localeCompare(b.name))
-  return JSON.stringify(apiTools)
-}
-
 /**
  * Pi's `context_edit` entry is an append-only edit of one earlier entry's
  * contribution to model context: `replacement: null` drops the target from the
@@ -414,16 +241,8 @@ function usageContent(raw: RawObject): string {
   return lines.length > 0 ? lines.join('\n') : JSON.stringify(raw, null, 2)
 }
 
-function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotData>): TimelineEvent[] {
-  const capturedPrompt = capturedSystemPromptEvent(entry, snapshots)
-  if (capturedPrompt) {
-    const list = [capturedPrompt]
-    const toolEvent = buildToolDefinitionsEvent(capturedPrompt)
-    if (toolEvent) list.push(toolEvent)
-    return list
-  }
-
-  if (isPromptCaptureEntry(entry.raw)) return []
+function systemEvents(entry: ParsedEntry): TimelineEvent[] {
+  if (isViewerRecord(entry.raw)) return []
 
   const raw = entry.raw
   const usageKind = entry.type === 'usage' ? stringValue(raw.kind) : undefined
@@ -458,28 +277,16 @@ function systemEvents(entry: ParsedEntry, snapshots: Map<string, PromptSnapshotD
   else content = JSON.stringify(raw.data ?? raw, null, 2)
 
   return [{
-    id: `${entry.id}:system`, entryId: entry.id, kind: 'system', title: labels[entry.type] ?? `Unknown event: ${entry.type}`,
+    id: `${entry.id}:system`, entryId: entry.id, kind: entry.type === 'compaction' ? 'system-prompt' : 'system', title: labels[entry.type] ?? `Unknown event: ${entry.type}`,
     summary: truncate(content), content, timestamp: entry.timestamp, durationMs: durationValue(raw), model, raw,
   }]
 }
 
-function pairTools(events: TimelineEvent[], sourceName?: string, resetBefore = new Set<string>()): void {
+function pairTools(events: TimelineEvent[], sourceName?: string): void {
   const calls = new Map<string, TimelineEvent>()
-  const toolDefs = new Map<string, CapturedToolDefinition>()
   let previousTimestamp: number | undefined
 
   for (const event of events) {
-    if (resetBefore.has(event.id)) toolDefs.clear()
-    // Tool schemas belong to the active prompt at this point in the transcript.
-    // A later Pi run can redefine a tool with the same name; never apply its
-    // definition retrospectively to an earlier invocation.
-    const definitions = event.toolDefinitions ?? event.systemPrompt?.composition?.toolDefinitions
-    if (definitions) {
-      // The loadout snapshot is authoritative: removed/hidden tools no longer
-      // belong to this model request (and must not retain stale definitions).
-      toolDefs.clear()
-      for (const tool of definitions) toolDefs.set(tool.name, tool)
-    }
     if (event.timestamp) {
       const time = new Date(event.timestamp).getTime()
       if (Number.isFinite(time)) {
@@ -488,9 +295,6 @@ function pairTools(events: TimelineEvent[], sourceName?: string, resetBefore = n
       }
     }
     if (event.kind === 'tool-call') {
-      if (event.toolName && toolDefs.has(event.toolName)) {
-        event.toolDefinition = toolDefs.get(event.toolName)
-      }
       if (event.toolCallId) calls.set(event.toolCallId, event)
     }
     if (event.kind === 'tool-result' && event.toolCallId) {
@@ -498,7 +302,7 @@ function pairTools(events: TimelineEvent[], sourceName?: string, resetBefore = n
       if (call) {
         call.pairedEventId = event.id
         event.pairedEventId = call.id
-        if (call.toolDefinition && !event.toolDefinition) {
+        if (call.toolDefinition) {
           event.toolDefinition = call.toolDefinition
         }
         const eventMessage = isObject(event.raw) && isObject((event.raw as RawObject).message)
@@ -628,164 +432,21 @@ function linkAsyncSubagentNotifications(events: TimelineEvent[], sourceName?: st
   }
 }
 
-function missingSystemPromptEvent(user: TimelineEvent): TimelineEvent {
-  return {
-    id: `missing-system-prompt:${user.entryId}`,
-    entryId: `missing-system-prompt:${user.entryId}`,
-    kind: 'system-prompt',
-    title: 'System prompt unrecorded',
-    summary: 'No supported system-prompt capture is associated with this turn.',
-    content: 'No supported system-prompt capture is available for this turn. Only captures from the verified Pi version are analyzed; this does not establish whether the run had no system prompt. Prompts are never reconstructed from current configuration.',
-    timestamp: user.timestamp,
-    targetEntryId: user.entryId,
-    systemPrompt: { recordType: 'missing' },
-    raw: { type: 'synthetic', reason: 'system-prompt-not-captured', targetUserEntryId: user.entryId },
-  }
-}
-
-function placeSystemPromptsBeforeUsers(events: TimelineEvent[]): TimelineEvent[] {
-  const hasNativeSystemPromptSnapshot = events.some(
-    (event) => event.kind === 'system' && event.title === 'Pi system context snapshot'
-  )
-  const promptsByUser = new Map<string, TimelineEvent[]>()
-  for (const event of events) {
-    if ((event.kind !== 'system-prompt' && event.kind !== 'tool-definitions') || !event.targetEntryId) continue
-    const prompts = promptsByUser.get(event.targetEntryId) ?? []
-    prompts.push(event)
-    promptsByUser.set(event.targetEntryId, prompts)
-  }
-
-  const placed = new Set<string>()
-  const ordered: TimelineEvent[] = []
-  let activePromptHash: string | undefined
-  let activeToolDefinitionsFingerprint: string | undefined
-  let isFirstUser = true
-
-  for (const event of events) {
-    if (event.kind === 'system-prompt' || event.kind === 'tool-definitions') {
-      if (event.targetEntryId) continue
-      if (event.kind === 'system-prompt') {
-        const hash = event.systemPrompt?.promptHash
-        if (!hash || hash !== activePromptHash) {
-          if (hash) activePromptHash = hash
-          ordered.push(event)
-        }
-      } else {
-        const fingerprint = toolDefinitionsFingerprint(event)
-        if (fingerprint !== activeToolDefinitionsFingerprint) {
-          activeToolDefinitionsFingerprint = fingerprint
-          ordered.push(event)
-        }
-      }
-      continue
-    }
-
-    if (event.kind === 'user') {
-      const candidatePrompts = promptsByUser.get(event.entryId)
-
-      if (isFirstUser) {
-        isFirstUser = false
-        const prompts = candidatePrompts ?? (hasNativeSystemPromptSnapshot ? [] : [missingSystemPromptEvent(event)])
-        prompts.forEach((prompt, index) => {
-          prompt.timestamp = event.timestamp
-          prompt.gapMs = index === 0 ? event.gapMs : 0
-          if (prompt.systemPrompt?.promptHash) {
-            activePromptHash = prompt.systemPrompt.promptHash
-          }
-          if (prompt.kind === 'tool-definitions') {
-            activeToolDefinitionsFingerprint = toolDefinitionsFingerprint(prompt)
-          }
-          placed.add(prompt.id)
-          ordered.push(prompt)
-        })
-        event.gapMs = 0
-      } else if (!candidatePrompts?.length) {
-        if (!hasNativeSystemPromptSnapshot) {
-          const prompt = missingSystemPromptEvent(event)
-          prompt.timestamp = event.timestamp
-          prompt.gapMs = event.gapMs
-          ordered.push(prompt)
-          event.gapMs = 0
-        }
-      } else {
-        // Reuse prompt text by hash, but surface API tool schemas when they change.
-        if (candidatePrompts.length > 0) {
-          const changedPrompts = candidatePrompts.filter((prompt) => {
-            if (prompt.kind === 'tool-definitions') {
-              return toolDefinitionsFingerprint(prompt) !== activeToolDefinitionsFingerprint
-            }
-            const hash = prompt.systemPrompt?.promptHash
-            return !hash || hash !== activePromptHash
-          })
-
-          if (changedPrompts.length > 0) {
-            changedPrompts.forEach((prompt, index) => {
-              prompt.timestamp = event.timestamp
-              prompt.gapMs = index === 0 ? event.gapMs : 0
-              if (prompt.title === 'System prompt') {
-                prompt.title = 'System prompt update'
-              }
-              if (prompt.systemPrompt?.promptHash) {
-                activePromptHash = prompt.systemPrompt.promptHash
-              }
-              if (prompt.kind === 'tool-definitions') {
-                activeToolDefinitionsFingerprint = toolDefinitionsFingerprint(prompt)
-              }
-              placed.add(prompt.id)
-              ordered.push(prompt)
-            })
-            event.gapMs = 0
-          }
-          candidatePrompts.forEach((prompt) => placed.add(prompt.id))
-        }
-      }
-    }
-    ordered.push(event)
-  }
-
-  for (const event of events) {
-    if ((event.kind === 'system-prompt' || event.kind === 'tool-definitions') && event.targetEntryId && !placed.has(event.id)) ordered.push(event)
-  }
-  return ordered
-}
-
 function groupTurns(events: TimelineEvent[]): TimelineTurn[] {
   const turns: TimelineTurn[] = []
-  const promptPrelude: TimelineEvent[] = []
   let current: TimelineTurn | undefined
   let turnIndex = 0
   let groupIndex = 0
-  let customRunIndex = 0
 
   for (const event of events) {
-    if ((event.kind === 'system-prompt' || event.kind === 'tool-definitions') && event.targetEntryId) {
-      promptPrelude.push(event)
-      continue
-    }
-    if (
-      event.kind === 'system-prompt'
-      && event.systemPrompt?.messageType === 'custom'
-      && (event.systemPrompt.captureStage ?? 'agent_start') === 'agent_start'
-    ) {
-      customRunIndex += 1
-      groupIndex += 1
-      current = {
-        id: `custom-run-${customRunIndex}`,
-        index: groupIndex,
-        label: 'Custom run',
-        events: promptPrelude.splice(0),
-        startedAt: event.timestamp,
-      }
-      turns.push(current)
-      current.events.push(event)
-      current.endedAt = event.timestamp
-      continue
-    }
     if (event.kind === 'user') {
-      turnIndex += 1
       groupIndex += 1
-      current = { id: `turn-${turnIndex}`, index: groupIndex, label: `Turn ${turnIndex}`, events: [], startedAt: event.timestamp }
-      current.events.push(...promptPrelude.splice(0))
+      turnIndex += 1
+      current = {
+        id: `turn-${turnIndex}`,
+        index: groupIndex, label: `Turn ${turnIndex}`,
+        events: [], startedAt: event.timestamp,
+      }
       turns.push(current)
     } else if (!current) {
       current = { id: 'turn-setup', index: 0, label: 'Session setup', events: [] }
@@ -793,14 +454,6 @@ function groupTurns(events: TimelineEvent[]): TimelineTurn[] {
     }
     current.events.push(event)
     current.endedAt = event.timestamp ?? current.endedAt
-  }
-
-  if (promptPrelude.length > 0) {
-    if (!current) {
-      current = { id: 'turn-setup', index: 0, label: 'Session setup', events: [] }
-      turns.push(current)
-    }
-    current.events.push(...promptPrelude)
   }
   return turns
 }
@@ -819,7 +472,6 @@ const JUMP_KIND_PRIORITY: Record<string, number> = {
   'tool-result': 3,
   system: 2,
   'system-prompt': 1,
-  'tool-definitions': 1,
   thinking: 0,
   'tool-call': 0,
 }
@@ -923,31 +575,29 @@ export function buildSessionView(
     ? requestedLeafId
     : session.currentLeafId
   const branchEntries = leafId ? getPath(session.entries, leafId) : []
-  const snapshots = collectPromptSnapshots(session.entries)
   const firstSystemMessageId = branchEntries.find((entry) => (
-    entry.type === 'message'
-    && isObject(entry.raw.message)
-    && entry.raw.message.role === 'system'
+    entry.type === 'message' && isObject(entry.raw.message) && entry.raw.message.role === 'system'
   ))?.id
-  const resetToolDefinitionsBefore = new Set<string>()
-  let resetToolDefinitions = false
-  const rawEvents = branchEntries.flatMap((entry) => {
-    if (isPromptCaptureEntry(entry.raw) && !readCurrentPromptCapture(entry.raw)) {
-      resetToolDefinitions = true
-      return []
-    }
-    const events = entry.type === 'message'
+  const history = replayBranchState(branchEntries)
+  const events = branchEntries.flatMap((entry) => {
+    const rows = entry.type === 'message'
       ? messageEvents(entry, session.sourceName, entry.id === firstSystemMessageId)
-      : systemEvents(entry, snapshots)
-    if (resetToolDefinitions && events.length > 0) {
-      resetToolDefinitionsBefore.add(events[0].id)
-      resetToolDefinitions = false
+      : systemEvents(entry)
+    const position = history.get(entry.id)
+    for (const row of rows) {
+      row.persistedState = position?.state
+      row.observation = position?.observation
+      row.toolSources = position?.sources
+      if (row.kind === 'tool-call' && row.toolName) {
+        const tool = position?.state?.message.toolsAdded?.find(tool => tool.name === row.toolName)
+        const sourceInfo = position?.sources?.get(row.toolName)
+        if (tool) row.toolDefinition = { ...tool, ...(sourceInfo ? { sourceInfo } : {}) }
+      }
     }
-    return events
+    return rows
   })
-  pairTools(rawEvents, session.sourceName, resetToolDefinitionsBefore)
-  linkAsyncSubagentNotifications(rawEvents, session.sourceName)
-  const events = placeSystemPromptsBeforeUsers(rawEvents)
+  pairTools(events, session.sourceName)
+  linkAsyncSubagentNotifications(events, session.sourceName)
   applyContextProjection(events, contextProjection)
   const turns = groupTurns(events)
   for (const turn of turns) {

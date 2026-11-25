@@ -27,7 +27,7 @@ test('all event filters are directly reachable at minimum desktop width', async 
   await expect(page.locator('.event-row').first()).toBeVisible()
   const group = page.getByRole('group', { name: 'Event filter' })
   const options = group.getByRole('checkbox')
-  await expect(options).toHaveCount(8)
+  await expect(options).toHaveCount(7)
   for (const option of await options.all()) {
     await expect(option).toBeVisible()
     const box = await option.boundingBox()
@@ -59,8 +59,7 @@ test('Chinese UI localizes generated metadata but not the raw transcript', async
   await page.goto('/#token=dev-token')
   await expect(page.locator('.event-row').first()).toBeVisible()
   await page.locator('.lang-toggle-button').click()
-  await expect(page.locator('.event--tool-definitions .event-summary').first()).toContainText('挂载 1 个 API 工具')
-  await expect(page.locator('.event--system-prompt .event-summary').first()).toContainText('挂载 1 个 Skill')
+  await expect(page.locator('.event--system-prompt .event-summary').first()).toContainText('分区')
   await page.locator('.event-row.event--user').first().click()
   await expect(page.getByRole('tab', { name: '原始数据' })).toBeVisible()
   await expect(page.locator('.event-row.event--user .event-summary')).toContainText('检查测试是否通过')

@@ -53,12 +53,12 @@
     "test:ui": "playwright test",
     "test:package": "node scripts/test-package.mjs",
     "check:sessions": "tsx scripts/check-real-sessions.ts",
-    "fixtures:refresh": "node scripts/refresh-fixtures.mjs",
     "verify": "npm run test && npm run build && npm run test:package && npm run test:ui",
     "clean": "node scripts/clean.mjs",
     "prepack": "npm run test && npm run build"
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": "^1.6.0",
     "@earendil-works/pi-coding-agent": "^1.6.0",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/ibm-plex-sans": "^5.3.0",

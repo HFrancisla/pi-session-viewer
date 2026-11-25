@@ -6,8 +6,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { formatClock, formatDateTime, formatDuration } from '../../core/format'
-import type { CapturedToolDefinition, SystemPromptComposition, TimelineEvent } from '../../core/types'
-import { parseSystemPromptSections } from '../../core/prompt-sections'
+import type { ToolDeclarationWithSource, TimelineEvent } from '../../core/types'
 import { getToolProvenanceLabel, resolveToolProvenance, sanitizeToolForApi } from '../../core/tool-provenance'
 import { PromptDiffView } from './PromptDiffView'
 import { useI18n } from '../i18n'
@@ -16,7 +15,6 @@ import { TabList, type TabOption } from './TabList'
 
 interface InspectorProps {
   event: TimelineEvent | null
-  previousPrompt?: string
   onJumpToEvent: () => void
   /** Jumps the timeline to an entry this event is linked to by a context edit. */
   onJumpToEntry?: (entryId: string) => void
@@ -51,7 +49,7 @@ function ContextJumpButton({ entryId, label, disabled, onJump }: {
   )
 }
 
-function ToolDefinitionsView({ tools }: { tools: CapturedToolDefinition[] }) {
+function ToolDefinitionsView({ tools }: { tools: ToolDeclarationWithSource[] }) {
   const { t } = useI18n()
 
   return (
@@ -93,45 +91,44 @@ function ToolDefinitionsView({ tools }: { tools: CapturedToolDefinition[] }) {
   )
 }
 
-function PromptCompositionView({ prompt, composition }: {
-  prompt: string
-  composition?: SystemPromptComposition
-}) {
-  const { t, localizeTitle } = useI18n()
-  const sections = parseSystemPromptSections(prompt, composition)
-
-  if (sections.format === 'opaque') {
-    return (
-      <div className="prompt-composition">
-        <p className="prompt-format-note">
-          {t.inspector.opaquePrompt}
-        </p>
-        <div className="content-body-wrap event--system-prompt"><pre>{prompt}</pre></div>
-      </div>
-    )
-  }
-
+function PersistedStateView({ event }: { event: TimelineEvent }) {
+  const { locale } = useI18n()
+  const zh = locale === 'zh-CN'
+  const state = event.persistedState
+  const message = state?.message
+  const sections = message ? Object.entries(message.sections ?? {}) : []
+  const tools = (message?.toolsAdded ?? []).map(tool => ({
+    ...tool, sourceInfo: event.toolSources?.get(tool.name),
+  }))
+  const observation = event.observation
   return (
     <div className="prompt-composition">
-      {sections.items.map((item) => (
-        <details className="prompt-block" key={item.id}>
-          <summary>
-            <ChevronDown size={14} className="prompt-block-arrow" aria-hidden="true" />
-            <span className="prompt-block-title">
-              <span className="prompt-block-index">{item.index}.</span>
-              {localizeTitle(item.title)}
-            </span>
-            <span className="prompt-block-meta">
-              {item.meta}
-            </span>
-          </summary>
-          <div className="prompt-block-expanded">
-            <div className="content-body-wrap event--system-prompt">
-              <pre>{item.content}</pre>
-            </div>
-          </div>
-        </details>
-      ))}
+      <p className="prompt-format-note">{zh ? '原生持久化状态，不代表最终 Provider 请求。' : 'Native persisted state, not the final Provider request.'}</p>
+      {!message ? <p>{zh ? '持久化系统状态未知' : 'Persisted system state unknown'}</p> : <>
+        <p>{zh ? '状态记录：' : 'State entry: '}<code>{state.entryId}</code></p>
+        {message.content !== '' && <details className="prompt-block">
+          <summary>{zh ? '原始内容' : 'Recorded content'}</summary>
+          <div className="content-body-wrap event--system-prompt"><pre>{typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2)}</pre></div>
+        </details>}
+        {sections.map(([name, content]) => <details className="prompt-block" key={name}>
+          <summary><ChevronDown size={14} className="prompt-block-arrow" /><span className="prompt-block-title">{name}</span></summary>
+          <div className="content-body-wrap event--system-prompt"><pre>{content}</pre></div>
+        </details>)}
+        {message.content === '' && sections.length === 0 && <p>{zh ? '明确记录的空提示词' : 'Explicitly recorded empty prompt'}</p>}
+        <h3>{zh ? '原生工具声明' : 'Native tool declarations'} ({tools.length})</h3>
+        <ToolDefinitionsView tools={tools} />
+      </>}
+      {event.toolDefinition && <><h3>{zh ? '配对调用的工具定义' : 'Invocation tool declaration'}</h3><ToolDefinitionsView tools={[event.toolDefinition]} /></>}
+      <h3>{zh ? '补充观测' : 'Supplemental observation'}</h3>
+      <p className="prompt-format-note">{zh ? '仅为 Harness 中间观测；未观测不代表没有覆盖。' : 'Intermediate Harness observation only; absence does not establish absence of an override.'}</p>
+      {observation ? <>
+        <p>Pi {observation.piVersion} · <code>{observation.anchorEntryId}</code> → <code>{observation.assistantEntryId}</code></p>
+        {observation.forcedPrompt !== undefined && <>
+          <h4>{zh ? '观测到的强制提示词' : 'Observed forced prompt'}</h4>
+          {observation.forcedPrompt === '' ? <p>{zh ? '明确观测到空字符串' : 'Explicitly observed empty string'}</p> : <div className="content-body-wrap"><pre>{observation.forcedPrompt}</pre></div>}
+        </>}
+        {observation.toolSources && <div className="content-body-wrap"><pre>{JSON.stringify(observation.toolSources, null, 2)}</pre></div>}
+      </> : <p>{zh ? '没有关联的补充观测' : 'No associated supplemental observation'}</p>}
     </div>
   )
 }
@@ -140,8 +137,7 @@ function EventOverview({ event }: { event: TimelineEvent }) {
   const { t, localizeTitle } = useI18n()
   const totalChars = event.content?.length ?? 0
   const estimatedTokens = Math.ceil(totalChars / 4)
-  const isToolDef = event.kind === 'tool-definitions'
-  const model = event.model || event.systemPrompt?.model
+  const model = event.model
   const callProvenance = event.toolName ? resolveToolProvenance(event.toolDefinition, event.toolName) : undefined
   const callBadgeLabel = callProvenance ? getToolProvenanceLabel(callProvenance, t.inspector.toolProvenance) : ''
 
@@ -161,18 +157,8 @@ function EventOverview({ event }: { event: TimelineEvent }) {
       <div className="overview-section">
         <div className="overview-section-title">{t.inspector.sections.specs}</div>
         <dl className="event-facts">
-          {isToolDef ? (
-            <>
-              <div><dt>{t.inspector.facts.mountedTools}</dt><dd>{t.inspector.facts.mountedToolsCount(event.toolDefinitions?.length ?? 0)}</dd></div>
-              <div><dt>{t.inspector.facts.schemaSize}</dt><dd>{t.common.chars(totalChars)}</dd></div>
-              <div><dt>{t.inspector.facts.estimatedTokens}</dt><dd>{t.common.tokens(estimatedTokens)}</dd></div>
-            </>
-          ) : (
-            <>
-              <div><dt>{t.inspector.facts.contentLength}</dt><dd>{t.common.chars(totalChars)}</dd></div>
-              <div><dt>{t.inspector.facts.estimatedTokens}</dt><dd>{t.common.tokensWithRate(estimatedTokens)}</dd></div>
-            </>
-          )}
+          <div><dt>{t.inspector.facts.contentLength}</dt><dd>{t.common.chars(totalChars)}</dd></div>
+          <div><dt>{t.inspector.facts.estimatedTokens}</dt><dd>{t.common.tokensWithRate(estimatedTokens)}</dd></div>
         </dl>
       </div>
 
@@ -216,19 +202,6 @@ function EventOverview({ event }: { event: TimelineEvent }) {
         </div>
       )}
 
-      {event.systemPrompt && !isToolDef && (
-        <div className="overview-section">
-          <div className="overview-section-title">{t.inspector.sections.promptSnapshot}</div>
-          <dl className="event-facts">
-            <div><dt>{t.inspector.facts.snapshotStatus}</dt><dd>{event.systemPrompt.recordType === 'missing' ? t.inspector.facts.recordTypeMissing : event.systemPrompt.recordType === 'snapshot' ? t.inspector.facts.recordTypeSnapshot : t.inspector.facts.recordTypeReference}</dd></div>
-            {event.systemPrompt.captureStage && <div><dt>{t.inspector.facts.captureStage}</dt><dd>{event.systemPrompt.captureStage === 'agent_start' ? t.inspector.facts.stageAgentStart : t.inspector.facts.stageRequestUpdate}</dd></div>}
-            {event.systemPrompt.promptLength != null && <div><dt>{t.inspector.facts.promptLength}</dt><dd>{t.common.chars(event.systemPrompt.promptLength)}</dd></div>}
-            {event.systemPrompt.promptHash && <div><dt>{t.inspector.facts.contentHash}</dt><dd className="break-value"><code>{event.systemPrompt.promptHash}</code></dd></div>}
-            {event.systemPrompt.sequence != null && <div><dt>{t.inspector.facts.sequence}</dt><dd>{t.inspector.facts.sequenceFormat(event.systemPrompt.sequence)}</dd></div>}
-            {event.systemPrompt.capturedAt && <div><dt>{t.inspector.facts.capturedAt}</dt><dd>{formatDateTime(event.systemPrompt.capturedAt)}</dd></div>}
-          </dl>
-        </div>
-      )}
     </div>
   )
 }
@@ -293,22 +266,14 @@ function EventRawView({ event }: { event: TimelineEvent }) {
   )
 }
 
-export function Inspector({ event, previousPrompt, onJumpToEvent, onJumpToEntry }: InspectorProps) {
+export function Inspector({ event, onJumpToEvent, onJumpToEntry }: InspectorProps) {
   const { t, localizeTitle } = useI18n()
   const [tab, setTab] = useState<InspectorTab>('content')
-  const tools = event?.toolDefinitions ?? []
-  const isSystemPrompt = event?.kind === 'system-prompt'
-  const hasResolvedSystemPrompt = isSystemPrompt
-    && event?.systemPrompt?.recordType !== 'missing'
-    && event?.title !== 'System prompt missing'
-    && event?.title !== 'System prompt unrecorded'
-  const hasComposition = hasResolvedSystemPrompt || (event?.kind !== 'tool-definitions' && Boolean(event?.systemPrompt?.composition))
-  const isToolDef = event?.kind === 'tool-definitions'
   const tabs: TabOption<InspectorTab>[] = [
     { value: 'overview', label: t.inspector.tabs.overview },
-    ...(hasComposition ? [{ value: 'composition' as const, label: t.inspector.tabs.composition }] : []),
+    { value: 'composition', label: t.inspector.tabs.composition },
     { value: 'content', label: t.inspector.tabs.content },
-    ...(hasResolvedSystemPrompt ? [{ value: 'diff' as const, label: t.inspector.tabs.diff }] : []),
+    { value: 'diff', label: t.inspector.tabs.diff },
     { value: 'raw', label: t.inspector.tabs.raw },
   ]
   const activeTab = tabs.some((item) => item.value === tab) ? tab : 'content'
@@ -345,17 +310,11 @@ export function Inspector({ event, previousPrompt, onJumpToEvent, onJumpToEntry 
             {activeTab === 'overview' ? (
               <EventOverview event={event} />
             ) : activeTab === 'composition' && event ? (
-              <PromptCompositionView
-                key={event.id}
-                prompt={event.content}
-                composition={event.systemPrompt?.composition}
-              />
+              <PersistedStateView key={event.id} event={event} />
             ) : activeTab === 'diff' && event ? (
-              <PromptDiffView key={event.id} event={event} previousPrompt={previousPrompt} />
+              <PromptDiffView key={event.id} event={event} />
             ) : activeTab === 'raw' ? (
               <EventRawView event={event} />
-            ) : isToolDef ? (
-              <ToolDefinitionsView tools={tools} />
             ) : (
               <EventContentView event={event} onJumpToEntry={onJumpToEntry} />
             )}

@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A local, read-only desktop web inspector for [Pi](https://github.com/earendil-works/pi) coding-agent sessions. Visualizes multi-turn timelines, tool-call causality, and captured system prompt compositions.
+A local, read-only desktop web inspector for [Pi](https://github.com/earendil-works/pi) coding-agent sessions. Visualizes multi-turn timelines, tool-call causality, and native persisted system state.
 
 ![Pi Session Viewer Screenshot](https://raw.githubusercontent.com/hfrancisla/pi-session-viewer/main/assets/gallery-preview.webp)
 
@@ -12,14 +12,14 @@ A local, read-only desktop web inspector for [Pi](https://github.com/earendil-wo
 pi install npm:@hfrancisla/pi-session-viewer
 ```
 
-Restart Pi or run `/reload`. The extension loads automatically and begins capturing system prompts on the next turn.
+Restart Pi or run `/reload`. The extension loads automatically and begins recording supplemental observations on the next turn.
 
 ## Usage
 
 ```text
 /session-viewer       # Start viewer (alias for on)
 /session-viewer on    # Start viewer and open in browser
-/session-viewer off   # Stop viewer (system prompt capture continues)
+/session-viewer off   # Stop viewer (supplemental observation continues)
 ```
 
 - Starting the viewer opens a local tokenized dashboard in your browser.
@@ -31,8 +31,8 @@ The three-column workspace is designed for desktop browsers at 1024px and wider.
 ## Key Features
 
 - **Timeline & Causality**: Tracks user turns, thinking blocks, and paired tool calls with visual causality rails.
-- **System Prompt Breakdown**: Inspects prompt structure across base instructions, tool definitions, skills, and context files.
-- **Verified Vanilla Diff**: The native prompt baseline is verified against the supported Pi 1.6.0 release. Only captures explicitly marked with that Pi version are analyzed.
+- **Native System State**: Replays recorded prompt sections and tool declarations at historical branch positions, distinguishing unknown from explicitly empty state.
+- **Historical Diff**: Compares adjacent known states on the same branch, including tool additions, replacements and removals.
 - **Multi-Project Catalog**: Groups sessions by project working directory with automatic path collision disambiguation.
 - **Local JSONL Import**: Inspect arbitrary session files offline using the file picker.
 
@@ -40,13 +40,12 @@ The three-column workspace is designed for desktop browsers at 1024px and wider.
 
 - **Local Only**: Listens strictly on `127.0.0.1` with a per-instance random bearer token. No cloud sync, telemetry, or remote access.
 - **Read-Only**: The web interface cannot mutate sessions or execute commands.
-- **Capture Scope**: Saves system prompts, skill metadata, and context file snapshots to local session files. Does **not** record API keys, request headers, or credentials.
-- **Prompt Fidelity**: Extension captures use Pi's `ctx.getSystemPrompt()` at the provider-request hook and Pi's active tool metadata. The browser also displays native, append-only system-message updates from the session. Provider-specific payload rewrites made by other `before_provider_request` handlers are **not** reflected in `ctx.getSystemPrompt()`; this is a Pi harness inspector, not a raw HTTP request recorder. Context-file contents can themselves contain sensitive data, so treat exported sessions as private.
-- **Historical Sessions**: Turns without an associated system-prompt capture record display as *unrecorded*; the reason is not inferred, and past prompts are never reconstructed from current configuration.
+- **Supplemental Observations**: Records explicit Harness forced prompts and tool registration provenance associated with completed Assistant rounds. Does not read request headers, credentials or complete Provider payloads.
+- **Analysis Boundary**: Persisted state and intermediate observations are not the final Provider request. Unknown history remains unknown. Offline import does not upload files; full context projection is server-side only.
 
 Pi manages the JSONL session files; the viewer uses no separate database. Catalog and response caches are in memory only. Development and standalone servers print a startup URL containing the access token.
 
-Captures without an exact supported Pi version are excluded from prompt and tool-definition analysis, including diffs. `npm run check:sessions` skips those captures before parsing and strictly validates admitted layouts. Original Pi JSONL files are never modified.
+`npm run check:sessions` compares native replay against Pi projection and reports unknown states and parser diagnostics. Original JSONL files are never modified.
 
 ## Development
 

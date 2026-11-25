@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test'
-import { PI_PROMPT_BASELINE_VERSION } from '../src/core/pi-defaults'
 
 test('keeps the workspace inside the viewport at supported desktop widths', async ({ page }) => {
   await page.goto('/#token=dev-token')
@@ -22,7 +21,7 @@ test('makes every inspector tab usable on desktop and supports arrow-key navigat
   await page.goto('/#token=dev-token')
   await page.locator('.event-row').first().click()
 
-  for (const name of ['Overview', 'Composition', 'Content', 'Diff', 'Raw']) {
+  for (const name of ['Overview', 'Persisted State', 'Content', 'Diff', 'Raw']) {
     const tab = page.getByRole('tab', { name, exact: true })
     await expect(tab).toBeVisible()
     await tab.click()
@@ -107,7 +106,7 @@ test('keeps filtering controls discoverable and shows a copy error when clipboar
   await expect(page.locator('.event-row').first()).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Current Project (1)' })).toHaveText('Current (1)')
   await expect(page.getByRole('button', { name: 'Select All' })).toBeVisible()
-  await expect(page.getByRole('group', { name: 'Event filter' }).getByRole('checkbox')).toHaveCount(8)
+  await expect(page.getByRole('group', { name: 'Event filter' }).getByRole('checkbox')).toHaveCount(7)
 
   await page.locator('.header-session .header-path-copy').click()
   await expect(page.locator('.copy-status-toast')).toHaveText('Copy failed')
@@ -118,8 +117,7 @@ test('keeps filtering controls discoverable and shows a copy error when clipboar
   await expect(page.locator('.header-path-copy')).toHaveAttribute('data-copy-status', 'idle')
   await page.getByRole('tab', { name: 'Diff' }).click()
   await expect(page.locator('.copy-status-toast')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Copy Diff' }).click()
-  await expect(page.getByRole('button', { name: 'Copy Diff' })).toHaveAttribute('data-copy-status', 'error')
+  await expect(page.getByRole('button', { name: 'Copy Diff' })).toBeDisabled()
 })
 
 test('wraps import errors and keeps the branch label legible at minimum desktop width', async ({ page }) => {
@@ -182,37 +180,30 @@ test('uses a clear stats hierarchy, quieter metadata, and singular catalog copy'
 })
 
 
-test('ignores unsupported captures in offline JSONL and preserves current forced prompts', async ({ page }) => {
-  const prompt = '  Forced prompt.\n\n<tools>\nLiteral example\n</tools>\n '
+test('offline native state ignores old captures and distinguishes empty forced observation', async ({ page }) => {
   const timestamp = '2026-01-01T10:00:00.000Z'
   const lines = [
-    { type: 'session', version: 3, id: 'versioned-prompt-session', timestamp, cwd: '/work/demo' },
-    { type: 'message', id: 'user', parentId: null, timestamp, message: { role: 'user', content: 'Hello', timestamp: 1767261600000 } },
-    { type: 'custom', id: 'legacy', parentId: 'user', timestamp, customType: 'pi-session-viewer.system-prompt', data: {
-      schemaVersion: 1, recordType: 'snapshot', captureStage: 'agent_start', targetUserEntryId: 'user', prompt: 'Legacy secret prompt', piVersion: '1.5.0',
-    } },
-    { type: 'custom', id: 'unversioned', parentId: 'legacy', timestamp, customType: 'pi-session-viewer.system-prompt', data: {
-      schemaVersion: 1, recordType: 'snapshot', captureStage: 'agent_start', targetUserEntryId: 'user', prompt: 'Unversioned secret prompt',
-    } },
-    { type: 'message', id: 'assistant', parentId: 'unversioned', timestamp, message: { role: 'assistant', content: [{ type: 'text', text: 'Reply' }] } },
-    { type: 'message', id: 'user2', parentId: 'assistant', timestamp, message: { role: 'user', content: 'Next turn' } },
-    { type: 'custom', id: 'prompt', parentId: 'user2', timestamp, customType: 'pi-session-viewer.system-prompt', data: {
-      schemaVersion: 1, recordType: 'snapshot', captureStage: 'agent_start', targetUserEntryId: 'user2', messageType: 'user', prompt,
-      piVersion: PI_PROMPT_BASELINE_VERSION, composition: { forceSystemPrompt: prompt, cwd: '/work/demo' },
-    } },
-  ].map((entry) => JSON.stringify(entry)).join('\n')
+    { type: 'session', version: 3, id: 'offline-native', timestamp, cwd: '/work/demo' },
+    { type: 'message', id: 'user', parentId: null, timestamp, message: { role: 'user', content: 'Hello' } },
+    { type: 'custom', id: 'legacy', parentId: 'user', timestamp, customType: 'pi-session-viewer.system-prompt', data: { prompt: 'Legacy secret prompt' } },
+    { type: 'message', id: 'system', parentId: 'legacy', timestamp, message: { role: 'system', timestamp: 1, content: '', sections: { custom_section: 'exact text' } } },
+    { type: 'message', id: 'assistant', parentId: 'system', timestamp, message: { role: 'assistant', content: [{ type: 'text', text: 'Reply' }] } },
+    { type: 'custom', id: 'obs', parentId: 'assistant', timestamp, customType: 'pi-session-viewer.observation', data: { schemaVersion: 1, piVersion: '1.6.0', anchorEntryId: 'system', assistantEntryId: 'assistant', forcedPrompt: '' } },
+  ].map(entry => JSON.stringify(entry)).join('\n')
+  const apiRequests: string[] = []
+  page.on('request', request => { if (request.url().includes('/api/')) apiRequests.push(request.url()) })
   await page.goto('/')
-  await page.locator('input[type="file"]').setInputFiles({ name: 'versioned-prompt.jsonl', mimeType: 'application/json', buffer: Buffer.from(lines) })
-  const rows = page.locator('.event-row.event--system-prompt')
-  await expect(rows).toHaveCount(2)
-  await rows.first().click()
-  await expect(page.locator('.inspector')).toContainText('No supported system-prompt capture')
-  await expect(page.getByRole('tab', { name: 'Composition' })).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: 'Diff' })).toHaveCount(0)
-  await rows.last().click()
-  await page.getByRole('tab', { name: 'Composition' }).click()
-  const composition = page.locator('.prompt-composition')
-  await expect(composition).toContainText('forced prompt as raw text')
-  await expect(composition.locator('details')).toHaveCount(0)
-  expect(await composition.locator('pre').textContent()).toBe(prompt)
+  await page.locator('input[type="file"]').setInputFiles({ name: 'native.jsonl', mimeType: 'application/json', buffer: Buffer.from(lines) })
+  await expect(page.locator('.event-row.event--system-prompt')).toHaveCount(1)
+  await page.locator('.event-row.event--user').click()
+  await page.getByRole('tab', { name: 'Persisted State' }).click()
+  await expect(page.locator('.inspector')).toContainText('Persisted system state unknown')
+  await page.locator('.event-row.event--system-prompt').click()
+  await page.getByRole('tab', { name: 'Persisted State' }).click()
+  await expect(page.locator('.inspector')).toContainText('custom_section')
+  await page.locator('.event-row.event--assistant').click()
+  await page.getByRole('tab', { name: 'Persisted State' }).click()
+  await expect(page.locator('.inspector')).toContainText('Explicitly observed empty string')
+  await expect(page.locator('.inspector')).not.toContainText('Legacy secret prompt')
+  expect(apiRequests).toEqual([])
 })

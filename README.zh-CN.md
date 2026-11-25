@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-为 [Pi](https://github.com/earendil-works/pi) 编程助手量身打造的本地只读会话可视化与系统提示词（System Prompt）分析面板。直观呈现多轮时间轴、工具调用因果链以及提示词快照结构。
+为 [Pi](https://github.com/earendil-works/pi) 编程助手量身打造的本地只读会话可视化与系统提示词（System Prompt）分析面板。直观呈现多轮时间轴、工具调用因果链以及原生持久化系统状态。
 
 ![Pi Session Viewer 预览图](https://raw.githubusercontent.com/hfrancisla/pi-session-viewer/main/assets/gallery-preview.webp)
 
@@ -12,14 +12,14 @@
 pi install npm:@hfrancisla/pi-session-viewer
 ```
 
-重启 Pi 或执行 `/reload`。扩展将自动加载，并在下一轮对话起开始捕获系统提示词。
+重启 Pi 或执行 `/reload`。扩展将自动加载，并在下一轮对话起开始记录必要的补充观测。
 
 ## 使用方法
 
 ```text
 /session-viewer       # 启动面板（等同于 on）
 /session-viewer on    # 启动面板并在浏览器中打开
-/session-viewer off   # 关闭面板（系统提示词捕获仍继续工作）
+/session-viewer off   # 关闭面板（补充观测仍继续工作）
 ```
 
 - 启动面板后会在浏览器中打开带有独立访问令牌的本地仪表盘。
@@ -31,8 +31,8 @@ pi install npm:@hfrancisla/pi-session-viewer
 ## 核心特性
 
 - **时间轴与调用因果链**：清晰呈现用户轮次、Thinking 推理块及配对工具调用，并带有调用时序因果导轨。
-- **系统提示词结构拆解**：深度解析系统提示词的组成，包括基础模板、挂载工具、Skills 以及上下文参考文件。
-- **经验证的原生提示词对比**：原生提示词基线以当前支持的 Pi 1.6.0 为准；仅分析明确记录为该 Pi 版本的提示词。
+- **原生系统状态**：按分支历史位置重放提示词分区与工具声明，区分未知和明确空状态。
+- **历史差异**：比较同分支相邻已知状态，包含工具新增、替换、删除。
 - **多项目会话目录**：按工作目录归类会话，并对重名目录进行自动路径消歧。
 - **离线 JSONL 导入**：支持直接选取本地会话文件进行离线分析。
 
@@ -40,13 +40,12 @@ pi install npm:@hfrancisla/pi-session-viewer
 
 - **仅限本地访问**：严格监听 `127.0.0.1`，并为每次启动生成独立的 Bearer Token。无云端同步、无遥测上报、无远程访问。
 - **只读设计**：Web 界面无法修改会话或执行任何终端命令。
-- **捕获范围**：仅在本地会话文件中记录系统提示词、Skill 元数据与上下文文件快照。**绝不**记录 API Key、请求标头或敏感凭证。
-- **捕获精度与边界**：插件在 `before_provider_request` 阶段通过 Pi 的 `ctx.getSystemPrompt()` 及活动工具元数据记录 *Pi Harness 的提示词状态*，并展示会话中 Pi 原生持久化的 System Message 增量更新。但其他扩展在该钩子内对提供商最终请求 Payload 的修改不会反映到 `ctx.getSystemPrompt()`；本插件**不是** HTTP 原始请求录制器。上下文文件内容本身可能包含敏感数据，请妥善保管导出的会话文件。
-- **历史记录**：没有关联系统提示词捕获记录的轮次会显示为 *未记录*；Viewer 不推断缺失原因，也不会根据当前配置重建历史提示词。
+- **补充观测**：仅记录明确的 Harness 强制提示词及工具注册来源，关联已完成的 Assistant 回合。不读取请求标头、凭证或完整 Provider payload。
+- **分析边界**：原生持久化状态和中间观测均不代表最终 Provider 请求；未知历史保持未知。离线不上传文件，完整上下文投影仅在服务端可用。
 
 会话文件由 Pi 管理，Viewer 不使用独立数据库；会话目录和响应缓存仅驻留内存。开发服务和独立服务会在终端输出带访问令牌的启动链接。
 
-无版本或版本不匹配的捕获不参与提示词、工具定义及对比分析。`npm run check:sessions` 在解析前排除这些记录，并严格校验当前版本的布局；不修改 Pi 原始 JSONL 文件。
+`npm run check:sessions` 对照 Pi 原生投影验证系统状态重放，报告未知状态和解析诊断。不修改原始 JSONL。
 
 ## 本地开发
 

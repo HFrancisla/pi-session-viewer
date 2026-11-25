@@ -6,7 +6,7 @@
 
 **会话（Session）**：Pi Agent 一次运行形成的 JSONL 记录，可以包含线性历史和分支。源码类型为 `ParsedSession`；不要与单次轮次混淆。
 
-**轮次（Turn）**：由一条用户消息触发、包含随后 Assistant、Thinking 和工具交互的完整交互单元。源码类型为 `TimelineTurn`。`custom` 消息触发的运行在界面中显示为独立的 `Custom run`。
+**轮次（Turn）**：由一条用户消息触发、包含随后 Assistant、Thinking 和工具交互的完整交互单元。源码类型为 `TimelineTurn`。
 
 **项目（Project）**：工作目录 `cwd` 归一化后相同的会话集合，不等同于 Git 仓库。
 
@@ -32,25 +32,23 @@
 
 ## 提示词与上下文（Prompts and Context）
 
-**提示词格式（Prompt Format）**：`parseSystemPromptSections` 的结构识别结果。`tagged` 表示 Pi 当前使用的 XML 风格顶层分区；`opaque` 表示与已记录 `forceSystemPrompt` 完全一致的原文；`unknown` 表示无法验证分区结构的非空内容；`empty` 表示空白提示词。强制原文按原样展示；当前版本的未知格式属于校验错误。
+**持久化系统状态（Persisted System State）**：Pi 原生会话记录中的系统提示词分区与工具声明，沿指定分支重放系统消息及压缩检查点所得的状态。不包含仅在请求过程中发生且未持久化的覆盖。
 
-**提示词分区（Prompt Section）**：系统提示词中的一个命名块。Pi 的标准分区包括 `tools`、`rules`、`docs`、`addendum`、`project_context`、`skills`、`cwd`；扩展还可以通过 `sections` 添加 `mcp_servers`。各块独立展示。
+**请求态系统状态（Request-time System State）**：某次模型请求使用的系统消息与工具声明，可以受强制提示词和请求级钩子影响；不等同于持久化系统状态，也不等同于任一扩展钩子所观察到的中间状态。
 
-**区间归属（Section Claim）**：解析后的 `ranges` 记录每个分区在原文中的字符范围。所有非空白字符必须恰好归属一个范围，范围之间不重叠；无法识别的内容也不能丢失。
+**补充观测（Supplemental Observation）**：扩展运行期间取得、而原生会话记录不能提供的历史事实。缺少观测不表示没有变化；不得用当前配置补写历史。
 
-**未识别分区（Unrecognized Section）**：提示词包含未建模的顶层标签时，解析器将其加入 `unrecognizedSections`，并在界面中独立展示，不塞入其他已知块。
+**提示词分区（Prompt Section）**：原生 System Message 的 `sections` 键值对；保留名称和原文，null 表示删除，不从文本推断结构。
 
-**提示词版本准入（Prompt Version Admission）**：仅接受明确记录的 `piVersion` 与当前已验证的 `PI_PROMPT_BASELINE_VERSION` 完全一致的捕获快照与引用；其他版本及无版本记录不进入提示词、工具定义、对比和真实提示词检查。原始会话条目及分支关系保持不变。
+**历史状态差异（Historical State Diff）**：比较同分支前一已知持久化系统状态，包括内容、命名分区及工具声明的新增、替换和删除；首份已知状态无比较基线。
 
-**提示词捕获（Prompt Capture）**：扩展在 `before_agent_start` 读取初始配置，在 `before_provider_request` 记录 `ctx.getSystemPrompt()` 与当前活动工具定义。首条用户消息已持久化时，用 `targetUserEntryId` 精确关联；不凭事件相邻位置猜测归属。这描述的是 Pi Harness 状态，并非 HTTP 请求的最终 Payload。
+**工具注册来源（Tool Registration Provenance）**：补充观测中的实际工具注册来源元数据。沿分支及声明生效区间使用，重声明和压缩检查点清除来源；无可靠观测显示未知。
 
-**提示词快照（Prompt Snapshot）**：携带完整文本的 `snapshot`，或通过 `promptHash` 引用已有文本的 `reference`。每次配置发生变化时仍需记录新的有效组成或工具定义；无法解析的引用显示为缺失，而不是使用当前配置补写历史。
-
-**原生提示词基线（Vanilla Prompt Baseline）**：基于 `PI_PROMPT_BASELINE_VERSION` 对当前 Pi 默认工具和规则构造的比较基线。所有参与对比的捕获必须通过提示词版本准入；不支持跨版本对比。
+**强制提示词（Forced Prompt）**：请求时观察到的 Harness `forceSystemPrompt` 字符串，包含明确空字符串；缺少观测不代表无覆盖。观测通过请求锚点及完成回合的 Assistant 条目 ID 关联，不覆盖持久化系统状态。
 
 **上下文编辑（Context Edit）**：Pi 的追加式 `context_edit` 条目，针对未来模型上下文指定 `targetId` 与 `replacement`。`replacement: null` 表示排除目标，非空替换表示替换内容；原 JSONL 条目本身不会被就地改写。
 
-**上下文投影（Context Projection）**：调用 Pi 自身的 `buildSessionProjection` 得到当前分支实际传给模型的消息集合，包括上下文编辑、压缩和排除效果；不拿原始会话文件冒充模型上下文。若无法调用 Pi API，就不展示猜测的投影结果。
+**上下文投影（Context Projection）**：调用 Pi 自身的 `buildSessionProjection` 得到指定分支根据持久化记录构建的模型上下文，包括上下文编辑、压缩和排除效果；不保证包含未持久化的请求级修改。若无法调用 Pi API，就不展示猜测的投影结果。
 
 **上下文排除（Context Exclusion）**：某个原始记录未产生模型可见消息。`omitted` 表示由明确的上下文编辑排除，`not-in-context` 表示其他原因（如压缩边界或工具配对）；界面标记原记录，不将其删除。
 
@@ -66,10 +64,10 @@
 
 ## 当前验证约束（Verification Gates）
 
-- `tests/pi-contract.test.ts` 使用已安装的 Pi 校验默认工具、规则、分区及 `tests/fixtures/prompts/current-*.json`。夹具由 `npm run fixtures:refresh` 调用 Pi 的 `buildSystemPrompt()` 生成，不能手工伪造。
+- `src/core/native-state.test.ts` 验证历史状态、分支、工具和压缩语义。
 - `tests/pi-entry-contract.test.ts` 根据 Pi 当前 `docs/session-format.md` 检查支持的会话条目类型。
 - `tests/pi-tool-provenance-contract.test.ts` 以 Pi 自身的合成来源 API 校验工具来源分类。
 - `tests/pi-context-projection-contract.test.ts` 比较 Pi 的原生上下文投影与 Viewer 展示；本机没有真实会话时，对应真实会话用例明确跳过。
-- `tests/pi-live-roundtrip.test.ts` 运行真实 Pi CLI，使用本地模拟 Provider 检查提示词捕获及多轮执行。
-- `npm run check:sessions` 检查实际会话与捕获提示词的解析质量；仅检查受支持版本的提示词；其他版本和无版本的记录在解析前排除，仅统计数量。未知条目、当前提示词的未知格式、未知分区或未归属内容仍以非零退出码报告。没有当前版本快照时明确报告无样本，不声称布局验证通过。
+- `tests/pi-live-roundtrip.test.ts` 运行真实 Pi CLI，使用本地模拟 Provider 检查原生重放与补充观测及多轮执行。
+- `npm run check:sessions` 对照 Pi 原生投影校验历史系统状态，统计未知状态、忽略的 Viewer 记录及上下文编辑；报告解析诊断和契约不一致，无已知样本时明确提示。
 - `npm run verify` 执行单元与契约测试、正式构建、发布包检查和桌面浏览器端到端测试。

@@ -1,12 +1,10 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import path from 'node:path'
 import os from 'node:os'
 import { chromium } from '@playwright/test'
-import { createHash } from 'node:crypto'
-import { rebuildDemoPrompt } from './refresh-demo-session.mjs'
 
 const run = promisify(execFile)
 const projectRoot = process.cwd()
@@ -20,7 +18,7 @@ const session1Jsonl = `{"type":"session","version":3,"id":"ecommerce-perf-sessio
 {"type":"model_change","id":"model-1","parentId":null,"timestamp":"2026-03-15T14:20:00.100Z","provider":"anthropic","modelId":"claude-3-7-sonnet"}
 {"type":"session_info","id":"info-1","parentId":"model-1","timestamp":"2026-03-15T14:20:00.150Z","name":"Profile query latency and fix connection leak"}
 {"type":"message","id":"user-1","parentId":"info-1","timestamp":"2026-03-15T14:20:01.000Z","message":{"role":"user","timestamp":1773584401000,"content":"The checkout endpoint is experiencing query spikes under load. Can you profile the database queries and fix any connection pool leaks in the transaction runner?"}}
-{"type":"custom","customType":"pi-session-viewer.system-prompt","id":"prompt-1","parentId":"user-1","timestamp":"2026-03-15T14:20:01.050Z","data":{"schemaVersion":1,"recordType":"snapshot","composition":{"selectedTools":["bash","read_file","write_file","pg_inspect"],"toolSnippets":{"bash":"Execute commands in the terminal","read_file":"Read contents of a project file","write_file":"Write contents to a project file","pg_inspect":"Inspect PostgreSQL query execution plans"},"toolDefinitions":[{"name":"bash","description":"Execute commands in a terminal","parameters":{"type":"object","properties":{"command":{"type":"string"}}}},{"name":"read_file","description":"Read contents of a project file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}},{"name":"write_file","description":"Write contents to a project file","parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}}}},{"name":"pg_inspect","description":"Inspect PostgreSQL query execution plans","parameters":{"type":"object","properties":{"query":{"type":"string"}}}}],"promptGuidelines":["Follow test-driven development (TDD)","Ensure database connections and transactions are safely released"],"appendSystemPrompt":"Always verify database connection metrics after patching.","cwd":"/work/ecommerce-api","contextFiles":[{"path":"/work/ecommerce-api/AGENTS.md","content":"Use Vitest for unit tests. Run pgbench for load tests before and after changes."}],"skills":[{"name":"sql-optimization","description":"PostgreSQL index and query tuning","filePath":"/skills/sql-optimization/SKILL.md"}]},"targetUserEntryId":"user-1","sequence":1,"capturedAt":"2026-03-15T14:20:01.040Z","model":{"provider":"anthropic","id":"claude-3-7-sonnet"}}}
+{"type": "message", "id": "prompt-1", "parentId": "user-1", "timestamp": "2026-03-15T14:20:01.050Z", "message": {"role": "system", "timestamp": 1773584401050, "content": "You are a coding assistant.", "sections": {"rules": "Follow test-driven development (TDD)\\nEnsure database connections and transactions are safely released", "project_context": "Use Vitest for unit tests. Run pgbench for load tests before and after changes.", "skills": "sql-optimization", "addendum": "Always verify database connection metrics after patching."}, "toolsAdded": [{"name": "bash", "description": "Execute commands in a terminal", "parameters": {"type": "object", "properties": {"command": {"type": "string"}}}}, {"name": "read_file", "description": "Read contents of a project file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}, {"name": "write_file", "description": "Write contents to a project file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}}}, {"name": "pg_inspect", "description": "Inspect PostgreSQL query execution plans", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}}}]}}
 {"type":"message","id":"asst-1","parentId":"prompt-1","timestamp":"2026-03-15T14:20:02.000Z","message":{"role":"assistant","timestamp":1773584402000,"provider":"anthropic","model":"claude-3-7-sonnet","content":[{"type":"thinking","thinking":"I should first check the transaction error handler in src/db/pool.ts and run the checkout load benchmark to capture baseline latency."},{"type":"text","text":"I'll run the checkout benchmark and inspect the transaction handling in src/db/pool.ts."},{"type":"toolCall","id":"call-bench","name":"bash","arguments":{"command":"npm run bench:checkout"}},{"type":"toolCall","id":"call-read","name":"read_file","arguments":{"path":"src/db/pool.ts"}}]}}
 {"type":"message","id":"res-read","parentId":"asst-1","timestamp":"2026-03-15T14:20:03.200Z","message":{"role":"toolResult","timestamp":1773584403200,"toolCallId":"call-read","toolName":"read_file","isError":false,"content":[{"type":"text","text":"// pool.ts\\nexport async function withTransaction(fn) {\\n  const client = await pool.connect();\\n  try {\\n    await client.query('BEGIN');\\n    const res = await fn(client);\\n    await client.query('COMMIT');\\n    return res;\\n  } catch (err) {\\n    await client.query('ROLLBACK');\\n    throw err; // Bug: missing client.release() in error catch block!\\n  }\\n}"}]}}
 {"type":"message","id":"res-bench","parentId":"res-read","timestamp":"2026-03-15T14:20:04.500Z","message":{"role":"toolResult","timestamp":1773584404500,"toolCallId":"call-bench","toolName":"bash","isError":false,"content":[{"type":"text","text":"Running 50 concurrent workers for 5s...\\nRequests: 2,410 | Errors: 142 (Connection pool exhausted)\\np50: 68ms | p95: 490ms | p99: 1200ms"}]}}
@@ -39,15 +37,7 @@ const session2Jsonl = `{"type":"session","version":3,"id":"ecommerce-idempotency
 {"type":"message","id":"asst-2","parentId":"user-2","timestamp":"2026-03-14T11:00:03.000Z","message":{"role":"assistant","timestamp":1773486003000,"content":[{"type":"text","text":"Implemented idempotency middleware with 24h TTL."}]}}
 `
 
-const piPackageDir = path.resolve('node_modules/@earendil-works/pi-coding-agent')
-const { version: piVersion } = JSON.parse(await readFile(path.join(piPackageDir, 'package.json'), 'utf8'))
-const previewLines = session1Jsonl.trimEnd().split('\n')
-const promptIndex = previewLines.findIndex((line) => line.includes('pi-session-viewer.system-prompt'))
-const captured = JSON.parse(previewLines[promptIndex])
-const prompt = await rebuildDemoPrompt(piPackageDir, captured.data.composition)
-Object.assign(captured.data, { prompt, piVersion, promptHash: createHash('sha256').update(prompt).digest('hex'), promptLength: prompt.length })
-previewLines[promptIndex] = JSON.stringify(captured)
-await writeFile(path.join(projectDir, 'perf.jsonl'), previewLines.join('\n') + '\n')
+await writeFile(path.join(projectDir, 'perf.jsonl'), session1Jsonl + '\n')
 await writeFile(path.join(projectDir, 'idempotency.jsonl'), session2Jsonl)
 
 const token = 'preview-token'
@@ -118,7 +108,7 @@ try {
   }
 
   // Switch to Composition tab in Inspector
-  const compositionTab = page.getByRole('tab', { name: 'Composition' })
+  const compositionTab = page.getByRole('tab', { name: 'Persisted State' })
   if (await compositionTab.isVisible()) {
     await compositionTab.click()
     await page.waitForTimeout(400)

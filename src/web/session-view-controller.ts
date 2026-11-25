@@ -1,5 +1,4 @@
 import { allEventKinds, defaultEventKinds } from '../core/event-kinds'
-import { findPreviousPromptSnapshot } from '../core/prompt-diff'
 import { getSessionTitle } from '../core/session-parser'
 import { buildSessionView, primaryEventForEntry } from '../core/session-view'
 import type {
@@ -94,7 +93,6 @@ export interface SessionViewSnapshot<FileHandle = unknown> {
   loadedAt: string | null
   visibleTurns: TimelineTurn[]
   selectedEvent: TimelineEvent | null
-  previousPrompt: string | undefined
   sessionTitle: string | null
   catalog: SessionCatalogState
   fullJsonlPath: string
@@ -259,15 +257,12 @@ function computeFullJsonlPath<FileHandle>(
 function deriveSnapshot<FileHandle>(
   base: Omit<
     SessionViewSnapshot<FileHandle>,
-    'visibleTurns' | 'selectedEvent' | 'previousPrompt' | 'sessionTitle' | 'fullJsonlPath'
+    'visibleTurns' | 'selectedEvent' | 'sessionTitle' | 'fullJsonlPath'
   >,
 ): SessionViewSnapshot<FileHandle> {
   const selectedEvent = base.view && base.selectedEventId
     ? base.view.events.find((event) => event.id === base.selectedEventId) ?? null
     : null
-  const previousPrompt = base.view && selectedEvent?.kind === 'system-prompt'
-    ? findPreviousPromptSnapshot(base.view.events, selectedEvent.id)
-    : undefined
   const visibleTurns: TimelineTurn[] = base.view
     ? base.view.turns
         .map((turn) => ({ ...turn, events: turn.events.filter((event) => base.enabledKinds.has(event.kind)) }))
@@ -280,7 +275,6 @@ function deriveSnapshot<FileHandle>(
     ...base,
     visibleTurns,
     selectedEvent,
-    previousPrompt,
     sessionTitle,
     fullJsonlPath,
   }
@@ -322,7 +316,7 @@ export function createSessionViewController<FileHandle = unknown>(
   const publish = (
     next: Omit<
       SessionViewSnapshot<FileHandle>,
-      'visibleTurns' | 'selectedEvent' | 'previousPrompt' | 'sessionTitle' | 'fullJsonlPath'
+      'visibleTurns' | 'selectedEvent' | 'sessionTitle' | 'fullJsonlPath'
     >,
   ) => {
     snapshot = deriveSnapshot(next)

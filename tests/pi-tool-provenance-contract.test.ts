@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { resolveToolProvenance, syntheticPathSource } from '../src/core/tool-provenance'
-import type { CapturedToolDefinition } from '../src/core/types'
+import type { ToolDeclarationWithSource } from '../src/core/types'
 import { importPiInternal, PI_VERSION } from './helpers/pi-runtime'
 
 /**
@@ -23,7 +23,7 @@ interface SourceInfoModule {
 
 const sourceInfoModule = await importPiInternal<SourceInfoModule>('dist/core/source-info.js')
 
-function toolWithSourceInfo(name: string, sourceInfo: Record<string, unknown>): CapturedToolDefinition {
+function toolWithSourceInfo(name: string, sourceInfo: Record<string, unknown>): ToolDeclarationWithSource {
   return { name, sourceInfo }
 }
 

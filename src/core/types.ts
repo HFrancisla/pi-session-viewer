@@ -1,3 +1,5 @@
+import type { PersistedSystemState } from './native-state'
+import type { SupplementalObservation } from './observation'
 // Shared domain types for the parser, server, and web application.
 export type RawObject = Record<string, unknown>
 
@@ -39,7 +41,7 @@ export interface BranchOption {
   isCurrent: boolean
 }
 
-export type EventKind = 'system-prompt' | 'tool-definitions' | 'user' | 'assistant' | 'thinking' | 'tool-call' | 'tool-result' | 'system'
+export type EventKind = 'system-prompt' | 'user' | 'assistant' | 'thinking' | 'tool-call' | 'tool-result' | 'system'
 
 export interface ToolSourceInfo {
   path?: string
@@ -50,51 +52,13 @@ export interface ToolSourceInfo {
   [key: string]: unknown
 }
 
-export interface CapturedToolDefinition {
+export interface ToolDeclarationWithSource {
   name: string
   description?: string
   parameters?: unknown
-  promptGuidelines?: string[]
+  constrainedSampling?: unknown
   sourceInfo?: ToolSourceInfo
   [key: string]: unknown
-}
-
-export interface SystemPromptComposition {
-  customPrompt?: string
-  forceSystemPrompt?: string
-  selectedTools: string[]
-  hiddenTools?: string[]
-  toolGuidelines?: Record<string, string[]>
-  toolSnippets: Record<string, string>
-  toolDefinitions?: CapturedToolDefinition[]
-  promptGuidelines: string[]
-  appendSystemPrompt?: string
-  cwd: string
-  contextFiles: Array<{ path: string; content: string }>
-  skills: Array<{
-    name: string
-    description: string
-    filePath: string
-    baseDir?: string
-    disableModelInvocation?: boolean
-  }>
-  sections?: Record<string, string>
-}
-
-export interface SystemPromptCapture {
-  promptHash?: string
-  recordType: 'snapshot' | 'reference' | 'missing'
-  captureStage?: 'agent_start' | 'provider_request_update'
-  /** What started the Pi run that produced this capture. */
-  messageType?: 'user' | 'custom'
-  promptLength?: number
-  composition?: SystemPromptComposition
-  promptBeforeFinalExtensions?: string
-  capturedAt?: string
-  sequence?: number
-  model?: { provider?: string; id?: string }
-  /** Version of the Pi process that produced this snapshot. */
-  piVersion?: string
 }
 
 export interface SubagentReference {
@@ -161,12 +125,13 @@ export interface TimelineEvent {
   gapMs?: number
   toolCallId?: string
   toolName?: string
-  toolDefinition?: CapturedToolDefinition
+  persistedState?: PersistedSystemState
+  observation?: SupplementalObservation
+  toolSources?: ReadonlyMap<string, ToolSourceInfo>
+  toolDefinition?: ToolDeclarationWithSource
   isError?: boolean
   pairedEventId?: string
   targetEntryId?: string
-  systemPrompt?: SystemPromptCapture
-  toolDefinitions?: CapturedToolDefinition[]
   model?: { provider?: string; id?: string }
   subagent?: SubagentReference
   subagents?: SubagentReference[]

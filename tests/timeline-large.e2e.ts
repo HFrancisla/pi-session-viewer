@@ -177,7 +177,7 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   await page.goto('/#token=dev-token')
   const rows = page.locator('.event-row')
   await expect(page.locator('.header-session strong')).toContainText('Synthetic request 1')
-  await expect(page.locator('.branch-bar')).toContainText('2400 visible events')
+  await expect(page.locator('.branch-bar')).toContainText('2000 visible events')
 
   const timestampedEvent = page.locator('.event-row[data-event-id="synthetic-user-0:user"]')
   const eventClockLabel = (await timestampedEvent.locator('.event-time > span').innerText()).trim()
@@ -217,11 +217,10 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   await expect(timelineList).toBeFocused()
   await expect(timelineList).toHaveAttribute('aria-activedescendant', `event-row-${firstEventId}`)
   await page.keyboard.press('Enter')
-  await expect(page.locator('.inspector-heading p')).toHaveText('System prompt unrecorded')
+  await expect(page.locator('.inspector-heading p')).toHaveText('User')
   await expect(firstKeyboardEvent).toHaveAttribute('aria-selected', 'true')
 
   const expectedEventIds = Array.from({ length: 400 }, (_, index) => [
-    `missing-system-prompt:synthetic-user-${index}`,
     `synthetic-user-${index}:user`,
     `synthetic-assistant-${index}:assistant:0`,
     `synthetic-assistant-${index}:thinking:1`,
@@ -238,15 +237,15 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
 
   await expect(timelineList).toBeFocused()
   await expect(timelineList).toHaveAttribute('aria-activedescendant', 'event-row-synthetic-user-10:user')
-  await expect(focusedKeyboardEvent).toHaveAttribute('aria-label', /Focused event 62 of 2400/)
+  await expect(focusedKeyboardEvent).toHaveAttribute('aria-label', /Focused event 51 of 2000/)
   await expect(firstKeyboardEvent).toHaveCount(0)
-  await expect(page.getByRole('status')).toContainText('Focused event 62 of 2400')
-  await expect(page.locator('.inspector-heading p')).toHaveText('System prompt unrecorded')
+  await expect(page.getByRole('status')).toContainText('Focused event 51 of 2000')
+  await expect(page.locator('.inspector-heading p')).toHaveText('User')
 
-  const previousKeyboardEvent = page.locator('.event-row[data-event-id="missing-system-prompt:synthetic-user-10"]')
+  const previousKeyboardEvent = page.locator('.event-row[data-event-id="synthetic-result-9:result"]')
   await page.keyboard.press('ArrowUp')
-  await expect(timelineList).toHaveAttribute('aria-activedescendant', 'event-row-missing-system-prompt:synthetic-user-10')
-  await expect(previousKeyboardEvent).toHaveAttribute('aria-label', /Focused event 61 of 2400/)
+  await expect(timelineList).toHaveAttribute('aria-activedescendant', 'event-row-synthetic-result-9:result')
+  await expect(previousKeyboardEvent).toHaveAttribute('aria-label', /Focused event 50 of 2000/)
   await page.keyboard.press('ArrowDown')
   await expect(timelineList).toHaveAttribute('aria-activedescendant', 'event-row-synthetic-user-10:user')
 
@@ -355,7 +354,7 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   const firstVisibleEvent = page.locator(`.event-row[data-event-id="${firstEventId}"]`)
   await expect(firstVisibleEvent).toHaveCount(0)
   await expect(page.getByLabel('System Prompt', { exact: true })).not.toBeChecked()
-  await expect(page.locator('.inspector')).toContainText('System prompt unrecorded')
+  await expect(page.locator('.inspector')).toContainText('User')
   await page.locator('#branch-select').selectOption({ label: 'Current branch' })
   await toggleAllButton.click()
   await expect(toggleAllButton).toHaveText('Clear')
@@ -396,7 +395,7 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
     return { count: eventIds.size, ids: [...eventIds] }
   })
   const visitedEventIds = new Set(visitedRows.ids)
-  expect(visitedRows.count).toBe(2400)
+  expect(visitedRows.count).toBe(2000)
   // Comparing the whole set (not the collection order) is the real assertion: it
   // proves every row, from the first to the last, was mounted during the walk.
   expect([...visitedEventIds].sort()).toEqual(expectedEventIds.sort())
@@ -534,7 +533,7 @@ test('restores a large parent timeline anchor after subagent navigation', async 
   await expect(page.locator('.header-session strong')).toHaveText('Parent synthetic request 1')
   await expect(page.locator('#branch-select option')).toHaveCount(2)
   await page.locator('#branch-select').selectOption({ label: 'Historical branch 1' })
-  await expect(page.locator('.branch-bar')).toContainText('2401 visible events')
+  await expect(page.locator('.branch-bar')).toContainText('2001 visible events')
 
   await page.getByLabel('Thinking', { exact: true }).uncheck()
   const scrollContainer = page.locator('.timeline-scroll')
@@ -606,5 +605,5 @@ test('restores a large parent timeline anchor after subagent navigation', async 
   await sessionList.locator('.session-item').filter({ hasText: 'Synthetic second conversation' }).click()
   await expect(page.locator('.header-session strong')).toHaveText('Second synthetic request 1')
   await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeLessThan(5)
-  await expect(scrollContainer.locator('.event-row').first()).toHaveAttribute('data-event-id', 'missing-system-prompt:synthetic-user-0')
+  await expect(scrollContainer.locator('.event-row').first()).toHaveAttribute('data-event-id', 'synthetic-user-0:user')
 })

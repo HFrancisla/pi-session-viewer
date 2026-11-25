@@ -1,4 +1,4 @@
-import type { CapturedToolDefinition, ToolSourceInfo } from './types'
+import type { ToolDeclarationWithSource, ToolSourceInfo } from './types'
 
 export interface ResolvedToolProvenance {
   kind: 'builtin' | 'extension' | 'sdk' | 'unknown'
@@ -12,13 +12,13 @@ export interface ApiToolDefinition {
   name: string
   description?: string
   parameters?: unknown
+  constrainedSampling?: unknown
 }
 
 /**
- * Strips internal host runtime metadata (like sourceInfo and promptGuidelines)
- * and returns only the tool schema fields actually sent to the LLM Tools API.
+ * 仅提取原生工具声明字段，不混入补充观测。
  */
-export function sanitizeToolForApi(tool: CapturedToolDefinition): ApiToolDefinition {
+export function sanitizeToolForApi(tool: ToolDeclarationWithSource): ApiToolDefinition {
   const result: ApiToolDefinition = { name: tool.name }
   if (tool.description !== undefined) {
     result.description = tool.description
@@ -26,20 +26,10 @@ export function sanitizeToolForApi(tool: CapturedToolDefinition): ApiToolDefinit
   if (tool.parameters !== undefined) {
     result.parameters = tool.parameters
   }
+  if (tool.constrainedSampling !== undefined) result.constrainedSampling = tool.constrainedSampling
   return result
 }
 
-
-export const BUILTIN_TOOL_NAMES = new Set([
-  'read',
-  'bash',
-  'edit',
-  'write',
-  'find',
-  'grep',
-  'ls',
-  'powershell',
-])
 
 /**
  * Which synthetic source a path belongs to, mirroring Pi's
@@ -133,10 +123,10 @@ export function extractExtensionName(filePath: string | undefined): string | und
 
 /**
  * Resolves tool provenance (builtin, extension name, display path)
- * from a tool definition or tool name.
+ * from observed registration metadata.
  */
 export function resolveToolProvenance(
-  tool?: CapturedToolDefinition,
+  tool?: ToolDeclarationWithSource,
   fallbackToolName?: string
 ): ResolvedToolProvenance {
   const name = tool?.name ?? fallbackToolName ?? ''
@@ -206,18 +196,7 @@ export function resolveToolProvenance(
     }
   }
 
-  // 6. Fallback for built-in tools ONLY when there is no file path and no extension source
-  if (BUILTIN_TOOL_NAMES.has(name)) {
-    const path = `builtin:${name}`
-    return {
-      kind: 'builtin',
-      isBuiltin: true,
-      displayPath: formatDisplayPath(path),
-      rawPath: path,
-    }
-  }
-
-  // 7. Unknown / missing sourceInfo
+  // Unknown / missing sourceInfo
   return {
     kind: 'unknown',
     isBuiltin: false,

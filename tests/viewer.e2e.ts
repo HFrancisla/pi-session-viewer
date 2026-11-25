@@ -287,7 +287,7 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   // usage) are filtered out when the viewer opens.
   const systemFilter = page.getByLabel('System', { exact: true })
   await expect(systemFilter).not.toBeChecked()
-  await expect(page.locator('.event-row')).toHaveCount(10)
+  await expect(page.locator('.event-row')).toHaveCount(9)
   const llmOutputStarts = page.locator('.event-row.llm-output-group-start')
   await expect(llmOutputStarts).toHaveCount(2)
   const firstGroupId = await llmOutputStarts.first().getAttribute('data-llm-output-group')
@@ -297,7 +297,7 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   await expect(firstLlmOutput).toHaveCount(4)
   await expect(firstLlmOutput.locator('.event--tool-result')).toHaveCount(0)
   await expect(secondLlmOutput).toHaveCount(1)
-  await expect(page.locator('.filter-kind-icon')).toHaveCount(8)
+  await expect(page.locator('.filter-kind-icon')).toHaveCount(7)
   await expect(page.locator('.filter-swatch')).toHaveCount(0)
   const colorMismatches = await page.locator('.event-row').evaluateAll((rows) => rows
     .map((row) => {
@@ -322,9 +322,9 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   await expect(page.locator('.event-context-mark').first()).toContainText('Not in model context')
   await expect(markedRows.filter({ hasText: 'Thinking' })).toHaveCount(1)
   await expect(markedRows.filter({ hasText: '当前分支回复' })).toHaveCount(0)
-  // Turn header and branch bar report the context the model actually received.
+  // Turn header and branch bar report the native persisted context projection.
   await expect(page.locator('.turn-context-note')).toHaveCount(1)
-  await expect(page.locator('.branch-bar .context-summary')).toContainText('4 messages received')
+  await expect(page.locator('.branch-bar .context-summary')).toContainText('5 projected messages')
 
   // Switching to the branch that still reaches that entry drops the marks.
   await page.locator('#branch-select').selectOption({ label: '旧尝试' })
@@ -336,7 +336,7 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   // Entry types Pi documents beyond messages: a context edit and a usage entry.
   // Both are `system` events, so the filter has to bring them back first.
   await systemFilter.check()
-  await expect(page.locator('.event-row')).toHaveCount(14)
+  await expect(page.locator('.event-row')).toHaveCount(13)
   const contextEditRow = page.locator('.event-row').filter({ hasText: 'Context Edit' })
   await expect(contextEditRow).toHaveCount(1)
   await contextEditRow.click()
@@ -361,75 +361,19 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   await expect(page.locator('.content-view pre')).toContainText('cacheRead=50000')
 
   const firstTurnEvents = page.locator('.event-row[data-turn-id="turn-1"]')
-  await expect(firstTurnEvents.first()).toHaveClass(/event--system-prompt/)
-  await expect(firstTurnEvents.first().locator('.event-char-count')).toContainText('chars')
-  await expect(firstTurnEvents.nth(1)).toHaveClass(/event--tool-definitions/)
-  await expect(firstTurnEvents.nth(1).locator('.event-summary')).toContainText('Mounted')
-  await expect(firstTurnEvents.nth(1).locator('.event-summary')).not.toContainText('chars')
-  await expect(firstTurnEvents.nth(2)).toHaveClass(/event--user/)
-  await expect(firstTurnEvents.nth(2).locator('.event-char-count')).toContainText('chars')
-
-  await firstTurnEvents.nth(1).click()
+  await expect(firstTurnEvents.first()).toHaveClass(/event--user/)
+  const nativeRow = firstTurnEvents.and(page.locator('.event--system-prompt'))
+  await expect(nativeRow).toHaveCount(1)
+  await nativeRow.click()
+  await page.getByRole('tab', { name: 'Persisted State' }).click()
   const inspector = page.locator('.inspector')
-  await expect(page.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.locator('.tool-definitions-view details')).toHaveCount(1)
-  await expect(page.locator('.tool-definitions-view details')).not.toHaveAttribute('open', '')
-  await page.locator('.tool-definitions-view summary').click()
-  await expect(page.locator('.tool-definitions-view .content-body-wrap.event--tool-definitions')).toBeVisible()
-  await expect(page.locator('.tool-definitions-view pre')).toContainText('"command"')
-
-  await firstTurnEvents.first().click()
-  await expect(page.getByRole('tab', { name: 'Content' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.locator('.content-view pre')).toContainText('You are a coding assistant running inside pi')
-  await page.getByRole('tab', { name: 'Overview' }).click()
-  await expect(inspector).toContainText('Relative Gap')
-  await expect(inspector).not.toContainText('Duration')
+  await expect(inspector).toContainText('Native persisted state')
+  await expect(inspector).toContainText('Native tool declarations')
+  await expect(inspector.locator('.tool-definitions-view details')).toHaveCount(1)
+  await inspector.locator('.tool-definitions-view summary').click()
+  await expect(inspector.locator('.tool-definitions-view pre')).toContainText('"command"')
+  await expect(inspector.locator('.prompt-composition')).toContainText('project_context')
   await page.getByRole('tab', { name: 'Content' }).click()
-  await page.getByRole('tab', { name: 'Composition' }).click()
-  await page.locator('.prompt-composition details').first().locator('summary').click()
-  await expect(page.locator('.prompt-composition .content-body-wrap.event--system-prompt').first()).toBeVisible()
-  await expect(page.locator('.prompt-composition')).toContainText('/work/demo/AGENTS.md')
-  await expect(page.locator('.prompt-composition')).toContainText('tdd')
-
-  // The demo session carries a prompt built by Pi itself, so the composition
-  // panel must split it into the sections Pi sent instead of dumping the whole
-  // prompt into the base template (tags included).
-  const promptBlocks = page.locator('.prompt-composition .prompt-block')
-  await expect(promptBlocks).toHaveCount(9)
-  const blockTitles = await promptBlocks.evaluateAll((blocks) =>
-    blocks.map((block) => block.querySelector('.prompt-block-title')?.textContent?.replace(/^\d+\./, '') ?? '')
-  )
-  expect(blockTitles).toEqual([
-    'Base Template',
-    'Available Tools',
-    'Guidelines',
-    'System Documentation',
-    'Append Instructions',
-    'Project Context',
-    'Skills',
-    'Working Directory',
-    'MCP Servers',
-  ])
-  const blockContent = async (title: string) =>
-    promptBlocks
-      .filter({ has: page.locator('.prompt-block-title', { hasText: title }) })
-      .locator('pre')
-      .first()
-      // textContent, not innerText: collapsed <details> report no innerText.
-      .evaluate((element) => element.textContent ?? '')
-
-  expect(await blockContent('Available Tools')).toContain('- bash: Execute commands')
-  expect(await blockContent('Available Tools')).not.toContain('<tools>')
-  expect(await blockContent('Append Instructions')).toContain('Keep evidence concise.')
-  expect(await blockContent('Working Directory')).toContain('/work/demo')
-  expect(await blockContent('Working Directory')).not.toContain('Current working directory:')
-  expect(await blockContent('Base Template')).not.toContain('</')
-  expect(await blockContent('Skills')).not.toContain('<skills>')
-  // This demo session configures no MCP servers, so the modelled section is empty
-  // rather than missing: the panel always shows the full prompt model.
-  expect(await blockContent('MCP Servers')).toBe('None')
-
-  await expect(page.getByRole('tab', { name: 'Tool Definitions' })).toHaveCount(0)
 
   const testCall = page.locator('.event--tool-call').filter({ hasText: 'npm test' })
   await testCall.click()

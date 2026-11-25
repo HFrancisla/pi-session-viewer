@@ -38,9 +38,11 @@ function completionChunk(delta: Record<string, unknown>, finishReason: string | 
  * There are no live provider credentials or external API calls. The fake provider
  * requests bash once, receives the actual tool result, then answers two user turns.
  */
-it('captures prompts, multi-turn messages and tool round trips from the installed Pi', async () => {
+it.each([true, false])('真实 Pi 保留原生提示词、工具轮次（Viewer 加载：%s）', async (withViewer) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-viewer-live-'))
   const sessionDirectory = path.join(directory, 'sessions')
+  const requestEvents = new EventEmitter()
+  let retried = false
   const requests: Array<{ model?: string; messages?: Array<{ role?: string; content?: unknown }>; tools?: unknown[] }> = []
   const server = createServer(async (request, response) => {
     if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
@@ -53,6 +55,23 @@ it('captures prompts, multi-turn messages and tool round trips from the installe
       for await (const chunk of request) chunks.push(Buffer.from(chunk))
       requests.push(JSON.parse(Buffer.concat(chunks).toString('utf8')))
       const requestIndex = requests.length
+      const latestUser = requests.at(-1)?.messages?.filter(message => message.role === 'user').at(-1)
+      const input = JSON.stringify(latestUser?.content)
+      requestEvents.emit('request', input)
+      if (input.includes('Abort request')) {
+        response.writeHead(200, { 'Content-Type': 'text/event-stream' })
+        response.flushHeaders()
+        return
+      }
+      if (input.includes('Failed request')) {
+        response.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({error:{message:'test failure'}}))
+        return
+      }
+      if (input.includes('Retry request') && !retried) {
+        retried = true
+        response.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '0' }).end(JSON.stringify({error:{message:'test retry'}}))
+        return
+      }
 
       // First request asks Pi to execute a harmless local bash command.
       const delta = requestIndex === 1
@@ -92,6 +111,21 @@ it('captures prompts, multi-turn messages and tool round trips from the installe
     const providerExtension = path.join(directory, 'provider.mjs')
     await writeFile(providerExtension, `
 export default function(pi) {
+  pi.on('before_agent_start', event => {
+    if (['Abort request', 'Failed request', 'Retry request'].includes(event.prompt)) return { systemPrompt: event.prompt + ' override' };
+    if (event.prompt === 'Forced text') return { systemPrompt: 'EXPLICIT_OVERRIDE' };
+    if (event.prompt === 'Forced empty') return { systemPrompt: '' };
+    if (event.prompt === 'Changed tools') {
+      event.systemPromptOptions.sections.custom_section = 'exact native content';
+      pi.setActiveTools(['read']);
+    }
+  });
+  pi.on('before_provider_request', event => {
+    if (event.payload.messages?.[0]?.content === 'EXPLICIT_OVERRIDE') {
+      return { ...event.payload, messages: event.payload.messages.map((message, i) =>
+        i === 0 ? { ...message, content: 'LATE_WIRE_OVERRIDE' } : message) };
+    }
+  });
   pi.registerProvider('viewer-test', {
     name: 'Viewer Test', baseUrl: process.env.PI_VIEWER_TEST_BASE_URL,
     apiKey: 'local', api: 'openai-completions',
@@ -109,7 +143,7 @@ export default function(pi) {
     const extension = path.join(projectRoot, 'dist/extension/index.js')
     child = spawn(process.execPath, [
       cli, '--mode', 'rpc', '--no-extensions',
-      '-e', extension, '-e', providerExtension,
+      ...(withViewer ? ['-e', extension] : []), '-e', providerExtension,
       '--session-dir', sessionDirectory, '--no-mcp',
       '--no-skills', '--no-context-files', '--offline',
       '--provider', 'viewer-test', '--model', 'audit-model',
@@ -185,23 +219,15 @@ export default function(pi) {
     expect(sessionFiles).toHaveLength(1)
     const content = await readFile(path.join(sessionDirectory, sessionFiles[0]), 'utf8')
     const entries = content.trim().split('\n').map((line) => JSON.parse(line) as Record<string, any>)
-    const captures = entries.filter((entry) => entry.type === 'custom' && entry.customType === 'pi-session-viewer.system-prompt')
-    expect(captures).toHaveLength(2)
-    expect(captures[0].data).toMatchObject({
-      recordType: 'snapshot', captureStage: 'agent_start',
-      piVersion: PI_VERSION, messageType: 'user',
-      model: { provider: 'viewer-test', id: 'audit-model' },
-    })
-    expect(captures[0].data.prompt).toContain('You are a coding assistant running inside pi')
-    expect(captures[0].data.composition.toolDefinitions.some((tool: { name: string }) => tool.name === 'bash')).toBe(true)
-    expect(captures[1].data).toMatchObject({
-      recordType: 'reference', captureStage: 'agent_start',
-      piVersion: PI_VERSION, promptHash: captures[0].data.promptHash,
-    })
-    expect(captures[1].data.prompt).toBeUndefined()
-    expect(captures[0].data.targetUserEntryId).toBeTruthy()
-    expect(captures[1].data.targetUserEntryId).toBeTruthy()
-    expect(captures[1].data.targetUserEntryId).not.toBe(captures[0].data.targetUserEntryId)
+    const captures = entries.filter(entry => entry.customType === 'pi-session-viewer.observation')
+    expect(captures).toHaveLength(withViewer ? 1 : 0)
+    if (withViewer) {
+    expect(captures[0].data).toMatchObject({ schemaVersion: 1, piVersion: PI_VERSION })
+    expect(captures[0].data.toolSources.some((tool: { name: string }) => tool.name === 'bash')).toBe(true)
+    expect(Object.keys(captures[0].data).sort()).toEqual(['anchorEntryId','assistantEntryId','piVersion','schemaVersion','toolSources'])
+    expect(entries.find(entry => entry.id === captures[0].data.assistantEntryId)?.message.role).toBe('assistant')
+    }
+    expect(entries.some(entry => entry.customType === 'pi-session-viewer.system-prompt')).toBe(false)
     expect(entries.some((entry) => entry.message?.role === 'toolResult'
       && JSON.stringify(entry.message.content).includes('viewer_tool_ok'))).toBe(true)
     expect(entries.some((entry) => entry.message?.role === 'assistant'
@@ -212,10 +238,17 @@ export default function(pi) {
     const view = buildSessionView(parsed)
     const toolCall = view.events.find((event) => event.kind === 'tool-call' && event.toolName === 'bash')
     expect(toolCall?.pairedEventId).toBeTruthy()
+    expect(toolCall?.toolDefinition?.name).toBe('bash')
+    if (withViewer) expect(toolCall?.toolDefinition?.sourceInfo).toBeDefined()
+    else expect(toolCall?.toolDefinition?.sourceInfo).toBeUndefined()
+    expect(toolCall?.persistedState?.message.sections).toBeDefined()
     expect(view.stats.turnCount).toBe(2)
+    if (!withViewer) {
+      expect(toolCall?.persistedState?.message.toolsAdded?.length).toBeGreaterThan(0)
+      return
+    }
 
-    // Replacing the current session must reset the extension's prompt snapshot
-    // cache. Resuming the previous session must instead reuse its saved snapshot.
+    // 新会话首次观测，恢复旧会话时沿分支复用来源。
     const commands = await submitCommand('commands', 'get_commands')
     expect(commands.data?.commands?.some((command) => command.name === 'session-viewer')).toBe(true)
     const newSession = await submitCommand('new', 'new_session')
@@ -227,8 +260,8 @@ export default function(pi) {
     expect(secondFile).toBeDefined()
     const newSessionEntries = (await readFile(path.join(sessionDirectory, secondFile!), 'utf8'))
       .trim().split('\n').map((line) => JSON.parse(line) as Record<string, any>)
-    const newCapture = newSessionEntries.find((entry) => entry.customType === 'pi-session-viewer.system-prompt')
-    expect(newCapture?.data).toMatchObject({ recordType: 'snapshot', piVersion: PI_VERSION })
+    const newCapture = newSessionEntries.find((entry) => entry.customType === 'pi-session-viewer.observation')
+    expect(newCapture?.data).toMatchObject({ schemaVersion: 1, piVersion: PI_VERSION })
 
     const resumed = await submitCommand('resume', 'switch_session', {
       sessionPath: path.join(sessionDirectory, sessionFiles[0]),
@@ -237,17 +270,61 @@ export default function(pi) {
     await submitTurn('fourth', 'Fourth user message')
     const resumedEntries = (await readFile(path.join(sessionDirectory, sessionFiles[0]), 'utf8'))
       .trim().split('\n').map((line) => JSON.parse(line) as Record<string, any>)
-    const resumedCaptures = resumedEntries.filter((entry) => entry.customType === 'pi-session-viewer.system-prompt')
-    expect(resumedCaptures).toHaveLength(3)
-    expect(resumedCaptures[2].data).toMatchObject({
-      recordType: 'reference', piVersion: PI_VERSION,
-      promptHash: captures[0].data.promptHash,
-    })
+    const resumedCaptures = resumedEntries.filter(entry => entry.customType === 'pi-session-viewer.observation')
+    expect(resumedCaptures).toHaveLength(1)
     expect(requests).toHaveLength(5)
     expect(requests[4].messages?.some((message) =>
       message.role === 'user' && JSON.stringify(message.content).includes('Fourth user message'))).toBe(true)
     expect(requests[4].messages?.some((message) =>
       message.role === 'user' && JSON.stringify(message.content).includes('Third user message'))).toBe(false)
+    await submitTurn('forced', 'Forced text')
+    await submitTurn('empty', 'Forced empty')
+    await submitTurn('changed', 'Changed tools')
+    const extended = await readFile(path.join(sessionDirectory, sessionFiles[0]), 'utf8')
+    const extendedView = buildSessionView(parseSessionJsonl(extended))
+    const overrides = extendedView.events.flatMap(event => event.observation?.forcedPrompt !== undefined
+      && event.kind === 'assistant' ? [event.observation.forcedPrompt] : [])
+    expect(overrides).toEqual(['EXPLICIT_OVERRIDE', ''])
+    expect(JSON.stringify(requests[5].messages)).toContain('LATE_WIRE_OVERRIDE')
+    expect(extendedView.events.at(-1)?.persistedState?.message.sections?.custom_section).toBe('<custom_section>\nexact native content\n</custom_section>')
+    expect(extendedView.events.at(-1)?.persistedState?.message.toolsAdded?.map(tool => tool.name)).toEqual(['read'])
+    expect(extendedView.events.at(-1)?.observation?.forcedPrompt).toBeUndefined()
+
+    // 失败与中止请求的强制覆盖不能泄漏到后续正常回复。
+    await submitCommand('disable-retry', 'set_auto_retry', { enabled: false })
+    await submitTurn('failed', 'Failed request')
+    const abortSeen = once(requestEvents, 'request')
+    const aborted = submitTurn('aborted', 'Abort request')
+    expect((await abortSeen)[0]).toContain('Abort request')
+    await submitCommand('abort', 'abort')
+    await aborted
+    await submitTurn('after-abort', 'Normal after abort')
+    const afterAbort = buildSessionView(parseSessionJsonl(await readFile(path.join(sessionDirectory, sessionFiles[0]), 'utf8')))
+    expect(afterAbort.events.some(event => event.observation?.forcedPrompt === 'Failed request override')).toBe(false)
+    expect(afterAbort.events.some(event => event.observation?.forcedPrompt === 'Abort request override')).toBe(false)
+    expect(afterAbort.events.at(-1)?.observation?.forcedPrompt).toBeUndefined()
+
+    await submitCommand('enable-retry', 'set_auto_retry', { enabled: true })
+    await submitTurn('retry', 'Retry request')
+    expect(retried).toBe(true)
+    await submitTurn('after-retry', 'Normal after retry')
+    const afterRetry = buildSessionView(parseSessionJsonl(await readFile(path.join(sessionDirectory, sessionFiles[0]), 'utf8')))
+    expect(afterRetry.events.at(-1)?.observation?.forcedPrompt).toBeUndefined()
+    for (const event of afterRetry.events.filter(event => event.observation?.forcedPrompt === 'Retry request override')) {
+      expect(event.observation?.assistantEntryId).toBe(event.entryId)
+    }
+
+    // 从首次用户消息分叉，旧分支的强制覆盖与工具来源观测不能进入新分支。
+    const firstUser = entries.find(entry => entry.message?.role === 'user')
+    const fork = await submitCommand('fork', 'fork', { entryId: firstUser!.id })
+    expect(fork.data?.cancelled).toBe(false)
+    await submitTurn('forked', 'Forked user message')
+    const forkFiles = (await readdir(sessionDirectory)).filter(name => name.endsWith('.jsonl'))
+    const forkFile = forkFiles.find(name => !afterNew.includes(name))
+    expect(forkFile).toBeDefined()
+    const forkView = buildSessionView(parseSessionJsonl(await readFile(path.join(sessionDirectory, forkFile!), 'utf8')))
+    expect(forkView.events.some(event => event.observation?.forcedPrompt !== undefined)).toBe(false)
+    expect(forkView.events.some(event => event.kind === 'assistant' && event.observation?.toolSources?.length)).toBe(true)
   } finally {
     if (child && !child.killed) {
       child.stdin?.end()

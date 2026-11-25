@@ -43,13 +43,6 @@ export function localizeEventTitle(title: string, locale: Locale): string {
     'User': '用户',
     'Pi Response': 'Pi 回复',
     'Thinking': 'Thinking',
-    'Tool Definitions': '工具定义',
-    'System Prompt': '系统提示词',
-    'System prompt': '系统提示词',
-    'System prompt update': '系统提示词更新',
-    'System prompt unrecorded': '系统提示词未记录（原因未知）',
-    'System prompt missing': '系统提示词快照缺失',
-    'System prompt empty': '系统提示词已捕获为空',
     'Pi system context snapshot': 'Pi 系统上下文快照',
     'Pi system context update': 'Pi 系统上下文变更',
     'Model Switch': '模型切换',
@@ -61,19 +54,10 @@ export function localizeEventTitle(title: string, locale: Locale): string {
     'Branch label': '分支标签',
     'Session info': '会话信息',
     'Session setup': '会话设置',
-    'Custom run': '自定义运行',
     'Current branch': '当前分支',
     'Unknown Project': '未知项目',
     'Unknown working directory': '未知工作目录',
-    'Base Template': '基础模板',
-    'Available Tools': '可用工具',
-    'Guidelines': '行为准则',
-    'System Documentation': '系统文档指引',
-    'Append Instructions': '追加指令',
-    'Project Context': '项目上下文',
     'Skills': 'Skills',
-    'Working Directory': '工作目录',
-    'MCP Servers': 'MCP 服务',
   }
 
   if (directMap[title]) return directMap[title]
@@ -116,25 +100,7 @@ export function localizeEventTitle(title: string, locale: Locale): string {
 export function localizeEventSummary(event: Pick<TimelineEvent, 'kind' | 'title' | 'summary'>, locale: Locale): string {
   const summary = event.summary
   if (locale !== 'zh-CN') return summary
-  if (event.kind === 'tool-definitions') {
-    const mounted = summary.match(/^Mounted (\d+) API tools$/)
-    return mounted ? `挂载 ${mounted[1]} 个 API 工具` : summary === 'No active API tools' ? '没有启用的 API 工具' : summary
-  }
-  if (event.kind === 'system-prompt') {
-    if (summary === 'Full snapshot') return '完整快照'
-    if (summary === 'Snapshot reference') return '快照引用'
-    if (summary === 'Captured empty effective system prompt') return '已捕获空的有效系统提示词'
-    if (summary === 'No supported system-prompt capture is associated with this turn.') return '本轮没有受支持的系统提示词捕获记录'
-    const missing = summary.match(/^Unable to resolve prompt snapshot for hash (.+)$/)
-    if (missing) return `无法解析哈希为 ${missing[1]} 的提示词快照`
-    return summary.split(' · ').map((part) => {
-      const skills = part.match(/^Mounted (\d+) skills?$/)
-      if (skills) return `挂载 ${skills[1]} 个 Skill`
-      const context = part.match(/^(\d+) context files?$/)
-      return context ? `${context[1]} 个上下文文件` : part
-    }).join(' · ')
-  }
-  if (event.kind === 'system' && event.title.startsWith('Pi system context')) {
+  if (event.kind === 'system-prompt' && event.title.startsWith('Pi system context')) {
     return summary
       .replace(/^(\d+) prompt sections(?= ·|$)/, '$1 个提示词分区')
       .replace(/^(\d+) prompt section changes \((\d+) removed\)(?= ·|$)/, '$1 个提示词分区变更（移除 $2 个）')

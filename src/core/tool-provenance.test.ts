@@ -47,14 +47,9 @@ describe('tool-provenance', () => {
   })
 
   describe('resolveToolProvenance', () => {
-    it('resolves built-in tool by name even without sourceInfo', () => {
-      const res = resolveToolProvenance(undefined, 'read')
-      expect(res.kind).toBe('builtin')
-      expect(res.isBuiltin).toBe(true)
-      // Pi's built-in paths use `BUILTIN_PATH_PREFIX` (`"builtin:"`); the contract
-      // test asserts this against Pi's own constant.
-      expect(res.rawPath).toBe('builtin:read')
-      expect(res.displayPath).toBe('builtin:read')
+    it('does not infer built-in provenance from a tool name', () => {
+      expect(resolveToolProvenance(undefined, 'read').kind).toBe('unknown')
+      expect(resolveToolProvenance({ name: 'bash' }).kind).toBe('unknown')
     })
 
     it('resolves built-in tool with builtin sourceInfo', () => {
@@ -176,7 +171,7 @@ describe('tool-provenance', () => {
     }
 
     it('returns localized label for builtin tools', () => {
-      const prov = resolveToolProvenance({ name: 'read' })
+      const prov = resolveToolProvenance({ name: 'read', sourceInfo: { path: 'builtin:read' } })
       expect(getToolProvenanceLabel(prov, zhLocale)).toBe('原生内置')
       expect(getToolProvenanceLabel(prov, enLocale)).toBe('Built-in')
     })

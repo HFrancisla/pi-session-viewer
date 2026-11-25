@@ -113,7 +113,6 @@ function App() {
   const view = sessionState.view
   const activeContextProjection = sessionState.contextProjection
   const selectedEvent = sessionState.selectedEvent
-  const previousPrompt = sessionState.previousPrompt
   const visibleTurns = sessionState.visibleTurns
   const fullJsonlPath = sessionState.fullJsonlPath
 
@@ -322,7 +321,6 @@ function App() {
         <Inspector
           key={JSON.stringify([selectedToken, importedFile?.name, importedFile?.lastModified, parsedSession?.header?.id, selectedEventId])}
           event={selectedEvent}
-          previousPrompt={previousPrompt}
           onJumpToEvent={jumpToSelectedEvent}
           onJumpToEntry={jumpToEntry}
         />
