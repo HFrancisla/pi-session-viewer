@@ -113,7 +113,7 @@ test('keeps filtering controls discoverable and shows a copy error when clipboar
   await page.goto('/#token=dev-token')
   await expect(page.locator('.event-row').first()).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Current Project (1)' })).toHaveText('Current (1)')
-  await expect(page.getByRole('button', { name: 'Select All' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Select all' })).toBeVisible()
   await expect(page.getByRole('group', { name: 'Event filter' }).getByRole('checkbox')).toHaveCount(8)
 
   await page.locator('.header-session .header-path-copy').click()
@@ -178,13 +178,13 @@ test('shows a direct offline JSONL entry point when the panel token is missing',
   expect(apiCalls).toEqual([])
 })
 
-test('uses a clear stats hierarchy, quieter metadata, and singular catalog copy', async ({ page }) => {
+test('uses compact session facts, quieter metadata, and singular catalog copy', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/#token=dev-token')
   await expect(page.locator('.event-row').first()).toBeVisible()
-  await expect(page.locator('.sidebar-heading p')).toHaveText('1 record · 1 total')
-  await expect(page.locator('.session-summary > div').first().locator('strong')).toHaveCSS('font-size', '18px')
-  await expect(page.locator('.session-summary > div').last().locator('strong')).toHaveCSS('font-size', '13px')
+  await expect(page.locator('.sidebar-heading p')).toHaveText('1 in project, 1 total')
+  await expect(page.locator('.session-summary > div').first().locator('strong')).toHaveCSS('font-size', '12px')
+  await expect(page.locator('.session-summary > div').last().locator('strong')).toHaveCSS('font-size', '12px')
   await expect(page.locator('.event-char-count').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await page.setViewportSize({ width: 1024, height: 740 })
   const metrics = await page.evaluate(() => ({ viewport: innerWidth, pageWidth: document.documentElement.scrollWidth }))

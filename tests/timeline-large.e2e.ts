@@ -264,10 +264,10 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   await expect(page.locator('.inspector')).toContainText('Synthetic assistant response 1.')
   const selectionInspectorMs = performance.now() - selectionStartedAt
 
-  await page.getByLabel('Pi Response', { exact: true }).uncheck()
+  await page.getByLabel('Pi response', { exact: true }).uncheck()
   await expect(selectedAssistant).toHaveCount(0)
   await expect(page.locator('.inspector')).toContainText('Synthetic assistant response 1.')
-  await page.getByLabel('Pi Response', { exact: true }).check()
+  await page.getByLabel('Pi response', { exact: true }).check()
   await expect(selectedAssistant).toHaveClass(/is-selected/)
 
   const scrollContainer = page.locator('.timeline-scroll')
@@ -325,7 +325,7 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   await scrollContainer.evaluate((element) => { element.scrollTop = 0 })
   const thinkingFilter = page.getByLabel('Thinking', { exact: true })
   const toggleAllButton = page.locator('.filter-select-all')
-  await expect(toggleAllButton).toHaveText('Select All')
+  await expect(toggleAllButton).toHaveText('Select all')
   await toggleAllButton.click()
   await expect(toggleAllButton).toHaveText('Clear')
   await toggleAllButton.click()
@@ -344,7 +344,7 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   await expect(page.locator('.inspector')).toContainText('Synthetic reasoning 251')
 
   await page.locator('#branch-select').selectOption({ label: 'Current branch' })
-  await page.getByLabel('Pi Response', { exact: true }).check()
+  await page.getByLabel('Pi response', { exact: true }).check()
   const branchOnlyEvent = page.locator('.event-row[data-event-id="synthetic-assistant-399:assistant:0"]')
   expect(await scrollToEvent('synthetic-assistant-399:assistant:0')).toBe(true)
   await expect(branchOnlyEvent).toBeVisible()
@@ -353,7 +353,7 @@ test('virtualizes and preserves a 2,000-event grouped timeline', async ({ page }
   await page.locator('#branch-select').selectOption({ label: 'Historical branch 1' })
   const firstVisibleEvent = page.locator(`.event-row[data-event-id="${firstEventId}"]`)
   await expect(firstVisibleEvent).toHaveCount(0)
-  await expect(page.getByLabel('System Prompt', { exact: true })).not.toBeChecked()
+  await expect(page.getByLabel('System prompt', { exact: true })).not.toBeChecked()
   await expect(page.locator('.inspector')).toContainText('User')
   await page.locator('#branch-select').selectOption({ label: 'Current branch' })
   await toggleAllButton.click()

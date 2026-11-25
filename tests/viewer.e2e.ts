@@ -518,7 +518,7 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   await expect(toggleAllButton).toHaveText('Clear')
 
   await toggleAllButton.click()
-  await expect(toggleAllButton).toHaveText('Select All')
+  await expect(toggleAllButton).toHaveText('Select all')
   const selectWidth = await toggleAllButton.evaluate((el) => el.getBoundingClientRect().width)
   expect(selectWidth).toBeGreaterThan(0)
 
@@ -533,7 +533,7 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
 
   const userFilter = page.getByLabel('User', { exact: true })
   await userFilter.uncheck()
-  await expect(toggleAllButton).toHaveText('Select All')
+  await expect(toggleAllButton).toHaveText('Select all')
   await toggleAllButton.click()
   await expect(toggleAllButton).toHaveText('Clear')
   await expect(userFilter).toBeChecked()
@@ -596,7 +596,7 @@ test('switches language to Chinese via header toggle and persists preference', a
   // Verify UI switched to Chinese
   await expect(page.locator('.warning-strip')).toContainText('1 条解析警告')
   await expect(page.getByRole('tab', { name: '内容' })).toBeVisible()
-  await expect(page.locator('.filter-select-all')).toHaveText('全\u3000选')
+  await expect(page.locator('.filter-select-all')).toHaveText('全选')
   await expect(page.locator('.content-view').getByRole('button', { name: '复制' })).toHaveAttribute('title', '复制')
 
   // Verify persistence in localStorage
@@ -606,14 +606,14 @@ test('switches language to Chinese via header toggle and persists preference', a
   // Reload page and confirm persisted preference remains Chinese
   await page.reload()
   await expect(page.locator('.warning-strip')).toContainText('1 条解析警告')
-  await expect(page.locator('.filter-select-all')).toHaveText('全\u3000选')
+  await expect(page.locator('.filter-select-all')).toHaveText('全选')
   await expect(page.getByLabel('系统', { exact: true })).not.toBeChecked()
   await expect(page.locator('.content-view').getByRole('button', { name: '复制' })).toHaveAttribute('title', '复制')
 
   // Toggle back to English
   await page.locator('.lang-toggle-button').click()
   await expect(page.locator('.warning-strip')).toContainText('1 parse warning')
-  await expect(page.locator('.filter-select-all')).toHaveText('Select All')
+  await expect(page.locator('.filter-select-all')).toHaveText('Select all')
   const backLocale = await page.evaluate(() => localStorage.getItem('pi_session_viewer_locale'))
   expect(backLocale).toBe('en')
 })
@@ -626,12 +626,12 @@ test('preserves semantic event colors in filters, timeline selection and inspect
 
   const palette = [
     ['user', 'User', 'rgb(72, 92, 102)', 'rgb(244, 246, 247)'],
-    ['assistant', 'Pi Response', 'rgb(36, 107, 131)', 'rgb(242, 247, 249)'],
-    ['system-prompt', 'System Prompt', 'rgb(138, 79, 104)', 'rgb(253, 246, 249)'],
-    ['tool-definitions', 'Tool Definitions', 'rgb(47, 111, 143)', 'rgb(242, 246, 248)'],
+    ['assistant', 'Pi response', 'rgb(36, 107, 131)', 'rgb(242, 247, 249)'],
+    ['system-prompt', 'System prompt', 'rgb(138, 79, 104)', 'rgb(253, 246, 249)'],
+    ['tool-definitions', 'Tool definitions', 'rgb(47, 111, 143)', 'rgb(242, 246, 248)'],
     ['thinking', 'Thinking', 'rgb(118, 90, 154)', 'rgb(250, 248, 253)'],
-    ['tool-call', 'Tool Call', 'rgb(135, 84, 15)', 'rgb(252, 249, 243)'],
-    ['tool-result', 'Tool Result', 'rgb(47, 125, 87)', 'rgb(243, 248, 245)'],
+    ['tool-call', 'Tool call', 'rgb(135, 84, 15)', 'rgb(252, 249, 243)'],
+    ['tool-result', 'Tool result', 'rgb(47, 125, 87)', 'rgb(243, 248, 245)'],
     ['system', 'System', 'rgb(102, 113, 109)', 'rgb(245, 247, 246)'],
   ] as const
   for (const [kind, label, color, background] of palette) {
