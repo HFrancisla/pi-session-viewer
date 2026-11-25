@@ -10,6 +10,7 @@ import type {
 } from '../core/types'
 import { createLruCache } from '../core/lru-cache'
 import { normalizePath } from '../core/path'
+import { decodeSessionToken, encodeSessionToken } from '../core/session-token'
 
 const SUBAGENT_DIRECTORY_NAMES = new Set(['subagent-artifacts', 'subagents'])
 // Pi run IDs are UUIDs; target paths also use short hex and run-<number> IDs.
@@ -52,7 +53,7 @@ function isSessionCatalogMember(session: SessionListItem): boolean {
   return isSessionCatalogPathMember(session.relativePath)
 }
 
-export function projectName(cwd: string): string {
+function projectName(cwd: string): string {
   if (!cwd || cwd === 'Unknown working directory') return 'Unknown Project'
   const parts = cwd.split(/[\\/]/).filter(Boolean)
   return parts.at(-1) ?? cwd
@@ -67,7 +68,7 @@ export function disambiguateProjectNames(cwds: string[]): Map<string, string> {
   const parsed = cwds.map((cwd) => {
     const norm = normalizePath(cwd)
     const segments = norm.split('/').filter(Boolean)
-    return { cwd, norm, segments }
+    return { norm, segments }
   })
 
   for (const item of parsed) {
@@ -157,9 +158,6 @@ export function configuredSessionRoot(env: NodeJS.ProcessEnv = process.env): str
   return path.join(os.homedir(), '.pi', 'agent', 'sessions')
 }
 
-
-import { decodeSessionToken, encodeSessionToken } from '../core/session-token'
-
 function isSessionCandidate(entry: import('node:fs').Dirent, name: string): boolean {
   return entry.isFile()
     && name.endsWith('.jsonl')
@@ -189,7 +187,7 @@ async function walkSessionCandidates(root: string): Promise<string[]> {
 
 /** Returns the absolute paths of the Sessions admitted by the server catalog. */
 export async function walkSessionFiles(root: string): Promise<string[]> {
-  const catalog = await listSessions(root)
+  const catalog = await discoverSessionCatalog(root)
   return catalog.sessions.map((session) => path.resolve(catalog.root, session.relativePath))
 }
 
@@ -208,7 +206,7 @@ async function sessionMetadata(root: string, filePath: string): Promise<SessionL
   // Stat first: the cache key is the file's identity, so an unchanged file costs
   // one syscall instead of a 256 KB read and parse.
   const stat = await fs.stat(filePath)
-  const cacheKey = `${filePath}\u0000${stat.mtimeMs}\u0000${stat.size}`
+  const cacheKey = `${root}\u0000${filePath}\u0000${stat.dev}\u0000${stat.ino}\u0000${stat.ctimeMs}\u0000${stat.mtimeMs}\u0000${stat.size}`
   const cached = metadataCache.get(cacheKey)
   if (cached !== undefined) return cached
   const item = await readSessionMetadata(root, filePath, stat)
@@ -288,9 +286,10 @@ export async function discoverSessionCatalog(root: string, currentCwd?: string):
     sessions.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt))
 
     const { projects, projectNames } = buildProjectSummaries(sessions)
-    for (const session of sessions) {
-      session.projectName = projectNames.get(normalizePath(session.cwd)) ?? projectName(session.cwd)
-    }
+    const catalogSessions = sessions.map((session) => ({
+      ...session,
+      projectName: projectNames.get(normalizePath(session.cwd)) ?? projectName(session.cwd),
+    }))
 
     let initialSessionToken: string | undefined
     if (currentCwd) {
@@ -301,16 +300,14 @@ export async function discoverSessionCatalog(root: string, currentCwd?: string):
       initialSessionToken = sessions[0]?.token
     }
 
-    return { root: rootRealPath, currentCwd, projects, sessions, initialSessionToken, warnings }
+    return { root: rootRealPath, currentCwd, projects, sessions: catalogSessions, initialSessionToken, warnings }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return { root, currentCwd, projects: [], sessions: [], warnings: [`Failed to scan Pi session directory: ${message}`] }
   }
 }
 
-export const listSessions = discoverSessionCatalog
-
-export async function resolveAllowedSessionPath(root: string, relative: string): Promise<{ absolute: string; relative: string }> {
+async function resolveAllowedSessionPath(root: string, relative: string): Promise<{ absolute: string; relative: string }> {
   const rootRealPath = await fs.realpath(root)
   if (!relative || !relative.endsWith('.jsonl') || path.isAbsolute(relative)) {
     throw new Error('Invalid session file identifier.')

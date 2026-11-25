@@ -10,6 +10,8 @@
 
 **项目（Project）**：工作目录 `cwd` 归一化后相同的会话集合，不等同于 Git 仓库。
 
+**存储（Storage）**：Pi 管理 JSONL 会话文件；Viewer 无独立数据库或迁移，目录元数据和响应缓存均为内存缓存。
+
 **会话目录（Session Catalog）**：将可独立浏览的顶层会话按项目索引；通过父子关系、已知子代理来源等判定的子会话及转录镜像不单独列出，但可从父会话中的引用打开。
 
 **消歧项目名（Disambiguated Project Name）**：多个项目目录具有相同 basename 时，用最少的路径片段生成可区分的名称，而不是统一显示完整绝对路径。
@@ -50,7 +52,7 @@
 
 **上下文排除（Context Exclusion）**：某个原始记录未产生模型可见消息。`omitted` 表示由明确的上下文编辑排除，`not-in-context` 表示其他原因（如压缩边界或工具配对）；界面标记原记录，不将其删除。
 
-**上下文编辑关联（Context Edit Link）**：连接 `context_edit` 与对应目标及被同一编辑排除的条目，通过 `affectedEntryIds` 及 `targetEntryId` 实现双向定位。
+**上下文编辑关联（Context Edit Link）**：连接 `context_edit` 与对应目标及被同一编辑排除的条目，通过 `affectedEntryIds` 及 `targetEntryId` 实现双向定位。编辑归属仅来自当前分支的 Pi 原生投影，不使用其他分支上的编辑。
 
 **用量条目（Usage Entry）**：Pi 的 `usage` 条目，可记录不附着于 Assistant 消息的模型用量，如 `kind: "cache_warm"`；不参与 LLM 上下文。
 

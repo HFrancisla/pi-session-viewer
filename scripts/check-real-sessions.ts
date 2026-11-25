@@ -17,7 +17,7 @@ import { parseSystemPromptSections, type PromptFormat } from '../src/core/prompt
 import { parseSessionJsonl } from '../src/core/session-parser'
 import { buildSessionView } from '../src/core/session-view'
 import { computeContextProjections, loadPiContextApi } from '../src/server/context-projection'
-import { listSessions } from '../src/server/session-discovery'
+import { discoverSessionCatalog } from '../src/server/session-discovery'
 import type { ParseWarning, SystemPromptComposition } from '../src/core/types'
 
 interface CaptureEntry {
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
   const limit = Number(process.env.PI_SESSION_SCAN_LIMIT ?? '2000')
   // Use the exact Session Catalog result returned to the viewer, including
   // validated headers and the shared client/server membership rule.
-  const catalog = await listSessions(root)
+  const catalog = await discoverSessionCatalog(root)
   const scanRoot = catalog.root
   const sessionFiles = new Set(catalog.sessions.map((session) => path.resolve(scanRoot, session.relativePath)))
   // Prompt checks additionally cover files the catalog excludes (subagent runs),

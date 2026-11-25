@@ -18,7 +18,7 @@ const server = await startSessionHttpServer({
   currentCwd: process.cwd(),
 })
 
-process.stdout.write(`Pi session viewer started at: http://${server.host}:${server.port}\n`)
+process.stdout.write(`Pi session viewer started at: ${server.url}/#${new URLSearchParams({ token })}\n`)
 
 let shuttingDown = false
 async function shutdown(): Promise<void> {

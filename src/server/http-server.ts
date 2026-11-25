@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { promises as fs } from 'node:fs'
 import { hasValidBearerToken, isAllowedHost, isAllowedOrigin } from './security'
-import { listSessions, resolveAllowedSessionFile, resolveSessionTarget } from './session-discovery'
+import { discoverSessionCatalog, resolveAllowedSessionFile, resolveSessionTarget } from './session-discovery'
 import { computeContextProjections } from './context-projection'
 import { readStaticAsset } from './static-assets'
 import { createLruCache, type LruCache } from '../core/lru-cache'
@@ -38,17 +38,21 @@ function setSecurityHeaders(response: ServerResponse): void {
   response.setHeader('Referrer-Policy', 'no-referrer')
 }
 
-function sendJson(response: ServerResponse, statusCode: number, body: unknown): void {
+function sendJsonBody(response: ServerResponse, statusCode: number, body: string): void {
   response.statusCode = statusCode
   response.setHeader('Content-Type', 'application/json; charset=utf-8')
   response.setHeader('Cache-Control', 'no-store')
-  response.end(JSON.stringify(body))
+  response.end(body)
+}
+
+function sendJson(response: ServerResponse, statusCode: number, body: unknown): void {
+  sendJsonBody(response, statusCode, JSON.stringify(body))
 }
 
 /**
- * Serialized session payloads, keyed by file identity (path, mtime, size).
+ * Serialized session payloads, keyed by file identity and requested session token.
  *
- * Answering a session request means reading the file, projecting every branch
+ * Answering a session request means reading the file, projecting selected branches
  * through Pi, and serializing a body that can run to megabytes — all inside the
  * Pi process. Switching between sessions is the viewer's main gesture, so the
  * last few bodies are kept; a changed file changes its key and refetches.
@@ -58,13 +62,6 @@ function sendJson(response: ServerResponse, statusCode: number, body: unknown): 
 const SESSION_BODY_CACHE_WEIGHT = 64 * 1024 * 1024
 type SessionBodyCache = LruCache<string>
 
-function sendCachedJson(response: ServerResponse, body: string): void {
-  response.statusCode = 200
-  response.setHeader('Content-Type', 'application/json; charset=utf-8')
-  response.setHeader('Cache-Control', 'no-store')
-  response.end(body)
-}
-
 async function sendSessionPayload(
   response: ServerResponse,
   sessionBodies: SessionBodyCache,
@@ -73,10 +70,10 @@ async function sendSessionPayload(
   token: string,
 ): Promise<void> {
   const stat = await fs.stat(absolute)
-  const cacheKey = `${relative}\u0000${stat.mtimeMs}\u0000${stat.size}`
+  const cacheKey = `${absolute}\u0000${token}\u0000${stat.dev}\u0000${stat.ino}\u0000${stat.ctimeMs}\u0000${stat.mtimeMs}\u0000${stat.size}`
   const cached = sessionBodies.get(cacheKey)
   if (cached !== undefined) {
-    sendCachedJson(response, cached)
+    sendJsonBody(response, 200, cached)
     return
   }
   const content = await fs.readFile(absolute, 'utf8')
@@ -92,7 +89,7 @@ async function sendSessionPayload(
   }
   const body = JSON.stringify(payload)
   sessionBodies.set(cacheKey, body)
-  sendCachedJson(response, body)
+  sendJsonBody(response, 200, body)
 }
 
 async function handleRequest(
@@ -133,7 +130,7 @@ async function handleRequest(
   }
 
   if (pathname === '/api/sessions') {
-    sendJson(response, 200, await listSessions(options.sessionRoot, options.currentCwd))
+    sendJson(response, 200, await discoverSessionCatalog(options.sessionRoot, options.currentCwd))
     return
   }
 
@@ -208,7 +205,6 @@ export function createSessionRequestHandler(options: SessionRequestOptions, serv
     })
   }
 }
-
 
 function listen(server: Server, host: string, port: number): Promise<number> {
   return new Promise((resolve, reject) => {

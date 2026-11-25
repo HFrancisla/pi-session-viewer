@@ -44,6 +44,8 @@ pi install npm:@hfrancisla/pi-session-viewer
 - **捕获精度与边界**：插件在 `before_provider_request` 阶段通过 Pi 的 `ctx.getSystemPrompt()` 及活动工具元数据记录 *Pi Harness 的提示词状态*，并展示会话中 Pi 原生持久化的 System Message 增量更新。但其他扩展在该钩子内对提供商最终请求 Payload 的修改不会反映到 `ctx.getSystemPrompt()`；本插件**不是** HTTP 原始请求录制器。上下文文件内容本身可能包含敏感数据，请妥善保管导出的会话文件。
 - **历史记录**：没有关联系统提示词捕获记录的轮次会显示为 *未记录*；Viewer 不推断缺失原因，也不会根据当前配置重建历史提示词。
 
+会话文件由 Pi 管理，Viewer 不使用独立数据库；会话目录和响应缓存仅驻留内存。开发服务和独立服务会在终端输出带访问令牌的启动链接。
+
 ## 本地开发
 
 需要 Node.js 22.19 或更新版本（开发推荐 Node.js 24 LTS）。完整验证前执行 `npx playwright install chromium`。

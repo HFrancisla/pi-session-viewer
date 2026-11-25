@@ -7,7 +7,6 @@ import {
   buildProjectSummaries,
   disambiguateProjectNames,
   discoverSessionCatalog,
-  listSessions,
 } from '../src/server/session-discovery'
 import type { SessionListItem } from '../src/core/types'
 import { piSessionHeader } from './helpers/pi-session'
@@ -152,9 +151,12 @@ describe('SessionCatalogDiscovery at Filesystem Seam', () => {
       // Initial session token matches preferred currentCwd
       expect(result.initialSessionToken).toBe(result.sessions.find((s) => s.id === 's3')?.token)
 
-      // listSessions alias also works identically
-      const listResult = await listSessions(root)
-      expect(listResult.sessions.map((s) => s.id).sort()).toEqual(['s1', 's2', 's3', 's4'])
+      const nested = await discoverSessionCatalog(path.join(root, 'repo-a'))
+      expect(nested.sessions.map((s) => s.relativePath).sort()).toEqual(['session-1.jsonl', 'session-2.jsonl'])
+      expect(nested.sessions.every((s) => s.projectName === 'server')).toBe(true)
+      expect(result.sessions.find((s) => s.id === 's1')?.projectName).toBe('repo-a/server')
+      const refreshed = await discoverSessionCatalog(root)
+      expect(refreshed.sessions.find((s) => s.id === 's1')?.projectName).toBe('repo-a/server')
     })
   })
 })

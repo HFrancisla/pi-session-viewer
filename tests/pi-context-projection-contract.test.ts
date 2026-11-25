@@ -145,6 +145,16 @@ describe('context projection: fixture sessions', () => {
     expect(Object.keys(other!.excluded)).toEqual([])
   })
 
+  it('attributes an omitted entry to the edit on each branch, not the last edit in the file', async () => {
+    const original = await readFixture('context-edit/session.jsonl')
+    const alternate = JSON.stringify({ type: 'context_edit', id: 'alternate-edit', parentId: 'a-failed', timestamp: '2026-01-01T10:00:10.000Z', targetId: 'a-failed', replacement: null })
+    const content = `${original.trimEnd()}\n${alternate}\n`
+    const projections = await computeContextProjections(content)
+    const parsed = parseSessionJsonl(original)
+    expect(projections?.[parsed.currentLeafId!].excluded['a-failed']).toEqual({ state: 'omitted', editId: 'ctx-edit' })
+    expect(projections?.['alternate-edit'].excluded['a-failed']).toEqual({ state: 'omitted', editId: 'alternate-edit' })
+  })
+
   it('shows nothing rather than guessing when Pi is unavailable', async () => {
     const previous = process.argv[1]
     resetPiContextApiCache()

@@ -44,6 +44,8 @@ The three-column workspace is designed for desktop browsers at 1024px and wider.
 - **Prompt Fidelity**: Extension captures use Pi's `ctx.getSystemPrompt()` at the provider-request hook and Pi's active tool metadata. The browser also displays native, append-only system-message updates from the session. Provider-specific payload rewrites made by other `before_provider_request` handlers are **not** reflected in `ctx.getSystemPrompt()`; this is a Pi harness inspector, not a raw HTTP request recorder. Context-file contents can themselves contain sensitive data, so treat exported sessions as private.
 - **Historical Sessions**: Turns without an associated system-prompt capture record display as *unrecorded*; the reason is not inferred, and past prompts are never reconstructed from current configuration.
 
+Pi manages the JSONL session files; the viewer uses no separate database. Catalog and response caches are in memory only. Development and standalone servers print a startup URL containing the access token.
+
 ## Development
 
 Requires Node.js 22.19 or newer (Node.js 24 LTS recommended for development). Install Chromium before running the full verification suite: `npx playwright install chromium`.

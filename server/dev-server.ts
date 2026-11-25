@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer as createViteServer } from 'vite'
 import { createSessionRequestHandler } from '../src/server/http-server'
@@ -5,7 +6,7 @@ import { configuredSessionRoot } from '../src/server/session-discovery'
 
 const host = '127.0.0.1'
 const port = Number.parseInt(process.env.PORT ?? '5174', 10)
-const token = process.env.PI_SESSION_VIEWER_DEV_TOKEN ?? 'dev-token'
+const token = process.env.PI_SESSION_VIEWER_DEV_TOKEN ?? randomBytes(32).toString('base64url')
 const sessionRoot = configuredSessionRoot()
 const httpServer = createHttpServer()
 const vite = await createViteServer({
@@ -22,7 +23,7 @@ httpServer.on('request', createSessionRequestHandler({ sessionRoot, token, versi
 }))
 
 httpServer.listen(port, host, () => {
-  process.stdout.write(`Pi 会话分析开发服务已启动：http://${host}:${port}
+  process.stdout.write(`Pi 会话分析开发服务已启动：http://${host}:${port}/#${new URLSearchParams({ token })}
 `)
   process.stdout.write(`只读会话目录：${sessionRoot}
 `)

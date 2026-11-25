@@ -1,6 +1,5 @@
 import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
-import { spawn } from 'node:child_process'
-import { execFile } from 'node:child_process'
+import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import os from 'node:os'
 import path from 'node:path'
@@ -8,7 +7,6 @@ import { pathToFileURL } from 'node:url'
 
 const run = promisify(execFile)
 const projectRoot = process.cwd()
-const token = 'package-test-token'
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'pi-session-viewer-package-'))
 const packRoot = await mkdtemp(path.join(os.tmpdir(), 'pi-session-viewer-tarball-'))
 const packDestination = path.join(packRoot, 'pack')
@@ -42,9 +40,11 @@ try {
 
   await run(process.execPath, ['--input-type=module', '-e', `const loaded = await import(${JSON.stringify(pathToFileURL(extensionPath).href)}); if (typeof loaded.default !== 'function') process.exit(1)`])
 
+  const env = { ...process.env, PI_CODING_AGENT_SESSION_DIR: path.join(temporaryRoot, 'sessions') }
+  delete env.PI_SESSION_VIEWER_TOKEN
   child = spawn(process.execPath, [standalonePath], {
     cwd: temporaryRoot,
-    env: { ...process.env, PI_CODING_AGENT_SESSION_DIR: path.join(temporaryRoot, 'sessions'), PI_SESSION_VIEWER_TOKEN: token },
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   const startupLine = await new Promise((resolve, reject) => {
@@ -58,9 +58,14 @@ try {
     child.once('error', reject)
     child.once('exit', (code) => reject(new Error(`standalone server exited before startup (${code})`)))
   })
-  const serverUrl = startupLine.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0]
-  if (!serverUrl) throw new Error(`Could not parse standalone server URL from: ${startupLine}`)
-  const response = await fetch(`${serverUrl}/api/health`, { headers: { Authorization: `Bearer ${token}` } })
+  const startupUrl = startupLine.match(/http:\/\/127\.0\.0\.1:\d+\/#\S+/)?.[0]
+  if (!startupUrl) throw new Error('Standalone server did not print an authenticated startup URL')
+  const url = new URL(startupUrl)
+  const token = new URLSearchParams(url.hash.slice(1)).get('token')
+  if (!token || token.length < 43) throw new Error('Standalone server did not generate an access token')
+  const unauthorized = await fetch(`${url.origin}/api/health`)
+  if (unauthorized.status !== 401) throw new Error('Standalone health endpoint accepts unauthenticated requests')
+  const response = await fetch(`${url.origin}/api/health`, { headers: { Authorization: `Bearer ${token}` } })
   if (response.status !== 200) throw new Error(`standalone health check failed with status ${response.status}`)
 } finally {
   if (child && !child.killed) child.kill('SIGTERM')

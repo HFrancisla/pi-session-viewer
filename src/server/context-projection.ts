@@ -11,7 +11,7 @@ interface PiContextApi {
   buildSessionProjection(
     entries: unknown[],
     leafId?: string | null
-  ): { entries: Array<{ sourceEntry: { id?: string; type?: string }; messages: unknown[] }> }
+  ): { entries: Array<{ sourceEntry: { id?: string; type?: string; targetId?: string; replacement?: unknown }; messages: unknown[] }> }
   parseSessionEntries(content: string): unknown[]
 }
 
@@ -58,10 +58,10 @@ export function resetPiContextApiCache(): void {
 }
 
 function collectExclusions(
-  projected: Array<{ sourceEntry: { id?: string; type?: string }; messages: unknown[] }>,
+  projected: Array<{ sourceEntry: { id?: string; type?: string; targetId?: string; replacement?: unknown }; messages: unknown[] }>,
   editIdByTarget: Map<string, string>
 ): Record<string, ContextExclusion> {
-  const excluded: Record<string, ContextExclusion> = {}
+  const excluded: Record<string, ContextExclusion> = Object.create(null)
   for (const entry of projected) {
     const id = entry.sourceEntry.id
     const type = entry.sourceEntry.type
@@ -76,26 +76,13 @@ function collectExclusions(
   return excluded
 }
 
-/** Target ids of the context edits that omit an entry (`replacement: null`). */
-function omittedTargets(content: string): Map<string, string> {
+/** Only edits retained in this exact Pi projection can affect its entries. */
+function omittedTargets(projected: ReturnType<PiContextApi['buildSessionProjection']>['entries']): Map<string, string> {
   const byTarget = new Map<string, string>()
-  for (const line of content.split('\n')) {
-    if (!line.includes('"context_edit"')) continue
-    let parsed: { type?: unknown; id?: unknown; targetId?: unknown; replacement?: unknown }
-    try {
-      parsed = JSON.parse(line) as typeof parsed
-    } catch {
-      continue
-    }
-    if (parsed.type !== 'context_edit') continue
-    if (typeof parsed.id !== 'string' || typeof parsed.targetId !== 'string') continue
-    // A non-null replacement keeps the message visible with new content, and a
-    // later edit on the same target wins, so the last one decides.
-    if (parsed.replacement === null || parsed.replacement === undefined) {
-      byTarget.set(parsed.targetId, parsed.id)
-    } else {
-      byTarget.delete(parsed.targetId)
-    }
+  for (const { sourceEntry: entry } of projected) {
+    if (entry.type !== 'context_edit' || !entry.id || !entry.targetId) continue
+    if (entry.replacement === null) byTarget.set(entry.targetId, entry.id)
+    else byTarget.delete(entry.targetId)
   }
   return byTarget
 }
@@ -129,9 +116,8 @@ export async function computeContextProjections(
     cappedLeaves.unshift(parsed.currentLeafId)
   }
 
-  const editIdByTarget = omittedTargets(content)
   const piVersion = resolvePiVersion()
-  const projections: Record<string, ContextProjection> = {}
+  const projections: Record<string, ContextProjection> = Object.create(null)
 
   for (const leafId of cappedLeaves) {
     let projection
@@ -145,7 +131,7 @@ export async function computeContextProjections(
       leafId,
       messageCount,
       contextEntryCount: projection.entries.length,
-      excluded: collectExclusions(projection.entries, editIdByTarget),
+      excluded: collectExclusions(projection.entries, omittedTargets(projection.entries)),
       piVersion,
     }
   }
