@@ -45,7 +45,7 @@ function ContextJumpButton({ entryId, label, disabled, onJump }: {
       aria-label={label}
       onClick={() => onJump(entryId)}
     >
-      <CornerDownRight size={13} />
+      <CornerDownRight size={16} />
       <span>{label}</span>
     </button>
   )

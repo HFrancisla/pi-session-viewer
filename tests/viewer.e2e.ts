@@ -299,14 +299,15 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   await expect(secondLlmOutput).toHaveCount(1)
   await expect(page.locator('.filter-kind-icon')).toHaveCount(8)
   await expect(page.locator('.filter-swatch')).toHaveCount(0)
-  const colorMismatches = await page.locator('.event-row').evaluateAll((rows) => rows
-    .map((row) => {
-      const title = row.querySelector('.event-title-line strong')
-      const icon = row.querySelector('.track-dot')
-      return title && icon && getComputedStyle(title).color !== getComputedStyle(icon).color
-    })
-    .filter(Boolean).length)
-  expect(colorMismatches).toBe(0)
+  // Event identity must remain visually consistent across filter, title,
+  // node, selection and inspector. Do not collapse these semantic colours.
+  const visualRoles = await page.locator('.event-row').evaluateAll(rows => {
+    const titles = rows.map(row => getComputedStyle(row.querySelector('.event-title-line strong')!).color)
+    const nodes = rows.map(row => getComputedStyle(row.querySelector('.track-dot')!).color)
+    return { titleColors: new Set(titles).size, mismatches: titles.filter((color, index) => color !== nodes[index]).length }
+  })
+  expect(visualRoles.titleColors).toBeGreaterThan(1)
+  expect(visualRoles.mismatches).toBe(0)
   await expect(page.locator('.warning-strip')).toContainText('1 parse warning')
   await expect(page.locator('#branch-select option')).toHaveCount(2)
   await page.locator('#branch-select').selectOption({ label: '旧尝试' })
@@ -615,4 +616,38 @@ test('switches language to Chinese via header toggle and persists preference', a
   await expect(page.locator('.filter-select-all')).toHaveText('Select All')
   const backLocale = await page.evaluate(() => localStorage.getItem('pi_session_viewer_locale'))
   expect(backLocale).toBe('en')
+})
+
+test('preserves semantic event colors in filters, timeline selection and inspector', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1200 })
+  await page.goto('/#token=dev-token')
+  await expect(page.locator('.event-row').first()).toBeVisible()
+  await page.getByLabel('System', { exact: true }).check()
+
+  const palette = [
+    ['user', 'User', 'rgb(72, 92, 102)', 'rgb(244, 246, 247)'],
+    ['assistant', 'Pi Response', 'rgb(36, 107, 131)', 'rgb(242, 247, 249)'],
+    ['system-prompt', 'System Prompt', 'rgb(138, 79, 104)', 'rgb(253, 246, 249)'],
+    ['tool-definitions', 'Tool Definitions', 'rgb(47, 111, 143)', 'rgb(242, 246, 248)'],
+    ['thinking', 'Thinking', 'rgb(118, 90, 154)', 'rgb(250, 248, 253)'],
+    ['tool-call', 'Tool Call', 'rgb(135, 84, 15)', 'rgb(252, 249, 243)'],
+    ['tool-result', 'Tool Result', 'rgb(47, 125, 87)', 'rgb(243, 248, 245)'],
+    ['system', 'System', 'rgb(102, 113, 109)', 'rgb(245, 247, 246)'],
+  ] as const
+  for (const [kind, label, color, background] of palette) {
+    const filter = page.getByLabel(label, { exact: true })
+    await expect(filter).toHaveCSS('accent-color', color)
+    await expect(filter.locator('..').locator('.filter-kind-icon')).toHaveCSS('color', color)
+    const row = page.locator(`.event-row.event--${kind}${kind === 'tool-result' ? ':not(:has(.event-status.is-error))' : ''}`).first()
+    await row.click()
+    await expect(row.locator('.event-title-line strong')).toHaveCSS('color', color)
+    await expect(row.locator('.track-dot')).toHaveCSS('color', color)
+    await expect(row).toHaveCSS('border-left-color', color)
+    for (const tab of ['Content', 'Raw']) {
+      await page.getByRole('tab', { name: tab, exact: true }).click()
+      const content = page.locator(`.inspector .content-body-wrap.event--${kind} pre`).first()
+      await expect(content).toHaveCSS('background-color', background)
+      await expect(content).toHaveCSS('border-left-color', color)
+    }
+  }
 })

@@ -156,7 +156,7 @@ export function SessionSidebar({
                 aria-current={selectedToken === session.token ? 'page' : undefined}
                 title={session.cwd || undefined}
               >
-                <MessageSquareText size={17} aria-hidden="true" />
+                <MessageSquareText size={16} aria-hidden="true" />
                 <span className="session-item-copy">
                   <strong>{session.title}</strong>
                   <span>

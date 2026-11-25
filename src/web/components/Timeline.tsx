@@ -594,7 +594,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
             return (
               <label key={kind} style={{ '--filter-color': kindMeta[kind].color } as React.CSSProperties}>
                 <input type="checkbox" checked={enabledKinds.has(kind)} onChange={() => onToggleKind(kind)} />
-                <FilterIcon className="filter-kind-icon" size={13} />
+                <FilterIcon className="filter-kind-icon" size={14} aria-hidden="true" />
                 {t.timeline.kinds[kind]}
               </label>
             )
@@ -606,7 +606,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
           onClick={onToggleAllKinds}
           title={allSelected ? t.timeline.deselectAllTitle : t.timeline.selectAllTitle}
         >
-          {allSelected ? <Square size={13} /> : <CheckCheck size={13} />}
+          {allSelected ? <Square size={16} /> : <CheckCheck size={16} />}
           {allSelected ? t.timeline.deselectAll : t.timeline.selectAll}
         </button>
       </div>
@@ -624,7 +624,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
 
       {session.warnings.length > 0 && (
         <details className="warning-strip">
-          <summary><AlertTriangle size={16} />{t.timeline.warningsSummary(session.warnings.length)}<ChevronDown size={15} /></summary>
+          <summary><AlertTriangle size={16} />{t.timeline.warningsSummary(session.warnings.length)}<ChevronDown size={16} /></summary>
           <ul>
             {session.warnings.map((warning, index) => <li key={`${warning.code}-${warning.line ?? index}`}>{warning.message}</li>)}
           </ul>
