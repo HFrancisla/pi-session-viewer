@@ -34,7 +34,7 @@ describe('published Pi package manifest', () => {
     expect(manifest.keywords).toEqual(expect.arrayContaining(['pi-package']))
     expect(manifest.files).toEqual(expect.arrayContaining(['dist', 'README.md', 'README.zh-CN.md', 'LICENSE']))
     expect(manifest.peerDependencies?.['@earendil-works/pi-coding-agent']).toBe('^1.6.0')
-    expect(manifest.engines?.node).toBe('>=20')
+    expect(manifest.engines?.node).toBe('>=22.19.0')
     expect(manifest.pi?.extensions).toEqual(['./dist/extension/index.js'])
     expect(manifest.pi?.image).toMatch(/^https:\/\/raw\.githubusercontent\.com\/hfrancisla\/pi-session-viewer\//)
     expect(manifest.repository?.url).toContain('github.com/hfrancisla/pi-session-viewer')

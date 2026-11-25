@@ -1,17 +1,17 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import path from 'node:path'
+import os from 'node:os'
 import { chromium } from '@playwright/test'
 
 const run = promisify(execFile)
 const projectRoot = process.cwd()
-const scratchDir = path.join(projectRoot, '.tmp-preview')
+const scratchDir = await mkdtemp(path.join(os.tmpdir(), 'pi-session-viewer-preview-'))
 const sessionDir = path.join(scratchDir, 'sessions')
 const projectDir = path.join(sessionDir, 'ecommerce-api')
 
-await rm(scratchDir, { recursive: true, force: true })
 await mkdir(projectDir, { recursive: true })
 
 const session1Jsonl = `{"type":"session","version":3,"id":"ecommerce-perf-session","timestamp":"2026-03-15T14:20:00.000Z","cwd":"/work/ecommerce-api"}
@@ -41,96 +41,100 @@ await writeFile(path.join(projectDir, 'perf.jsonl'), session1Jsonl)
 await writeFile(path.join(projectDir, 'idempotency.jsonl'), session2Jsonl)
 
 const token = 'preview-token'
-const port = 5195
 const standalonePath = path.join(projectRoot, 'dist', 'standalone', 'index.js')
 
 const child = spawn(process.execPath, [standalonePath], {
   cwd: projectRoot,
   env: {
     ...process.env,
-    PORT: String(port),
+    PORT: '0',
     PI_CODING_AGENT_SESSION_DIR: sessionDir,
     PI_SESSION_VIEWER_TOKEN: token,
   },
-  stdio: ['ignore', 'pipe', 'pipe'],
+  stdio: ['ignore', 'pipe', 'inherit'],
 })
 
-const startupLine = await new Promise((resolve, reject) => {
-  let output = ''
-  child.stdout.on('data', (chunk) => {
-    output += chunk.toString()
-    const line = output.split(/\r?\n/).find((val) => val.includes('http://127.0.0.1:'))
-    if (line) resolve(line)
+let browser
+try {
+  const startupLine = await new Promise((resolve, reject) => {
+    let output = ''
+    child.stdout.on('data', (chunk) => {
+      output += chunk.toString()
+      const line = output.split(/\r?\n/).find((val) => val.includes('http://127.0.0.1:'))
+      if (line) resolve(line)
+    })
+    child.once('error', reject)
+    child.once('exit', (code) => reject(new Error('exit ' + code)))
   })
-  child.once('error', reject)
-  child.once('exit', (code) => reject(new Error('exit ' + code)))
-})
 
-console.log('Server started:', startupLine)
+  console.log('Server started:', startupLine)
 
-const browser = await chromium.launch({ headless: true })
-const context = await browser.newContext({
-  viewport: { width: 1600, height: 1000 },
-  deviceScaleFactor: 1,
-  locale: 'en-US',
-})
-const page = await context.newPage()
+  browser = await chromium.launch({ headless: true })
+  const context = await browser.newContext({
+    viewport: { width: 1600, height: 1000 },
+    deviceScaleFactor: 1,
+    locale: 'en-US',
+  })
+  const page = await context.newPage()
 
-// Ensure localStorage is en
-await page.addInitScript(() => {
-  localStorage.setItem('pi_session_viewer_locale', 'en')
-})
+  // Ensure localStorage is en
+  await page.addInitScript(() => {
+    localStorage.setItem('pi_session_viewer_locale', 'en')
+  })
 
-await page.goto(`http://127.0.0.1:${port}/#token=${token}`, { waitUntil: 'networkidle' })
+  const url = startupLine.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0]
+  if (!url) throw new Error('Preview server did not report its address')
+  await page.goto(`${url}/#token=${token}`, { waitUntil: 'networkidle' })
 
-// Switch to All projects scope in sidebar
-const allScopeTab = page.locator('.scope-tab').filter({ hasText: 'All' })
-if (await allScopeTab.isVisible()) {
-  await allScopeTab.click()
-  await page.waitForTimeout(400)
-}
-
-// Click on the perf session
-const sessionCard = page.getByText('Profile query latency and fix connection leak').first()
-if (await sessionCard.isVisible()) {
-  await sessionCard.click()
-  await page.waitForTimeout(600)
-}
-
-// Click the System Prompt event to show rich prompt composition
-const systemPromptRow = page.locator('.event--system-prompt').first()
-if (await systemPromptRow.isVisible()) {
-  await systemPromptRow.click()
-  await page.waitForTimeout(500)
-}
-
-// Switch to Composition tab in Inspector
-const compositionTab = page.getByRole('tab', { name: 'Composition' })
-if (await compositionTab.isVisible()) {
-  await compositionTab.click()
-  await page.waitForTimeout(400)
-
-  // Expand the first two sections
-  const summaries = page.locator('.prompt-composition summary')
-  const count = await summaries.count()
-  for (let i = 0; i < Math.min(count, 3); i++) {
-    await summaries.nth(i).click()
+  // Switch to All projects scope in sidebar
+  const allScopeTab = page.getByRole('tab', { name: /^All/ })
+  if (await allScopeTab.isVisible()) {
+    await allScopeTab.click()
+    await page.waitForTimeout(400)
   }
-  await page.waitForTimeout(400)
+
+  // Click on the perf session
+  const sessionCard = page.getByText('Profile query latency and fix connection leak').first()
+  if (await sessionCard.isVisible()) {
+    await sessionCard.click()
+    await page.waitForTimeout(600)
+  }
+
+  // Click the System Prompt event to show rich prompt composition
+  const systemPromptRow = page.locator('.event--system-prompt').first()
+  if (await systemPromptRow.isVisible()) {
+    await systemPromptRow.click()
+    await page.waitForTimeout(500)
+  }
+
+  // Switch to Composition tab in Inspector
+  const compositionTab = page.getByRole('tab', { name: 'Composition' })
+  if (await compositionTab.isVisible()) {
+    await compositionTab.click()
+    await page.waitForTimeout(400)
+
+    // Expand the first two sections
+    const summaries = page.locator('.prompt-composition summary')
+    const count = await summaries.count()
+    for (let i = 0; i < Math.min(count, 3); i++) {
+      await summaries.nth(i).click()
+    }
+    await page.waitForTimeout(400)
+  }
+
+  const pngPath = path.join(scratchDir, 'preview-temp.png')
+  const webpPath = path.join(projectRoot, 'assets', 'gallery-preview.webp')
+
+  await page.screenshot({ path: pngPath })
+  console.log('PNG captured:', pngPath)
+
+  // Convert with cwebp to WebP (quality 90)
+  await run('cwebp', ['-q', '90', pngPath, '-o', webpPath])
+  console.log('WebP generated:', webpPath)
+
+  console.log('Done!')
+} finally {
+  await browser?.close()
+  child.kill('SIGTERM')
+  await rm(scratchDir, { recursive: true, force: true })
 }
-
-const pngPath = path.join(scratchDir, 'preview-temp.png')
-const webpPath = path.join(projectRoot, 'assets', 'gallery-preview.webp')
-
-await page.screenshot({ path: pngPath })
-console.log('PNG captured:', pngPath)
-
-await browser.close()
-child.kill('SIGTERM')
-
-// Convert with cwebp to WebP (quality 90)
-await run('cwebp', ['-q', '90', pngPath, '-o', webpPath])
-console.log('WebP generated:', webpPath)
-
-await rm(scratchDir, { recursive: true, force: true })
-console.log('Done!')

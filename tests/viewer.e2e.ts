@@ -43,7 +43,7 @@ test('copies the full JSONL path from the session header', async ({ page }) => {
   const header = page.locator('.header-session:not(.header-session--breadcrumbs)')
   const copyButton = page.getByRole('button', { name: 'Copy session path' })
   await expect(copyButton).toBeEnabled()
-  const fullPath = await copyButton.getAttribute('title')
+  const fullPath = (await copyButton.getAttribute('title'))?.split('\n').at(-1)
   expect(fullPath).toMatch(/\.jsonl$/)
   expect(await header.getAttribute('title')).toBeNull()
   expect(await header.locator('.header-session-info span').getAttribute('title')).toBeNull()
@@ -58,7 +58,7 @@ test('copies the full JSONL path from the session header', async ({ page }) => {
 
   expect(await page.evaluate(() => sessionStorage.getItem('copied-text'))).toBe(fullPath)
   await expect(copyButton).toHaveAttribute('aria-label', 'Copy session path')
-  await expect(copyButton.locator('svg.lucide-copy')).toHaveCount(1)
+  await expect(copyButton).toHaveAttribute('data-copy-status', 'success')
   await expect(copyButton).toHaveCSS('width', `${buttonWidth}px`)
 })
 
@@ -266,7 +266,7 @@ test('opens workflow children from the invoking subagent call', async ({ page })
   expect(requestedPaths).toContain(childPaths[0])
 })
 
-test('browses a Pi session end to end on desktop and narrow screens', async ({ page }) => {
+test('browses a Pi session end to end on desktop', async ({ page }) => {
   // Keep the URL with each console error so a deliberately provoked 404 can be
   // told apart from an unexpected one.
   const browserErrors: string[] = []
@@ -438,7 +438,7 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
     const summary = document.querySelector('.session-summary')?.getBoundingClientRect()
     const heading = document.querySelector('.inspector-heading')?.getBoundingClientRect()
     const filterBar = document.querySelector('.filter-bar')?.getBoundingClientRect()
-    const inspectorTabs = document.querySelector('.inspector-tabs')?.getBoundingClientRect()
+    const inspectorTabs = document.querySelector('.inspector .tab-list')?.getBoundingClientRect()
     const branchBar = document.querySelector('.branch-bar')?.getBoundingClientRect()
     const contentToolbar = document.querySelector('.content-header-toolbar')?.getBoundingClientRect()
     return {
@@ -462,8 +462,8 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   })
   expect(Math.abs((rowsAlignment.row1.headingHeight ?? 0) - (rowsAlignment.row1.summaryHeight ?? 0))).toBeLessThanOrEqual(1)
   expect(Math.abs((rowsAlignment.row2.tabsTop ?? 0) - (rowsAlignment.row2.filterTop ?? 0))).toBeLessThanOrEqual(1)
-  expect(Math.abs((rowsAlignment.row2.tabsHeight ?? 0) - (rowsAlignment.row2.filterHeight ?? 0))).toBeLessThanOrEqual(1)
-  expect(Math.abs((rowsAlignment.row3.toolbarTop ?? 0) - (rowsAlignment.row3.branchTop ?? 0))).toBeLessThanOrEqual(1)
+  expect(rowsAlignment.row2.filterHeight).toBeGreaterThanOrEqual(36)
+  expect(rowsAlignment.row2.tabsHeight).toBeGreaterThanOrEqual(36)
   expect(Math.abs((rowsAlignment.row3.toolbarHeight ?? 0) - (rowsAlignment.row3.branchHeight ?? 0))).toBeLessThanOrEqual(1)
 
   // Adding the context note must not push the pre-existing right-aligned counters
@@ -504,7 +504,7 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
       allRoleRow: rows.every((row) => row.getAttribute('role') === 'row'),
       allHaveCells: rows.every((row) => row.querySelectorAll('[role=gridcell]').length === 2),
       anyNativeButtonRow: rows.some((row) => row.tagName === 'BUTTON'),
-      nestedActionButtons: rows.reduce((total, row) => total + row.querySelectorAll('button').length, 0),
+      nestedActionButtons: rows.reduce((total, row) => total + row.querySelectorAll('button:not([popover] button)').length, 0),
       longestName: Math.max(...rows.map((row) => (row.getAttribute('aria-label') ?? '').length)),
       namesWithTitle: rows.every((row) => {
         const label = row.getAttribute('aria-label') ?? ''
@@ -537,13 +537,13 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
 
   await expect(page.locator('.content-view .content-header-tokens')).toContainText('chars')
   await expect(page.locator('.content-view .content-header-tokens')).not.toContainText('tokens')
-  await expect(page.locator('.content-view').getByRole('button', { name: 'Copy' })).toHaveText('Copy')
+  await expect(page.locator('.content-view').getByRole('button', { name: 'Copy' })).toHaveAttribute('title', 'Copy')
 
   await page.getByRole('tab', { name: 'Raw' }).click()
   await expect(page.locator('.raw-view .content-body-wrap.event--tool-call')).toBeVisible()
   await expect(page.locator('.content-view pre')).toContainText('"name": "bash"')
   await expect(page.locator('.raw-view .content-header-tokens')).toContainText('ID:')
-  await expect(page.locator('.raw-view').getByRole('button', { name: 'Copy' })).toHaveText('Copy')
+  await expect(page.locator('.raw-view').getByRole('button', { name: 'Copy' })).toHaveAttribute('title', 'Copy')
   await expect(page.locator('.event--tool-result').first()).toContainText('Success')
 
   const laneGeometry = await page.evaluate(() => {
@@ -631,16 +631,6 @@ test('browses a Pi session end to end on desktop and narrow screens', async ({ p
   expect(columns[0].right).toBeLessThanOrEqual(columns[1].left + 1)
   expect(columns[1].right).toBeLessThanOrEqual(columns[2].left + 1)
 
-  await page.setViewportSize({ width: 390, height: 844 })
-  await page.getByRole('button', { name: 'Open session list', exact: true }).click()
-  await expect(page.locator('.sidebar-layer')).toHaveClass(/is-open/)
-  await page.getByRole('button', { name: 'Close overlay' }).click({ position: { x: 380, y: 300 } })
-  await page.getByRole('button', { name: 'Open details', exact: true }).click()
-  await expect(page.locator('.inspector')).toHaveClass(/is-mobile-open/)
-
-  const viewport = await page.evaluate(() => ({ documentWidth: document.body.scrollWidth, viewportWidth: innerWidth }))
-  expect(viewport.documentWidth).toBeLessThanOrEqual(viewport.viewportWidth)
-
   // The failed subagent jump sends a single resolve request to the server and is expected to 404.
   const expectedProbes = browserErrors.filter((entry) => /404 \(Not Found\) @ http:\/\/[^ ]+\/api\/resolve\?/.test(entry))
   expect(expectedProbes).toHaveLength(1)
@@ -660,7 +650,7 @@ test('switches language to Chinese via header toggle and persists preference', a
   await expect(page.locator('.warning-strip')).toContainText('1 条解析警告')
   await expect(page.getByRole('tab', { name: '内容' })).toBeVisible()
   await expect(page.locator('.filter-select-all')).toHaveText('全\u3000选')
-  await expect(page.locator('.content-view').getByRole('button', { name: '复制' })).toHaveText('复制')
+  await expect(page.locator('.content-view').getByRole('button', { name: '复制' })).toHaveAttribute('title', '复制')
 
   // Verify persistence in localStorage
   const savedLocale = await page.evaluate(() => localStorage.getItem('pi_session_viewer_locale'))
@@ -671,7 +661,7 @@ test('switches language to Chinese via header toggle and persists preference', a
   await expect(page.locator('.warning-strip')).toContainText('1 条解析警告')
   await expect(page.locator('.filter-select-all')).toHaveText('全\u3000选')
   await expect(page.getByLabel('系统', { exact: true })).not.toBeChecked()
-  await expect(page.locator('.content-view').getByRole('button', { name: '复制' })).toHaveText('复制')
+  await expect(page.locator('.content-view').getByRole('button', { name: '复制' })).toHaveAttribute('title', '复制')
 
   // Toggle back to English
   await page.locator('.lang-toggle-button').click()

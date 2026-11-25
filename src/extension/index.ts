@@ -5,7 +5,7 @@ import { registerSessionViewerCommand } from './commands'
 import systemPromptCapture from './prompt-capture'
 import { openDefaultBrowser } from './open-browser'
 import { createServerController, type ServerController } from './server-controller'
-import { configuredSessionRootSync } from '../server/session-discovery'
+import { configuredSessionRoot } from '../server/session-discovery'
 
 export interface ExtensionDependencies {
   controller?: ServerController
@@ -20,7 +20,7 @@ export function registerExtension(pi: ExtensionAPI, dependencies: ExtensionDepen
   systemPromptCapture(pi)
 
   const controller = dependencies.controller ?? createServerController({
-    sessionRoot: dependencies.sessionRoot ?? configuredSessionRootSync(),
+    sessionRoot: dependencies.sessionRoot ?? configuredSessionRoot(),
     webRoot: dependencies.webRoot ?? fileURLToPath(new URL('../web/', import.meta.url)),
     version: packageVersion,
     openBrowser: dependencies.openBrowser ?? openDefaultBrowser,

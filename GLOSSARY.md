@@ -16,6 +16,8 @@
 
 ## 时间轴与选择（Timeline and Selection）
 
+**桌面工作区（Desktop Workspace）**：会话目录、时间轴和详情常驻三栏，面向宽度不小于 1024px 的桌面浏览器；事件筛选直接展示全部选项。
+
 **可见事件（Visible Event）**：属于当前分支且通过事件类型过滤的事件。是否可见不决定 Inspector 是否选中该事件。
 
 **选中事件（Selected Event）**：Inspector 当前展示详情的事件。过滤器隐藏对应时间轴行时仍可保持选中；主动跳转可恢复该类型的可见性。
@@ -66,4 +68,4 @@
 - `tests/pi-context-projection-contract.test.ts` 比较 Pi 的原生上下文投影与 Viewer 展示；本机没有真实会话时，对应真实会话用例明确跳过。
 - `tests/pi-live-roundtrip.test.ts` 运行真实 Pi CLI，使用本地模拟 Provider 检查提示词捕获及多轮执行。
 - `npm run check:sessions` 检查实际会话与捕获提示词的解析质量；发现未知条目、未知分区或未归属内容会以非零退出码报告。
-- `npm run verify` 执行单元与契约测试、正式构建及发布包检查；`npm run test:ui` 单独验证浏览器端到端流程。
+- `npm run verify` 执行单元与契约测试、正式构建、发布包检查和桌面浏览器端到端测试。

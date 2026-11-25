@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A local, read-only web inspector for [Pi](https://github.com/earendil-works/pi) coding-agent sessions. Visualizes multi-turn timelines, tool-call causality, and captured system prompt compositions.
+A local, read-only desktop web inspector for [Pi](https://github.com/earendil-works/pi) coding-agent sessions. Visualizes multi-turn timelines, tool-call causality, and captured system prompt compositions.
 
 ![Pi Session Viewer Screenshot](https://raw.githubusercontent.com/hfrancisla/pi-session-viewer/main/assets/gallery-preview.webp)
 
@@ -26,13 +26,15 @@ Restart Pi or run `/reload`. The extension loads automatically and begins captur
 - Session switches (`/new`, `/resume`, `/fork`) require running `/session-viewer on` again.
 - Discover sessions directly from Pi's storage or import any `.jsonl` session file via the browser.
 
+The three-column workspace is designed for desktop browsers at 1024px and wider. Clipboard actions use the browser Clipboard API on the local origin.
+
 ## Key Features
 
 - **Timeline & Causality**: Tracks user turns, thinking blocks, and paired tool calls with visual causality rails.
 - **System Prompt Breakdown**: Inspects prompt structure across base instructions, tool definitions, skills, and context files.
 - **Verified Vanilla Diff**: The native prompt baseline is verified against the supported Pi 1.6.0 release. For any other Pi version, the viewer disables this comparison rather than presenting a misleading diff.
 - **Multi-Project Catalog**: Groups sessions by project working directory with automatic path collision disambiguation.
-- **Local JSONL Import**: Inspect arbitrary session files offline via file drag-and-drop.
+- **Local JSONL Import**: Inspect arbitrary session files offline using the file picker.
 
 ## Security & Privacy
 
@@ -43,6 +45,8 @@ Restart Pi or run `/reload`. The extension loads automatically and begins captur
 - **Historical Sessions**: Turns without an associated system-prompt capture record display as *unrecorded*; the reason is not inferred, and past prompts are never reconstructed from current configuration.
 
 ## Development
+
+Requires Node.js 22.19 or newer (Node.js 24 LTS recommended for development). Install Chromium before running the full verification suite: `npx playwright install chromium`.
 
 ```bash
 npm install

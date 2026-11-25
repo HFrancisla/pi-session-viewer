@@ -42,7 +42,7 @@ function sessionContent(number: number, cwd: string) {
   ].join('\n')
 }
 
-test('virtualizes the 400-session catalog across scope, filtering, selection, and mobile navigation', async ({ page }) => {
+test('virtualizes the 400-session catalog across scope, filtering, selection and navigation', async ({ page }) => {
   const sessions = syntheticSessions()
   const projects = projectCwds.map((cwd) => {
     const projectSessions = sessions.filter((session) => session.cwd === cwd)
@@ -120,12 +120,5 @@ test('virtualizes the 400-session catalog across scope, filtering, selection, an
   await sessionList.evaluate((element) => { element.scrollTop = element.scrollHeight })
   await expect(lastSession).toHaveAttribute('aria-current', 'page')
 
-  await page.setViewportSize({ width: 390, height: 844 })
-  await page.getByRole('button', { name: 'Open session list', exact: true }).click()
-  await expect(page.locator('.sidebar-layer')).toHaveClass(/is-open/)
-  // A shorter mobile viewport can move the last virtualized row just below
-  // the viewport. Scroll again so Virtuoso mounts the item before selecting it.
-  await sessionList.evaluate((element) => { element.scrollTop = element.scrollHeight })
-  await lastSession.click()
-  await expect(page.locator('.sidebar-layer')).not.toHaveClass(/is-open/)
+
 })

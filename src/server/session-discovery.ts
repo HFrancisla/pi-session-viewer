@@ -5,7 +5,6 @@ import { getSessionTitle, parseSessionJsonl } from '../core/session-parser'
 import { subagentTargetCandidates } from '../core/subagent-detector'
 import type {
   ProjectSummary,
-  SessionFileResponse,
   SessionListItem,
   SessionListResponse,
 } from '../core/types'
@@ -142,7 +141,7 @@ function expandHome(value: string): string {
   return value === '~' || value.startsWith('~/') ? path.join(os.homedir(), value.slice(2)) : value
 }
 
-export function configuredSessionRootSync(env: NodeJS.ProcessEnv = process.env): string {
+export function configuredSessionRoot(env: NodeJS.ProcessEnv = process.env): string {
   if (env.PI_CODING_AGENT_SESSION_DIR) {
     return path.resolve(expandHome(env.PI_CODING_AGENT_SESSION_DIR))
   }
@@ -158,12 +157,8 @@ export function configuredSessionRootSync(env: NodeJS.ProcessEnv = process.env):
   return path.join(os.homedir(), '.pi', 'agent', 'sessions')
 }
 
-export async function configuredSessionRoot(env: NodeJS.ProcessEnv = process.env): Promise<string> {
-  return configuredSessionRootSync(env)
-}
 
 import { decodeSessionToken, encodeSessionToken } from '../core/session-token'
-export { decodeSessionToken, encodeSessionToken }
 
 function isSessionCandidate(entry: import('node:fs').Dirent, name: string): boolean {
   return entry.isFile()
@@ -386,10 +381,4 @@ export async function resolveSessionTarget(
     return { kind: 'transcript-only' }
   }
   return { kind: 'not-found' }
-}
-
-export async function readSessionFile(root: string, token: string): Promise<SessionFileResponse> {
-  const { absolute, relative } = await resolveAllowedSessionFile(root, token)
-  const [content, stat] = await Promise.all([fs.readFile(absolute, 'utf8'), fs.stat(absolute)])
-  return { token, relativePath: relative, modifiedAt: stat.mtime.toISOString(), content }
 }

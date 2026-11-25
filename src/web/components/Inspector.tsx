@@ -1,31 +1,22 @@
 import {
-  Braces,
   CornerDownRight,
-  Check,
   ChevronDown,
-  Copy,
-  FileText,
-  GitCompare,
   Info,
-  Layers3,
   LocateFixed,
-  X,
 } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useState } from 'react'
 import { formatClock, formatDateTime, formatDuration } from '../../core/format'
 import type { CapturedToolDefinition, SystemPromptComposition, TimelineEvent } from '../../core/types'
 import { parseSystemPromptSections } from '../../core/prompt-sections'
 import { getToolProvenanceLabel, resolveToolProvenance, sanitizeToolForApi } from '../../core/tool-provenance'
 import { PromptDiffView } from './PromptDiffView'
 import { useI18n } from '../i18n'
-import { useCopyFeedback } from '../use-copy-feedback'
+import { CopyButton } from './CopyButton'
+import { TabList, type TabOption } from './TabList'
 
 interface InspectorProps {
   event: TimelineEvent | null
   previousPrompt?: string
-  mobileOpen: boolean
-  compactScreen: boolean
-  onClose: () => void
   onJumpToEvent: () => void
   /** Jumps the timeline to an entry this event is linked to by a context edit. */
   onJumpToEntry?: (entryId: string) => void
@@ -57,29 +48,6 @@ function ContextJumpButton({ entryId, label, disabled, onJump }: {
       <CornerDownRight size={13} />
       <span>{label}</span>
     </button>
-  )
-}
-
-function CopyButton({ text, label }: { text: string; label?: string }) {
-  const { t } = useI18n()
-  const { copy, status } = useCopyFeedback()
-  const displayLabel = label ?? t.common.copy
-  const feedbackLabel = status === 'success' ? t.common.copied : status === 'error' ? t.common.copyFailed : displayLabel
-
-  return (
-    <>
-      <button
-        type="button"
-        className="inspector-action-btn"
-        onClick={() => void copy(text)}
-        title={feedbackLabel}
-        aria-label={feedbackLabel}
-      >
-        {status === 'success' ? <Check size={13} className="copy-success-icon" /> : <Copy size={13} />}
-        <span>{feedbackLabel}</span>
-      </button>
-      {status !== 'idle' && <span role="status" className="visually-hidden">{feedbackLabel}</span>}
-    </>
   )
 }
 
@@ -314,15 +282,9 @@ function EventRawView({ event }: { event: TimelineEvent }) {
   )
 }
 
-export function Inspector({ event, previousPrompt, mobileOpen, compactScreen, onClose, onJumpToEvent, onJumpToEntry }: InspectorProps) {
+export function Inspector({ event, previousPrompt, onJumpToEvent, onJumpToEntry }: InspectorProps) {
   const { t, localizeTitle } = useI18n()
   const [tab, setTab] = useState<InspectorTab>('content')
-  const tabListRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    setTab('content')
-  }, [event?.id])
-
   const tools = event?.toolDefinitions ?? []
   const isSystemPrompt = event?.kind === 'system-prompt'
   const hasResolvedSystemPrompt = isSystemPrompt
@@ -331,36 +293,19 @@ export function Inspector({ event, previousPrompt, mobileOpen, compactScreen, on
     && event?.title !== 'System prompt unrecorded'
   const hasComposition = hasResolvedSystemPrompt || (event?.kind !== 'tool-definitions' && Boolean(event?.systemPrompt?.composition))
   const isToolDef = event?.kind === 'tool-definitions'
-  const onTabKeyDown = (keyboardEvent: KeyboardEvent<HTMLDivElement>) => {
-    const { key } = keyboardEvent
-    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(key)) return
-    const tabs = Array.from(tabListRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [])
-    const activeIndex = tabs.indexOf(document.activeElement as HTMLButtonElement)
-    if (activeIndex < 0 || tabs.length === 0) return
-    keyboardEvent.preventDefault()
-    const nextIndex = key === 'Home'
-      ? 0
-      : key === 'End'
-        ? tabs.length - 1
-        : (activeIndex + (key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
-    tabs[nextIndex].focus()
-    tabs[nextIndex].click()
-  }
-  const tabProps = (name: InspectorTab) => ({
-    id: `inspector-tab-${name}`,
-    'aria-controls': 'inspector-tabpanel',
-    'aria-selected': tab === name,
-    tabIndex: tab === name ? 0 : -1,
-  })
+  const tabs: TabOption<InspectorTab>[] = [
+    { value: 'overview', label: t.inspector.tabs.overview },
+    ...(hasComposition ? [{ value: 'composition' as const, label: t.inspector.tabs.composition }] : []),
+    { value: 'content', label: t.inspector.tabs.content },
+    ...(hasResolvedSystemPrompt ? [{ value: 'diff' as const, label: t.inspector.tabs.diff }] : []),
+    { value: 'raw', label: t.inspector.tabs.raw },
+  ]
+  const activeTab = tabs.some((item) => item.value === tab) ? tab : 'content'
 
   return (
     <aside
-      className={`inspector${mobileOpen ? ' is-mobile-open' : ''}`}
-      inert={compactScreen && !mobileOpen}
-      role={compactScreen && mobileOpen ? 'dialog' : undefined}
-      aria-modal={compactScreen && mobileOpen ? true : undefined}
+      className="inspector"
       aria-label={t.inspector.heading}
-      tabIndex={-1}
     >
       <div className="inspector-heading">
         <div>
@@ -373,9 +318,6 @@ export function Inspector({ event, previousPrompt, mobileOpen, compactScreen, on
               <LocateFixed size={16} />
             </button>
           )}
-          <button className="icon-button inspector-close" type="button" onClick={onClose} title={t.header.closeInspector} aria-label={t.header.closeInspector}>
-            <X size={18} />
-          </button>
         </div>
       </div>
 
@@ -386,40 +328,20 @@ export function Inspector({ event, previousPrompt, mobileOpen, compactScreen, on
         </div>
       ) : (
         <>
-          <div ref={tabListRef} className="inspector-tabs" role="tablist" aria-label={t.inspector.heading} onKeyDown={onTabKeyDown}>
-            <button type="button" role="tab" {...tabProps('overview')} onClick={() => setTab('overview')}>
-              <Info size={15} />{t.inspector.tabs.overview}
-            </button>
-            {hasComposition && (
-              <button type="button" role="tab" {...tabProps('composition')} onClick={() => setTab('composition')}>
-                <Layers3 size={15} />{t.inspector.tabs.composition}
-              </button>
-            )}
-            <button type="button" role="tab" {...tabProps('content')} onClick={() => setTab('content')}>
-              <FileText size={15} />{t.inspector.tabs.content}
-            </button>
-            {hasResolvedSystemPrompt && (
-              <button type="button" role="tab" {...tabProps('diff')} onClick={() => setTab('diff')}>
-                <GitCompare size={15} />{t.inspector.tabs.diff}
-              </button>
-            )}
-            <button type="button" role="tab" {...tabProps('raw')} onClick={() => setTab('raw')}>
-              <Braces size={15} />{t.inspector.tabs.raw}
-            </button>
-          </div>
+          <TabList items={tabs} value={activeTab} onChange={setTab} label={t.inspector.heading} idPrefix="inspector-tab" panelId="inspector-tabpanel" />
 
-          <div className="inspector-body" role="tabpanel" id="inspector-tabpanel" aria-labelledby={`inspector-tab-${tab}`} tabIndex={0}>
-            {tab === 'overview' ? (
+          <div className="inspector-body" role="tabpanel" id="inspector-tabpanel" aria-labelledby={`inspector-tab-${activeTab}`} tabIndex={0}>
+            {activeTab === 'overview' ? (
               <EventOverview event={event} />
-            ) : tab === 'composition' && event ? (
+            ) : activeTab === 'composition' && event ? (
               <PromptCompositionView
                 key={event.id}
                 prompt={event.content}
                 composition={event.systemPrompt?.composition}
               />
-            ) : tab === 'diff' && event ? (
+            ) : activeTab === 'diff' && event ? (
               <PromptDiffView key={event.id} event={event} previousPrompt={previousPrompt} />
-            ) : tab === 'raw' ? (
+            ) : activeTab === 'raw' ? (
               <EventRawView event={event} />
             ) : isToolDef ? (
               <ToolDefinitionsView tools={tools} />

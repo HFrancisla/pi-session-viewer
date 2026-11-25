@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test'
 
-test('keeps the workspace inside the viewport around the three-column breakpoint', async ({ page }) => {
+test('keeps the workspace inside the viewport at supported desktop widths', async ({ page }) => {
   await page.goto('/#token=dev-token')
   await expect(page.locator('.event-row').first()).toBeVisible()
 
-  for (const width of [1180, 1025, 1024, 1000, 981, 980]) {
+  for (const width of [1024, 1180, 1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 850 })
     const geometry = await page.evaluate(() => ({
       viewport: window.innerWidth,
@@ -12,12 +12,12 @@ test('keeps the workspace inside the viewport around the three-column breakpoint
       inspectorPosition: getComputedStyle(document.querySelector('.inspector')!).position,
     }))
     expect(geometry.content, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(geometry.viewport)
-    expect(geometry.inspectorPosition).toBe(width <= 1024 ? 'fixed' : 'static')
+    expect(geometry.inspectorPosition).toBe('static')
   }
 })
 
-test('makes every inspector tab usable on small screens and supports arrow-key navigation', async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 740 })
+test('makes every inspector tab usable on desktop and supports arrow-key navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 740 })
   await page.goto('/#token=dev-token')
   await page.locator('.event-row').first().click()
 
@@ -40,13 +40,13 @@ test('makes every inspector tab usable on small screens and supports arrow-key n
   await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
 })
 
-test('shows event metadata, the full mobile session title, and Diff actions without clipping', async ({ page }) => {
+test('shows event metadata, the session title, and Diff actions without clipping', async ({ page }) => {
   await page.goto('/#token=dev-token')
   await expect(page.locator('.event-row').first()).toBeVisible()
 
-  for (const width of [390, 320]) {
+  for (const width of [1024, 1280]) {
     await page.setViewportSize({ width, height: 844 })
-    await expect(page.locator('.mobile-session-heading')).toContainText('工具配对演示')
+    await expect(page.locator('.header-session-info')).toContainText('工具配对演示')
     const clippedMetadata = await page.locator('.event-char-count, .event-context-mark').evaluateAll((elements) =>
       elements.filter((element) => {
         const rect = element.getBoundingClientRect()
@@ -64,7 +64,6 @@ test('shows event metadata, the full mobile session title, and Diff actions with
     expect(toolbarBounds.scroll).toBeLessThanOrEqual(toolbarBounds.client)
     await expect(page.getByRole('button', { name: 'Copy Diff' })).toBeVisible()
     await expect(page.getByRole('group', { name: 'Baseline' })).toBeVisible()
-    await page.getByRole('button', { name: 'Close details' }).click()
   }
 
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -102,30 +101,28 @@ test('keeps filtering controls discoverable and shows a copy error when clipboar
       configurable: true,
       value: { writeText: async () => { throw new Error('Clipboard access denied') } },
     })
-    Object.defineProperty(document, 'execCommand', { configurable: true, value: () => false })
   })
   await page.goto('/#token=dev-token')
   await expect(page.locator('.event-row').first()).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Current Project (1)' })).toHaveText('Current (1)')
   await expect(page.getByRole('button', { name: 'Select All' })).toBeVisible()
-  const filter = page.locator('.filter-scroller')
-  expect(await filter.evaluate((element) => element.scrollWidth)).toBeGreaterThan(
-    await filter.evaluate((element) => element.clientWidth),
-  )
+  await expect(page.getByRole('group', { name: 'Event filter' }).getByRole('checkbox')).toHaveCount(8)
 
   await page.locator('.header-session .header-path-copy').click()
   await expect(page.locator('.copy-status-toast')).toHaveText('Copy failed')
   await page.locator('.event-row').first().click()
   await page.getByRole('button', { name: 'Copy', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Copy failed' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Copy', exact: true })).toHaveAttribute('data-copy-status', 'error')
+  await expect(page.locator('.copy-status-toast')).toHaveCount(1)
+  await expect(page.locator('.header-path-copy')).toHaveAttribute('data-copy-status', 'idle')
   await page.getByRole('tab', { name: 'Diff' }).click()
+  await expect(page.locator('.copy-status-toast')).toHaveCount(0)
   await page.getByRole('button', { name: 'Copy Diff' }).click()
-  await expect(page.getByRole('button', { name: /Copy failed/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Copy Diff' })).toHaveAttribute('data-copy-status', 'error')
 })
 
-
-test('wraps import errors and keeps the branch label legible on 320px screens', async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 740 })
+test('wraps import errors and keeps the branch label legible at minimum desktop width', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 740 })
   await page.goto('/#token=dev-token')
   await expect(page.locator('.event-row').first()).toBeVisible()
   const branch = page.locator('#branch-select')
@@ -148,9 +145,8 @@ test('wraps import errors and keeps the branch label legible on 320px screens', 
   await expect(error).toHaveCount(0)
 })
 
-
 test('shows a direct offline JSONL entry point when the panel token is missing', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
+  await page.setViewportSize({ width: 1280, height: 844 })
   const apiCalls: string[] = []
   page.on('request', (request) => { if (request.url().includes('/api/')) apiCalls.push(request.url()) })
   await page.goto('/')
@@ -179,7 +175,7 @@ test('uses a clear stats hierarchy, quieter metadata, and singular catalog copy'
   await expect(page.locator('.session-summary > div').first().locator('strong')).toHaveCSS('font-size', '18px')
   await expect(page.locator('.session-summary > div').last().locator('strong')).toHaveCSS('font-size', '13px')
   await expect(page.locator('.event-char-count').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-  await page.setViewportSize({ width: 320, height: 740 })
+  await page.setViewportSize({ width: 1024, height: 740 })
   const metrics = await page.evaluate(() => ({ viewport: innerWidth, pageWidth: document.documentElement.scrollWidth }))
   expect(metrics.pageWidth).toBeLessThanOrEqual(metrics.viewport)
 })

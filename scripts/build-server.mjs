@@ -9,5 +9,5 @@ await build({
   outfile: path.resolve('dist/standalone/index.js'),
   platform: 'node',
   sourcemap: 'linked',
-  target: 'node20',
+  target: 'node22',
 })

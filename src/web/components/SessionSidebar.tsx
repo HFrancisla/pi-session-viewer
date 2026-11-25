@@ -1,10 +1,11 @@
-import { ChevronDown, FileJson2, FolderOpen, LoaderCircle, MessageSquareText, X } from 'lucide-react'
-import { forwardRef, useMemo, useRef, type KeyboardEvent } from 'react'
+import { ChevronDown, FileJson2, FolderOpen, LoaderCircle, MessageSquareText } from 'lucide-react'
+import { forwardRef, useMemo } from 'react'
 import { Virtuoso, type Components, type ScrollerProps } from 'react-virtuoso'
 import type { ProjectSummary, SessionListItem } from '../../core/types'
 import { normalizePath } from '../../core/path'
 import { formatDateTime } from '../../core/format'
 import { useI18n } from '../i18n'
+import { TabList } from './TabList'
 
 export type { ProjectSummary }
 
@@ -38,7 +39,6 @@ interface SessionSidebarProps {
   onProjectFilterChange: (cwd: string | null) => void
   onSelect: (session: SessionListItem) => void
   onImport: () => void
-  onClose: () => void
 }
 
 export function SessionSidebar({
@@ -55,7 +55,6 @@ export function SessionSidebar({
   onProjectFilterChange,
   onSelect,
   onImport,
-  onClose,
 }: SessionSidebarProps) {
   const { t, localizeTitle } = useI18n()
 
@@ -70,22 +69,6 @@ export function SessionSidebar({
   }, [projects, effectiveCurrentCwd])
 
   const currentProjectCount = currentProject?.count ?? 0
-  const scopeTabRefs = useRef<Record<'current' | 'all', HTMLButtonElement | null>>({ current: null, all: null })
-
-  const handleScopeKeys = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-    event.preventDefault()
-    const next = event.key === 'Home'
-      ? 'current'
-      : event.key === 'End'
-        ? 'all'
-        : event.key === 'ArrowRight'
-          ? (scopeMode === 'current' ? 'all' : 'current')
-          : (scopeMode === 'all' ? 'current' : 'all')
-    onScopeModeChange(next)
-    scopeTabRefs.current[next]?.focus()
-  }
-
   const filteredSessions = useMemo(() => {
     if (scopeMode === 'current') {
       if (!effectiveCurrentCwd) return sessions
@@ -113,61 +96,36 @@ export function SessionSidebar({
           </p>
         </div>
         {loading && <LoaderCircle className="spin" size={18} aria-label={t.common.loading} />}
-        <button className="icon-button mobile-only sidebar-close" type="button" onClick={onClose} title={t.header.closeSidebar} aria-label={t.header.closeSidebar}>
-          <X size={18} />
-        </button>
       </div>
 
       <div className="sidebar-scope" aria-label={t.sidebar.scopeSwitcher}>
-        <div className="scope-tabs" role="tablist" aria-label={t.sidebar.scopeSwitcher} onKeyDown={handleScopeKeys}>
-          <button
-            ref={(element) => { scopeTabRefs.current.current = element }}
-            id="sidebar-scope-current"
-            className={`scope-tab${scopeMode === 'current' ? ' is-active' : ''}`}
-            type="button"
-            role="tab"
-            aria-label={t.sidebar.scopeCurrent(currentProjectCount)}
-            aria-selected={scopeMode === 'current'}
-            aria-controls="sidebar-sessions-panel"
-            tabIndex={scopeMode === 'current' ? 0 : -1}
-            onClick={() => onScopeModeChange('current')}
-            title={t.sidebar.scopeCurrentTooltip(effectiveCurrentCwd)}
-          >
-            {t.sidebar.scopeCurrentCompact(currentProjectCount)}
-          </button>
-          <button
-            ref={(element) => { scopeTabRefs.current.all = element }}
-            id="sidebar-scope-all"
-            className={`scope-tab${scopeMode === 'all' ? ' is-active' : ''}`}
-            type="button"
-            role="tab"
-            aria-selected={scopeMode === 'all'}
-            aria-controls="sidebar-sessions-panel"
-            tabIndex={scopeMode === 'all' ? 0 : -1}
-            onClick={() => onScopeModeChange('all')}
-            title={t.sidebar.scopeAllTooltip}
-          >
-            {t.sidebar.scopeAll(sessions.length)}
-          </button>
-        </div>
+        <TabList
+          items={[
+            { value: 'current', label: t.sidebar.scopeCurrentCompact(currentProjectCount), accessibleLabel: t.sidebar.scopeCurrent(currentProjectCount), title: t.sidebar.scopeCurrentTooltip(effectiveCurrentCwd) },
+            { value: 'all', label: t.sidebar.scopeAll(sessions.length), title: t.sidebar.scopeAllTooltip },
+          ]}
+          value={scopeMode}
+          onChange={onScopeModeChange}
+          label={t.sidebar.scopeSwitcher}
+          idPrefix="sidebar-scope"
+          panelId="sidebar-sessions-panel"
+        />
 
         {scopeMode === 'all' && projects.length > 1 && (
-          <div className="project-select-wrapper">
-            <select
-              className="project-select"
-              value={selectedProjectCwd ?? ''}
-              onChange={(e) => onProjectFilterChange(e.target.value || null)}
-              aria-label={t.sidebar.filterByProject}
-              title={t.sidebar.selectedProjectTooltip(selectedProjectCwd)}
-            >
-              <option value="" title={t.sidebar.allProjectsOptionTooltip}>{t.sidebar.allProjectsOption(sessions.length)}</option>
-              {projects.map((p) => (
-                <option key={p.cwd} value={p.cwd} title={t.sidebar.projectOptionTooltip(p.cwd)}>
-                  {localizeTitle(p.name)} ({p.count})
-                </option>
-              ))}
-            </select>
-          </div>
+          <select
+            className="project-select"
+            value={selectedProjectCwd ?? ''}
+            onChange={(e) => onProjectFilterChange(e.target.value || null)}
+            aria-label={t.sidebar.filterByProject}
+            title={t.sidebar.selectedProjectTooltip(selectedProjectCwd)}
+          >
+            <option value="" title={t.sidebar.allProjectsOptionTooltip}>{t.sidebar.allProjectsOption(sessions.length)}</option>
+            {projects.map((p) => (
+              <option key={p.cwd} value={p.cwd} title={t.sidebar.projectOptionTooltip(p.cwd)}>
+                {localizeTitle(p.name)} ({p.count})
+              </option>
+            ))}
+          </select>
         )}
       </div>
 

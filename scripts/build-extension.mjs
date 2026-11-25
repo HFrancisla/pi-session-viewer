@@ -10,7 +10,7 @@ const options = {
   outfile: path.resolve('dist/extension/index.js'),
   platform: 'node',
   sourcemap: 'linked',
-  target: 'node20',
+  target: 'node22',
 }
 
 if (watch) {

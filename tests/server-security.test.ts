@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionListResponse } from '../src/core/types'
 import { startSessionHttpServer, type SessionHttpServer } from '../src/server/http-server'
-import { encodeSessionToken } from '../src/server/session-discovery'
+import { encodeSessionToken } from '../src/core/session-token'
 import { piSessionHeader } from './helpers/pi-session'
 
 const servers: SessionHttpServer[] = []

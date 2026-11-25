@@ -8,15 +8,20 @@ import { computeContextProjections } from './context-projection'
 import { readStaticAsset } from './static-assets'
 import { createLruCache, type LruCache } from '../core/lru-cache'
 
-export interface SessionHttpServerOptions {
+interface SessionRequestOptions {
   sessionRoot: string
-  webRoot: string
   token: string
-  host?: string
-  port?: number
   version?: string
   currentCwd?: string
 }
+
+export interface SessionHttpServerOptions extends SessionRequestOptions {
+  webRoot: string
+  host?: string
+  port?: number
+}
+
+type WebHandler = (request: IncomingMessage, response: ServerResponse, pathname: string) => void | Promise<void>
 
 export interface SessionHttpServer {
   readonly host: string
@@ -29,7 +34,6 @@ export interface SessionHttpServer {
 const CONTENT_SECURITY_POLICY = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"
 
 function setSecurityHeaders(response: ServerResponse): void {
-  response.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY)
   response.setHeader('X-Content-Type-Options', 'nosniff')
   response.setHeader('Referrer-Policy', 'no-referrer')
 }
@@ -94,8 +98,9 @@ async function sendSessionPayload(
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  options: SessionHttpServerOptions,
+  options: SessionRequestOptions,
   sessionBodies: SessionBodyCache,
+  serveWeb: WebHandler,
 ): Promise<void> {
   setSecurityHeaders(response)
 
@@ -181,19 +186,29 @@ async function handleRequest(
     return
   }
 
-  if (request.method === 'GET') {
-    const asset = await readStaticAsset(options.webRoot, pathname)
-    if (asset) {
-      response.statusCode = 200
-      response.setHeader('Content-Type', asset.contentType)
-      response.setHeader('Cache-Control', asset.cacheControl)
-      response.end(asset.body)
-      return
-    }
+  if (pathname.startsWith('/api/')) {
+    sendJson(response, 404, { error: 'Requested resource not found.' })
+    return
   }
 
-  sendJson(response, 404, { error: 'Requested resource not found.' })
+  await serveWeb(request, response, pathname)
 }
+
+/** One request pipeline for the packaged server and the Vite dev server. */
+export function createSessionRequestHandler(options: SessionRequestOptions, serveWeb: WebHandler) {
+  const sessionBodies = createLruCache<string>({
+    maxEntries: 8,
+    maxWeight: SESSION_BODY_CACHE_WEIGHT,
+    weigh: (body) => body.length,
+  })
+  return (request: IncomingMessage, response: ServerResponse) => {
+    void handleRequest(request, response, options, sessionBodies, serveWeb).catch(() => {
+      if (!response.headersSent) sendJson(response, 500, { error: 'Unable to serve request.' })
+      else response.destroy()
+    })
+  }
+}
+
 
 function listen(server: Server, host: string, port: number): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -221,13 +236,22 @@ function close(server: Server): Promise<void> {
 
 export async function startSessionHttpServer(options: SessionHttpServerOptions): Promise<SessionHttpServer> {
   const host = options.host ?? '127.0.0.1'
-  const sessionBodies = createLruCache<string>({
-    maxEntries: 8,
-    maxWeight: SESSION_BODY_CACHE_WEIGHT,
-    weigh: (body) => body.length,
+  const handle = createSessionRequestHandler(options, async (request, response, pathname) => {
+    if (request.method === 'GET') {
+      const asset = await readStaticAsset(options.webRoot, pathname)
+      if (asset) {
+        response.statusCode = 200
+        response.setHeader('Content-Type', asset.contentType)
+        response.setHeader('Cache-Control', asset.cacheControl)
+        response.end(asset.body)
+        return
+      }
+    }
+    sendJson(response, 404, { error: 'Requested resource not found.' })
   })
   const httpServer = createServer((request, response) => {
-    void handleRequest(request, response, options, sessionBodies)
+    response.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY)
+    handle(request, response)
   })
   const port = await listen(httpServer, host, options.port ?? 0)
   return {

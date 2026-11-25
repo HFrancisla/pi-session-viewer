@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowRight, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleUserRound, Cog, CornerDownRight, EyeOff, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, CornerDownRight, EyeOff, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
 import { GroupedVirtuoso, type GroupedVirtuosoHandle, type GroupProps } from 'react-virtuoso'
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { buildCausalLayout, causalLaneX, type CausalEventLayout } from '../../core/causal-layout'
@@ -27,7 +27,7 @@ interface TimelineProps {
   selectedLeafId: string | null
   contextProjection?: ContextProjection
   enabledKinds: ReadonlySet<EventKind>
-  onSelectEvent: (event: TimelineEvent, showDetails?: boolean) => void
+  onSelectEvent: (event: TimelineEvent) => void
   onSelectBranch: (leafId: string) => void
   onToggleKind: (kind: EventKind) => void
   onToggleAllKinds: () => void
@@ -109,12 +109,11 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
   mutedCallIds?: Set<string>
   clockLabel: string
   llmOutputBoundary?: LlmOutputBoundary
-  onSelectEvent: (event: TimelineEvent, showDetails?: boolean) => void
+  onSelectEvent: (event: TimelineEvent) => void
   onFocusEvent: (index: number) => void
   onOpenSubagent?: (subagent: SubagentReference, sourceEventId?: string) => void
 }) {
   const { t, localizeTitle, localizeSummary } = useI18n()
-  const [subagentChoicesOpen, setSubagentChoicesOpen] = useState(false)
   const subagentReferences = event.subagents?.length
     ? event.subagents
     : event.subagent ? [event.subagent] : []
@@ -144,7 +143,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
       aria-label={contextStateLabel ? `${accessibilityLabel} · ${contextStateLabel}` : accessibilityLabel}
       onPointerDown={(pointerEvent) => {
         if (pointerEvent.button !== 0
-          || (pointerEvent.target instanceof Element && pointerEvent.target.closest('.event-subagent-tag'))) return
+          || (pointerEvent.target instanceof Element && pointerEvent.target.closest('.event-subagent-tag, .event-subagent-choice'))) return
         onFocusEvent(index)
       }}
       onClick={() => {
@@ -193,22 +192,18 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
                     ? `${t.timeline.openSubagent} (${subagentReferences.length})`
                     : `${t.timeline.openSubagent}: ${event.subagent.agentName ?? t.timeline.subagentTag}`
                 }
-                aria-expanded={hasMultipleSubagents ? subagentChoicesOpen : undefined}
-                aria-controls={hasMultipleSubagents ? `subagent-options-${event.id}` : undefined}
+                popoverTarget={hasMultipleSubagents ? `subagent-options-${event.id}` : undefined}
                 onClick={(e) => {
                   e.stopPropagation()
-                  onSelectEvent(event, false)
-                  if (hasMultipleSubagents) {
-                    setSubagentChoicesOpen((open) => !open)
-                  } else {
+                  onSelectEvent(event)
+                  if (!hasMultipleSubagents) {
                     onOpenSubagent?.(event.subagent!, event.id)
                   }
                 }}
                 onKeyDown={(e) => {
                   e.stopPropagation()
-                  if (e.key === 'Escape') setSubagentChoicesOpen(false)
                 }}
-                title={hasMultipleSubagents ? `${subagentReferences.length} subagents` : t.timeline.openSubagent}
+                title={hasMultipleSubagents ? t.timeline.chooseSubagent : t.timeline.openSubagent}
               >
                 <Bot size={12} aria-hidden="true" />
                 <span>
@@ -218,9 +213,10 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
                 </span>
                 <span className="subagent-tag-arrow" aria-hidden="true">{hasMultipleSubagents ? <ChevronDown size={12} /> : <ArrowRight size={12} />}</span>
               </button>
-              {hasMultipleSubagents && subagentChoicesOpen && (
+              {hasMultipleSubagents && (
                 <span
                   id={`subagent-options-${event.id}`}
+                  popover="auto"
                   className="event-subagent-options"
                   role="group"
                   aria-label={t.timeline.chooseSubagent}
@@ -231,19 +227,18 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
                       <button
                         key={reference.targetFile}
                         type="button"
-                        className="event-subagent-tag event-subagent-choice"
+                        className="event-subagent-choice"
                         aria-label={`${t.timeline.openSubagent}: ${agentName}`}
                         title={reference.sessionName ?? agentName}
                         onClick={(e) => {
                           e.stopPropagation()
-                          setSubagentChoicesOpen(false)
-                          onSelectEvent(event, false)
+                          e.currentTarget.closest<HTMLElement>("[popover]")?.hidePopover()
+                          onSelectEvent(event)
                           onOpenSubagent?.(reference, event.id)
                         }}
                         onKeyDown={(e) => {
                           e.stopPropagation()
-                          if (e.key === 'Escape') setSubagentChoicesOpen(false)
-                        }}
+                                }}
                       >
                         <Bot size={12} aria-hidden="true" />
                         <span>{agentName}</span>
@@ -308,24 +303,6 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
   onOpenSubagent,
 }, ref) {
   const { t, localizeTitle } = useI18n()
-  const filterScrollerRef = useRef<HTMLDivElement>(null)
-  const [filterScroll, setFilterScroll] = useState({ left: false, right: false })
-  const updateFilterScroll = useCallback(() => {
-    const scroller = filterScrollerRef.current
-    if (!scroller) return
-    const left = scroller.scrollLeft > 2
-    const right = scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 2
-    setFilterScroll((previous) => previous.left === left && previous.right === right ? previous : { left, right })
-  }, [])
-  useLayoutEffect(() => {
-    const scroller = filterScrollerRef.current
-    if (!scroller) return
-    const observer = new ResizeObserver(updateFilterScroll)
-    observer.observe(scroller)
-    if (scroller.firstElementChild) observer.observe(scroller.firstElementChild)
-    updateFilterScroll()
-    return () => observer.disconnect()
-  }, [updateFilterScroll, t])
   const causalLayout = useMemo(() => buildCausalLayout(allEvents), [allEvents])
   const selectedEvent = useMemo(
     () => allEvents.find((event) => event.id === selectedEventId),
@@ -338,7 +315,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
 
   const onSelectEventRef = useRef(onSelectEvent)
   onSelectEventRef.current = onSelectEvent
-  const stableSelectEvent = useCallback((event: TimelineEvent, showDetails?: boolean) => onSelectEventRef.current(event, showDetails), [])
+  const stableSelectEvent = useCallback((event: TimelineEvent) => onSelectEventRef.current(event), [])
 
   const onOpenSubagentRef = useRef(onOpenSubagent)
   onOpenSubagentRef.current = onOpenSubagent
@@ -671,32 +648,18 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
       <div className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{focusedAnnouncement}</div>
       <div className="visually-hidden" id="timeline-keyboard-help">{t.timeline.keyboardInstructions}</div>
       <div className="filter-bar">
-        <span className="filter-label">{t.timeline.filterLabel}</span>
-        <div ref={filterScrollerRef} className="filter-scroller" role="group" aria-label={t.timeline.filterLabel} tabIndex={0} onScroll={updateFilterScroll}>
-          <div className="filter-options">
-            {allEventKinds.map((kind) => {
-              const FilterIcon = kindMeta[kind].icon
-              return (
-                <label key={kind} style={{ '--filter-color': kindMeta[kind].color } as React.CSSProperties}>
-                  <input type="checkbox" checked={enabledKinds.has(kind)} onChange={() => onToggleKind(kind)} />
-                  <FilterIcon className="filter-kind-icon" size={13} />
-                  {t.timeline.kinds[kind]}
-                </label>
-              )
-            })}
-          </div>
+        <div className="filter-options" role="group" aria-label={t.timeline.filterLabel}>
+          {allEventKinds.map((kind) => {
+            const FilterIcon = kindMeta[kind].icon
+            return (
+              <label key={kind} style={{ '--filter-color': kindMeta[kind].color } as React.CSSProperties}>
+                <input type="checkbox" checked={enabledKinds.has(kind)} onChange={() => onToggleKind(kind)} />
+                <FilterIcon className="filter-kind-icon" size={13} />
+                {t.timeline.kinds[kind]}
+              </label>
+            )
+          })}
         </div>
-        {(filterScroll.right || filterScroll.left) && (
-          <button
-            type="button"
-            className="filter-scroll-step"
-            aria-label={filterScroll.right ? t.timeline.moreFilters : t.timeline.previousFilters}
-            title={filterScroll.right ? t.timeline.moreFilters : t.timeline.previousFilters}
-            onClick={() => filterScrollerRef.current?.scrollBy({ left: filterScroll.right ? 220 : -220, behavior: 'smooth' })}
-          >
-            {filterScroll.right ? <ChevronRight size={16} aria-hidden="true" /> : <ChevronLeft size={16} aria-hidden="true" />}
-          </button>
-        )}
         <button
           type="button"
           className={`filter-select-all${allSelected ? ' is-all-selected' : ''}`}
@@ -716,7 +679,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
           ))}
         </select>
         <span>{t.timeline.visibleEvents(visibleEventCount)}</span>
-        {contextSummary ? <span className="context-summary">{contextSummary}</span> : null}
+        {contextSummary ? <span className="context-summary" title={contextSummary}>{contextSummary}</span> : null}
       </div>
 
       {session.warnings.length > 0 && (

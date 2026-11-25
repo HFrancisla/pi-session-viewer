@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -14,14 +14,12 @@ const packRoot = await mkdtemp(path.join(os.tmpdir(), 'pi-session-viewer-tarball
 const packDestination = path.join(packRoot, 'pack')
 await mkdir(packDestination)
 let child
-let tarballPath
 
 try {
-  const packResult = await run('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', packDestination], { cwd: projectRoot })
-  const packReport = JSON.parse(packResult.stdout)
-  const tarballName = packReport[0]?.filename
-  if (typeof tarballName !== 'string') throw new Error('npm pack did not return a tarball filename')
-  tarballPath = path.join(packDestination, tarballName)
+  await run('npm', ['pack', '--ignore-scripts', '--pack-destination', packDestination], { cwd: projectRoot })
+  const tarballs = (await readdir(packDestination)).filter((name) => name.endsWith('.tgz'))
+  if (tarballs.length !== 1) throw new Error('Expected exactly one npm package tarball')
+  const tarballPath = path.join(packDestination, tarballs[0])
 
   await run('npm', ['install', '--prefix', temporaryRoot, '--omit=dev', '--omit=peer', '--ignore-scripts', tarballPath], {
     cwd: projectRoot,
@@ -30,8 +28,17 @@ try {
   const installedRoot = path.join(temporaryRoot, 'node_modules', '@hfrancisla', 'pi-session-viewer')
   const extensionPath = path.join(installedRoot, 'dist', 'extension', 'index.js')
   const standalonePath = path.join(installedRoot, 'dist', 'standalone', 'index.js')
-  await access(extensionPath)
-  await access(path.join(installedRoot, 'dist', 'web', 'index.html'))
+  const publicFiles = new Set(['package.json', 'README.md', 'README.zh-CN.md', 'LICENSE'])
+  const files = (await readdir(installedRoot, { recursive: true, withFileTypes: true }))
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.relative(installedRoot, path.join(entry.parentPath, entry.name)).split(path.sep).join('/'))
+  for (const file of [...publicFiles, 'dist/extension/index.js', 'dist/standalone/index.js', 'dist/web/index.html']) {
+    if (!files.includes(file)) throw new Error(`Package is missing ${file}`)
+  }
+  for (const file of files) {
+    if (!publicFiles.has(file) && !file.startsWith('dist/')) throw new Error(`Unexpected package file: ${file}`)
+  }
+
 
   await run(process.execPath, ['--input-type=module', '-e', `const loaded = await import(${JSON.stringify(pathToFileURL(extensionPath).href)}); if (typeof loaded.default !== 'function') process.exit(1)`])
 

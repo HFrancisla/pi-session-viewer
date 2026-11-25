@@ -26,6 +26,8 @@ pi install npm:@hfrancisla/pi-session-viewer
 - 切换会话时（`/new`、`/resume`、`/fork`），需重新执行 `/session-viewer on`。
 - 直接从 Pi 本地存储发现会话，或通过浏览器导入任意 `.jsonl` 会话文件。
 
+三栏工作区面向宽度不小于 1024px 的桌面浏览器，复制操作使用本地来源的浏览器 Clipboard API。
+
 ## 核心特性
 
 - **时间轴与调用因果链**：清晰呈现用户轮次、Thinking 推理块及配对工具调用，并带有调用时序因果导轨。
@@ -43,6 +45,8 @@ pi install npm:@hfrancisla/pi-session-viewer
 - **历史记录**：没有关联系统提示词捕获记录的轮次会显示为 *未记录*；Viewer 不推断缺失原因，也不会根据当前配置重建历史提示词。
 
 ## 本地开发
+
+需要 Node.js 22.19 或更新版本（开发推荐 Node.js 24 LTS）。完整验证前执行 `npx playwright install chromium`。
 
 ```bash
 npm install
