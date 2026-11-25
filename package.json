@@ -19,11 +19,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/hfrancisla/pi-session-viewer.git"
+    "url": "https://github.com/HFrancisla/pi-session-viewer.git"
   },
-  "homepage": "https://github.com/hfrancisla/pi-session-viewer",
+  "homepage": "https://github.com/HFrancisla/pi-session-viewer",
   "bugs": {
-    "url": "https://github.com/hfrancisla/pi-session-viewer/issues"
+    "url": "https://github.com/HFrancisla/pi-session-viewer/issues"
   },
   "author": "hfrancisla",
   "publishConfig": {
