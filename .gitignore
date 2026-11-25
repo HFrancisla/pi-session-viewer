@@ -27,7 +27,12 @@ temp/
 .tmp/
 logs/
 *.log
+*.pid
+*.pid.lock
 *.tmp
+*.bak
+*.orig
+*.rej
 *.swp
 *.swo
 *.tgz
