@@ -12,7 +12,7 @@ export const en = {
     tokens: (count: number) => `approx. ${count.toLocaleString('en-US')} tokens`,
   },
   header: {
-    missingToken: 'Missing panel access token. Run /session-viewer on from Pi and open the provided URL.',
+    missingToken: 'Missing panel access token. Run /session-viewer in Pi and open the provided URL.',
     noSessionLoaded: 'No records loaded',
     selectSession: 'Select a session',
     reloadTitle: 'Reload',
@@ -20,7 +20,7 @@ export const en = {
     switchToEnglish: 'Language: Chinese. Switch to English',
     backToParent: 'Back to parent session',
     subagentBadge: 'Subagent',
-    loadingSubagent: 'Loading subagent session...',
+    loadingSubagent: 'Loading subagent session',
     invalidSessionFile: 'This file does not contain a Pi Session header.',
     subagentTranscriptOnly: 'only a pi-subagents transcript exists (not a Pi session file).',
     operationFailed: 'The operation failed.',

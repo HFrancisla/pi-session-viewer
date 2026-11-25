@@ -71,7 +71,7 @@ test('missing-token guidance remains usable after a desktop session', async ({ p
   await page.evaluate(() => sessionStorage.clear())
   await page.reload()
   await expect(page.locator('.load-state h1')).toHaveText('Panel access token required')
-  await expect(page.locator('.load-state')).toContainText('Run /session-viewer on from Pi')
+  await expect(page.locator('.load-state')).toContainText('Run /session-viewer in Pi')
 })
 
 test('timeline grid preserves independent subagent buttons and keyboard selection', async ({ page }) => {
