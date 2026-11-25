@@ -130,7 +130,6 @@ export const zhCN: Translations = {
       baselineLabel: '基准',
       baselinePrevious: '上一份有效提示词',
       baselineVanilla: (version: string) => `Vanilla (${version})`,
-      vanillaHint: (version: string) => `Pi ${version} 内置默认参考，不含扩展、项目指令、Skills 或自定义配置。历史 Pi 版本可能不同。`,
       noChanges: '与对比基准完全一致，未发现任何修改或追加。',
       addedLines: (count: number) => `+${count} 行`,
       removedLines: (count: number) => `-${count} 行`,

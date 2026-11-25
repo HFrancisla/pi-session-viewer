@@ -5,6 +5,29 @@ import { useI18n } from '../i18n'
 type CopyStatus = 'success' | 'error'
 type Feedback = { owner: string; text: string; status: CopyStatus }
 
+// Clipboard API is unavailable on non-secure HTTP origins, and may reject writes.
+function copyWithSelection(text: string) {
+  const focused = document.activeElement
+  const selection = window.getSelection()
+  const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index).cloneRange()) : []
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.readOnly = true
+  textarea.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none'
+  document.body.appendChild(textarea)
+  try {
+    textarea.select()
+    if (!document.execCommand('copy')) throw new Error('Clipboard access is unavailable')
+  } finally {
+    textarea.remove()
+    if (focused instanceof HTMLElement) focused.focus({ preventScroll: true })
+    if (selection && ranges.length) {
+      selection.removeAllRanges()
+      ranges.forEach(range => selection.addRange(range))
+    }
+  }
+}
+
 const CopyContext = createContext<{
   feedback: Feedback | null
   copy: (owner: string, text: string) => Promise<void>
@@ -30,7 +53,12 @@ export function CopyFeedbackProvider({ children }: { children: ReactNode }) {
     try {
       await navigator.clipboard.writeText(text)
     } catch {
-      status = 'error'
+      if (pending.current !== request) return
+      try {
+        copyWithSelection(text)
+      } catch {
+        status = 'error'
+      }
     }
     if (pending.current !== request) return
     pending.current = null

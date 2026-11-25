@@ -129,7 +129,6 @@ export const en = {
       baselineLabel: 'Baseline',
       baselinePrevious: 'Previous snapshot',
       baselineVanilla: (version: string) => `Vanilla (${version})`,
-      vanillaHint: (version: string) => `Built-in Pi ${version} reference without extensions, project instructions, skills or custom configuration. Historical Pi versions may differ.`,
       noChanges: 'Identical to baseline. No modifications or additions found.',
       addedLines: (count: number) => `+${count} lines`,
       removedLines: (count: number) => `-${count} lines`,

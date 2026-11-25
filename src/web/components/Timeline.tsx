@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowRight, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, CornerDownRight, EyeOff, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
+import { AlertTriangle, Bot, Boxes, Brain, CheckCheck, CheckCircle2, ChevronDown, CircleUserRound, Cog, CornerDownRight, EyeOff, ScrollText, Square, Wrench, XCircle } from 'lucide-react'
 import { GroupedVirtuoso, type GroupedVirtuosoHandle, type GroupProps } from 'react-virtuoso'
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import { buildCausalLayout, causalLaneX, type CausalEventLayout } from '../../core/causal-layout'
@@ -6,6 +6,7 @@ import { allEventKinds } from '../../core/event-kinds'
 import { formatClock, formatDuration } from '../../core/format'
 import type { ContextProjection, EventKind, ParsedSession, SubagentReference, TimelineEvent, TimelineTurn } from '../../core/types'
 import { useI18n } from '../i18n'
+import { SubagentControl } from './SubagentControl'
 
 const kindMeta: Record<EventKind, { icon: ComponentType<{ size?: number; className?: string }>; color: string }> = {
   'system-prompt': { icon: ScrollText, color: '#8a4f68' },
@@ -117,7 +118,6 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
   const subagentReferences = event.subagents?.length
     ? event.subagents
     : event.subagent ? [event.subagent] : []
-  const hasMultipleSubagents = subagentReferences.length > 1
   const meta = kindMeta[event.kind]
   const Icon = event.kind === 'tool-result' && event.isError ? XCircle : meta.icon
   const isPairRelated = Boolean(highlightedCallId && event.toolCallId === highlightedCallId)
@@ -183,72 +183,12 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
             </span>
           )}
           {event.kind === 'tool-call' && event.subagent && (
-            <span className="event-subagent-control">
-              <button
-                type="button"
-                className="event-subagent-tag"
-                aria-label={
-                  hasMultipleSubagents
-                    ? `${t.timeline.openSubagent} (${subagentReferences.length})`
-                    : `${t.timeline.openSubagent}: ${event.subagent.agentName ?? t.timeline.subagentTag}`
-                }
-                popoverTarget={hasMultipleSubagents ? `subagent-options-${event.id}` : undefined}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onSelectEvent(event)
-                  if (!hasMultipleSubagents) {
-                    onOpenSubagent?.(event.subagent!, event.id)
-                  }
-                }}
-                onKeyDown={(e) => {
-                  e.stopPropagation()
-                }}
-                title={hasMultipleSubagents ? t.timeline.chooseSubagent : t.timeline.openSubagent}
-              >
-                <Bot size={12} aria-hidden="true" />
-                <span>
-                  {hasMultipleSubagents
-                    ? `${subagentReferences.length} ${t.timeline.subagentTag}`
-                    : (event.subagent.agentName ?? t.timeline.subagentTag)}
-                </span>
-                <span className="subagent-tag-arrow" aria-hidden="true">{hasMultipleSubagents ? <ChevronDown size={12} /> : <ArrowRight size={12} />}</span>
-              </button>
-              {hasMultipleSubagents && (
-                <span
-                  id={`subagent-options-${event.id}`}
-                  popover="auto"
-                  className="event-subagent-options"
-                  role="group"
-                  aria-label={t.timeline.chooseSubagent}
-                >
-                  {subagentReferences.map((reference, subagentIndex) => {
-                    const agentName = reference.agentName ?? `${t.timeline.subagentTag} ${subagentIndex + 1}`
-                    return (
-                      <button
-                        key={reference.targetFile}
-                        type="button"
-                        className="event-subagent-choice"
-                        aria-label={`${t.timeline.openSubagent}: ${agentName}`}
-                        title={reference.sessionName ?? agentName}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          e.currentTarget.closest<HTMLElement>("[popover]")?.hidePopover()
-                          onSelectEvent(event)
-                          onOpenSubagent?.(reference, event.id)
-                        }}
-                        onKeyDown={(e) => {
-                          e.stopPropagation()
-                                }}
-                      >
-                        <Bot size={12} aria-hidden="true" />
-                        <span>{agentName}</span>
-                        <span className="subagent-tag-arrow" aria-hidden="true"><ArrowRight size={12} /></span>
-                      </button>
-                    )
-                  })}
-                </span>
-              )}
-            </span>
+            <SubagentControl
+              eventId={event.id}
+              references={subagentReferences}
+              onSelect={() => onSelectEvent(event)}
+              onOpen={(reference) => onOpenSubagent?.(reference, event.id)}
+            />
           )}
           {charCount != null && event.kind !== 'system' && (
             <span className="event-char-count">{t.common.chars(charCount)}</span>

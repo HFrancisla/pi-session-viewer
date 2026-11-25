@@ -50,7 +50,7 @@ export function PromptDiffView({ event, cwd }: { event: TimelineEvent; cwd?: str
             {t.inspector.diff.baselinePrevious}
           </button>}
           <button type="button" className={`prompt-diff-baseline-pill${mode === 'vanilla' ? ' is-active' : ''}`}
-            aria-pressed={mode === 'vanilla'} title={t.inspector.diff.vanillaHint(baseline.version)}
+            aria-pressed={mode === 'vanilla'}
             onClick={() => setMode('vanilla')}>
             {t.inspector.diff.baselineVanilla(baseline.version)}
           </button>

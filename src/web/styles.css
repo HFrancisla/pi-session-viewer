@@ -443,16 +443,12 @@ select:hover { border-color: #9db4bc; }
 }
 .event-subagent-options {
   position: fixed;
-  inset: auto;
-  position-area: bottom span-right;
-  position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
-  position-visibility: anchors-visible;
-  align-self: start;
-  justify-self: start;
-  margin: 4px 0;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   width: max-content;
-  max-width: 280px;
-  max-height: 50vh;
+  max-width: min(280px, calc(100vw - 16px));
   overflow: auto;
   padding: 6px;
   background: var(--paper);
@@ -460,7 +456,6 @@ select:hover { border-color: #9db4bc; }
   border-radius: 6px;
   box-shadow: 0 6px 18px rgba(24, 33, 30, 0.18);
 }
-.event-subagent-options:popover-open { display: flex; flex-direction: column; gap: 4px; }
 .event-subagent-choice { justify-content: flex-start; max-width: 100%; }
 .event-subagent-choice > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .subagent-tag-arrow { display: inline-flex; align-items: center; opacity: 0.7; }
@@ -695,7 +690,6 @@ select:hover { border-color: #9db4bc; }
 }
 
 .prompt-composition { padding-bottom: 28px; }
-.prompt-format-note { margin: 0; padding: 12px 16px; color: var(--muted); font-size: 12px; line-height: 1.55; border-bottom: 1px solid var(--line); }
 .prompt-block { border-bottom: 1px solid var(--line); background: var(--paper); }
 .prompt-block > summary { min-height: 34px; height: 34px; padding: 0 16px; display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 12px; font-weight: 500; cursor: pointer; list-style: none; user-select: none; }
 .prompt-block > summary::-webkit-details-marker { display: none; }
@@ -704,21 +698,6 @@ select:hover { border-color: #9db4bc; }
 .prompt-block-title { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); }
 .prompt-block-index { color: #8a4f68; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
 .prompt-block-meta { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 400; }
-.prompt-block > pre,
-.prompt-source-file > pre { margin: 0; padding: 0 16px 14px; white-space: pre-wrap; overflow-wrap: anywhere; color: #35413d; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.6; }
-.prompt-block-body { padding: 0 16px 14px; color: #4f5d58; font-size: 12px; line-height: 1.55; }
-.prompt-block-body > p { margin: 4px 0 10px; }
-.prompt-block-body ul { margin: 0; padding-left: 18px; }
-.prompt-block-body li + li { margin-top: 4px; }
-.prompt-subheading { color: var(--ink); font-weight: 600; }
-.prompt-key-values { margin: 0; }
-.prompt-key-values > div { padding: 8px 0; border-top: 1px solid var(--line-soft); }
-.prompt-key-values dt { color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
-.prompt-key-values dd { margin: 4px 0 0; overflow-wrap: anywhere; }
-.prompt-key-values dd code { display: block; margin-top: 5px; color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
-.prompt-source-file { border-top: 1px solid var(--line-soft); }
-.prompt-source-file > summary { padding: 8px 0; overflow-wrap: anywhere; color: var(--blue); font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer; }
-.prompt-source-file > pre { padding-right: 0; padding-left: 0; }
 .inspector-empty { margin: auto 28px; display: grid; justify-items: center; gap: 8px; color: var(--muted); text-align: center; font-size: 13px; }
 .inspector-empty p { margin: 0; line-height: 1.55; }
 

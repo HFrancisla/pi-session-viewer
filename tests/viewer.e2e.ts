@@ -257,7 +257,7 @@ test('opens workflow children from the invoking subagent call', async ({ page })
   await expect(resultRow.locator('.event-subagent-tag')).toHaveCount(0)
   await opener.click()
 
-  const choices = invocationRow.locator('.event-subagent-options')
+  const choices = page.locator('.event-subagent-options')
   await expect(choices.getByRole('button', { name: 'View subagent process: scout' })).toBeVisible()
   await expect(choices.getByRole('button', { name: 'View subagent process: delegate' })).toBeVisible()
   await choices.getByRole('button', { name: 'View subagent process: scout' }).click()
@@ -451,7 +451,7 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
       allRoleRow: rows.every((row) => row.getAttribute('role') === 'row'),
       allHaveCells: rows.every((row) => row.querySelectorAll('[role=gridcell]').length === 2),
       anyNativeButtonRow: rows.some((row) => row.tagName === 'BUTTON'),
-      nestedActionButtons: rows.reduce((total, row) => total + row.querySelectorAll('button:not([popover] button)').length, 0),
+      nestedActionButtons: rows.reduce((total, row) => total + row.querySelectorAll('button').length, 0),
       longestName: Math.max(...rows.map((row) => (row.getAttribute('aria-label') ?? '').length)),
       namesWithTitle: rows.every((row) => {
         const label = row.getAttribute('aria-label') ?? ''

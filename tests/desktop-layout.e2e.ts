@@ -108,6 +108,7 @@ test('keeps filtering controls discoverable and shows a copy error when clipboar
       configurable: true,
       value: { writeText: async () => { throw new Error('Clipboard access denied') } },
     })
+    document.execCommand = () => false
   })
   await page.goto('/#token=dev-token')
   await expect(page.locator('.event-row').first()).toBeVisible()
@@ -350,4 +351,34 @@ test('工具定义显示首次关联请求真实观测的来源', async ({ page 
       await expect(inspector.locator('.tool-name-fact .tool-source-badge')).toHaveText('pi-cc-extensions')
     }
   }
+})
+
+test('copies through selection when the Clipboard API is unavailable or rejects', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
+    document.execCommand = (command) => {
+      const active = document.activeElement
+      if (command !== 'copy' || !(active instanceof HTMLTextAreaElement)) return false
+      document.body.dataset.copied = active.value
+      return true
+    }
+  })
+  await page.goto('/#token=dev-token')
+  await expect(page.locator('.event-row').first()).toBeVisible()
+  const copy = page.locator('.header-path-copy')
+  await copy.click()
+  await expect(copy).toHaveAttribute('data-copy-status', 'success')
+  await expect(page.locator('body')).toHaveAttribute('data-copied', /demo\.jsonl$/)
+  await expect(copy).toBeFocused()
+  await expect(page.locator('textarea')).toHaveCount(0)
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async () => { throw new Error('denied') } },
+    })
+    delete document.body.dataset.copied
+  })
+  await copy.click()
+  await expect(copy).toHaveAttribute('data-copy-status', 'success')
+  await expect(page.locator('body')).toHaveAttribute('data-copied', /demo\.jsonl$/)
 })
