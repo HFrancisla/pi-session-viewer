@@ -162,7 +162,7 @@ test('shows a direct offline JSONL entry point when the panel token is missing',
   page.on('request', (request) => { if (request.url().includes('/api/')) apiCalls.push(request.url()) })
   await page.goto('/')
   await expect(page.locator('.load-state h1')).toHaveText('Panel access token required')
-  await expect(page.locator('.load-state-actions')).toContainText('offline')
+  await expect(page.locator('.load-state-actions')).toContainText('open a local Pi session file')
   await page.locator('input[type="file"]').setInputFiles({
     name: 'invalid.jsonl', mimeType: 'application/json', buffer: Buffer.from('invalid'),
   })
@@ -192,13 +192,12 @@ test('uses a clear stats hierarchy, quieter metadata, and singular catalog copy'
 })
 
 
-test('offline native state ignores old captures and distinguishes empty forced observation', async ({ page }) => {
+test('offline native state uses native records and distinguishes empty forced observation', async ({ page }) => {
   const timestamp = '2026-01-01T10:00:00.000Z'
   const lines = [
     { type: 'session', version: 3, id: 'offline-native', timestamp, cwd: '/work/demo' },
     { type: 'message', id: 'user', parentId: null, timestamp, message: { role: 'user', content: 'Hello' } },
-    { type: 'custom', id: 'legacy', parentId: 'user', timestamp, customType: 'pi-session-viewer.system-prompt', data: { prompt: 'Legacy secret prompt' } },
-    { type: 'message', id: 'system', parentId: 'legacy', timestamp, message: { role: 'system', timestamp: 1, content: '', sections: { custom_section: 'exact text' } } },
+    { type: 'message', id: 'system', parentId: 'user', timestamp, message: { role: 'system', timestamp: 1, content: '', sections: { custom_section: 'exact text' } } },
     { type: 'message', id: 'assistant', parentId: 'system', timestamp, message: { role: 'assistant', content: [{ type: 'text', text: 'Reply' }] } },
     { type: 'custom', id: 'obs', parentId: 'assistant', timestamp, customType: 'pi-session-viewer.observation', data: { schemaVersion: 1, piVersion: '1.6.0', anchorEntryId: 'system', assistantEntryId: 'assistant', forcedPrompt: '' } },
   ].map(entry => JSON.stringify(entry)).join('\n')
@@ -225,17 +224,14 @@ test('offline native state ignores old captures and distinguishes empty forced o
   await inspector.getByRole('button', { name: 'Copy', exact: true }).click()
   await expect(page.locator('html')).toHaveAttribute('data-copied-prompt', 'exact text')
   await page.getByRole('tab', { name: 'Composition' }).click()
-  await expect(inspector.locator('.prompt-block-title')).toContainText('custom_section')
-  await inspector.locator('.prompt-block summary').click()
-  await expect(inspector.locator('.prompt-block pre')).toContainText('exact text')
-  await expect(inspector).not.toContainText('Legacy secret prompt')
+  await expect(inspector.locator('.inspector-section-title')).toContainText('custom_section')
+  await expect(inspector.locator('.inspector-section pre')).toContainText('exact text')
   await page.locator('.event-row.event--assistant').click()
   await page.getByRole('tab', { name: 'Overview' }).click()
   await expect(inspector.locator('.overview-composition, .state-section')).toHaveCount(0)
   await expect(inspector.locator('.event-facts dt').filter({hasText: /^System prompt$/})).toHaveCount(0)
   await page.getByRole('tab', { name: 'Composition' }).click()
-  const forced = inspector.locator('.prompt-block').filter({ hasText: 'Observed forced prompt' })
-  await forced.locator('summary').click()
+  const forced = inspector.locator('.inspector-section').filter({ hasText: 'Observed forced prompt' })
   await expect(forced.locator('pre')).toContainText('Explicitly observed empty string')
   await expect(inspector).not.toContainText('Supplemental observation')
   expect(apiRequests).toEqual([])
@@ -257,17 +253,16 @@ test('原生分区恢复原有组成和工具定义样式，差异逐行展示',
   await page.getByRole('tab', { name: '组成' }).click()
   const inspector = page.locator('.inspector')
   const panel = inspector.locator('.prompt-composition')
-  await expect(panel.locator('.prompt-block summary')).toHaveCount(9)
-  await expect(panel.locator('.prompt-block-index').first()).toHaveText('1.')
-  await expect(panel.locator('.prompt-block-title').first()).toContainText('基础模板')
-  await expect(panel.locator('.prompt-block summary').first()).toHaveCSS('font-size', '12px')
-  await expect(panel.locator('.prompt-block-meta').first()).toHaveText('4 字符')
+  await expect(panel.locator('.inspector-section')).toHaveCount(9)
+  await expect(panel.locator('.inspector-section-title').first()).toContainText('基础模板')
+  await expect(panel.locator('.inspector-section-header').first()).toHaveCSS('font-size', '12px')
+  await expect(panel.locator('.inspector-section-meta').first()).toHaveText('4 字符')
   await expect(panel).not.toContainText('状态记录')
   await expect(panel).not.toContainText('补充观测')
   await expect(panel.locator('.state-section, .tool-definitions-view')).toHaveCount(0)
   for (const width of [1024, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 })
-    expect(await panel.locator('summary').evaluateAll(rows => rows.every(row => row.scrollWidth <= row.clientWidth + 1))).toBe(true)
+    expect(await panel.locator('.inspector-section-header').evaluateAll(rows => rows.every(row => row.scrollWidth <= row.clientWidth + 1))).toBe(true)
   }
 
   await page.getByRole('tab', { name: '差异' }).click()
@@ -278,10 +273,9 @@ test('原生分区恢复原有组成和工具定义样式，差异逐行展示',
 
   await page.locator('.event-row.event--tool-definitions').click()
   await expect(inspector.locator('[role="tab"]')).toHaveText(['概览', '内容', '原始数据'])
-  await expect(inspector.locator('.tool-definitions-view details')).toHaveCount(15)
+  await expect(inspector.locator('.tool-definitions-view .inspector-section')).toHaveCount(15)
   await expect(inspector.locator('.tool-source-badge--unknown')).toHaveCount(15)
   await expect(inspector).not.toContainText('个注册来源未记录')
-  await inspector.locator('.tool-definitions-view summary').first().click()
   await expect(inspector.locator('.tool-definitions-view pre').first()).toContainText('A native tool declaration')
   await page.getByRole('tab', { name: '概览' }).click()
   await expect(inspector).toContainText('15 个 API 工具')

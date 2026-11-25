@@ -93,8 +93,8 @@ test('a revisited session is served from the client cache', async ({ page }) => 
 
   // Catalog metadata refreshes independently from an unchanged body version.
   titles.alpha = 'Session alpha (renamed in catalog)'
-  await page.getByRole('button', { name: 'Reload sessions and list' }).click()
-  await expect(page.getByRole('button', { name: 'Reload sessions and list' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Reload' }).click()
+  await expect(page.getByRole('button', { name: 'Reload' })).toBeEnabled()
   await expect(page.locator('.session-item').filter({ hasText: 'Session alpha (renamed in catalog)' })).toBeVisible()
   expect(requests).toEqual(['alpha', 'beta'])
   expect(await parses()).toBe(parsesAfterBoth)
@@ -103,7 +103,7 @@ test('a revisited session is served from the client cache', async ({ page }) => 
   // the body once; the updated entry is reused on later visits.
   versions.alpha = '3'
   labels.alpha = 'Open session A (updated)'
-  await page.getByRole('button', { name: 'Reload sessions and list' }).click()
+  await page.getByRole('button', { name: 'Reload' }).click()
   await expect(page.getByText('Open session A (updated)', { exact: true }).first()).toBeVisible()
   expect(requests).toEqual(['alpha', 'beta', 'alpha'])
 

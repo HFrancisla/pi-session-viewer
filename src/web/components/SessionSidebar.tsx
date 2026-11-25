@@ -5,6 +5,7 @@ import type { ProjectSummary, SessionListItem } from '../../core/types'
 import { normalizePath } from '../../core/path'
 import { formatDateTime } from '../../core/format'
 import { useI18n } from '../i18n'
+import { PanelHeader } from './PanelHeader'
 import { TabList } from './TabList'
 
 export type { ProjectSummary }
@@ -84,19 +85,16 @@ export function SessionSidebar({
 
   return (
     <aside className="session-sidebar" aria-label={t.sidebar.heading}>
-      <div className="sidebar-heading">
-        <div>
-          <h2>{t.sidebar.heading}</h2>
-          <p>
-            {loading
-              ? t.sidebar.scanning
-              : scopeMode === 'current'
-                ? t.sidebar.recordsCountCurrent(filteredSessions.length, sessions.length)
-                : t.sidebar.recordsCountAll(filteredSessions.length)}
-          </p>
-        </div>
-        {loading && <LoaderCircle className="spin" size={18} aria-label={t.common.loading} />}
-      </div>
+      <PanelHeader
+        className="sidebar-heading"
+        title={t.sidebar.heading}
+        subtitle={loading
+          ? t.sidebar.scanning
+          : scopeMode === 'current'
+            ? t.sidebar.recordsCountCurrent(filteredSessions.length, sessions.length)
+            : t.sidebar.recordsCountAll(filteredSessions.length)}
+        action={loading ? <LoaderCircle className="spin" size={18} aria-label={t.common.loading} /> : undefined}
+      />
 
       <div className="sidebar-scope" aria-label={t.sidebar.scopeSwitcher}>
         <TabList

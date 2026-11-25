@@ -90,7 +90,6 @@ export interface SessionViewSnapshot<FileHandle = unknown> {
   actionError: SessionViewError | null
   navigation: readonly SessionNavigationFrame<FileHandle>[]
   restoreIntent: SessionViewRestoreIntent | null
-  loadedAt: string | null
   visibleTurns: TimelineTurn[]
   selectedEvent: TimelineEvent | null
   sessionTitle: string | null
@@ -126,7 +125,6 @@ export interface SessionViewControllerDependencies<FileHandle = unknown> {
   cache: SessionCache
   parseSession(content: string, sourceName: string): ParsedSession
   buildView?(parsed: ParsedSession, leafId?: string | null, projection?: ContextProjection): SessionView
-  now(): string
   initialCwd?: string | null
   initialCatalogLoading?: boolean
 }
@@ -296,7 +294,6 @@ export function createSessionViewController<FileHandle = unknown>(
     actionError: null,
     navigation: [],
     restoreIntent: null,
-    loadedAt: null,
     catalog: {
       projects: [],
       sessions: [],
@@ -372,7 +369,6 @@ export function createSessionViewController<FileHandle = unknown>(
       loading: false,
       navigation,
       restoreIntent,
-      loadedAt: dependencies.now(),
       loadError: null,
       actionError: null,
     })

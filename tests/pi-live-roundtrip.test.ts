@@ -227,7 +227,6 @@ export default function(pi) {
     expect(Object.keys(captures[0].data).sort()).toEqual(['anchorEntryId','assistantEntryId','piVersion','schemaVersion','toolSources'])
     expect(entries.find(entry => entry.id === captures[0].data.assistantEntryId)?.message.role).toBe('assistant')
     }
-    expect(entries.some(entry => entry.customType === 'pi-session-viewer.system-prompt')).toBe(false)
     expect(entries.some((entry) => entry.message?.role === 'toolResult'
       && JSON.stringify(entry.message.content).includes('viewer_tool_ok'))).toBe(true)
     expect(entries.some((entry) => entry.message?.role === 'assistant'

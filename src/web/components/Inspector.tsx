@@ -1,16 +1,17 @@
 import {
   CornerDownRight,
-  ChevronDown,
   Info,
   LocateFixed,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { formatClock, formatDateTime, formatDuration } from '../../core/format'
 import type { ToolDeclarationWithSource, TimelineEvent } from '../../core/types'
 import { getToolProvenanceLabel, resolveToolProvenance, sanitizeToolForApi } from '../../core/tool-provenance'
 import { PromptDiffView } from './PromptDiffView'
 import { useI18n } from '../i18n'
 import { CopyButton } from './CopyButton'
+import { IconButton } from './IconButton'
+import { PanelHeader } from './PanelHeader'
 import { TabList, type TabOption } from './TabList'
 
 interface InspectorProps {
@@ -50,12 +51,29 @@ function ContextJumpButton({ entryId, label, disabled, onJump }: {
   )
 }
 
+function InspectorSection({ title, meta, titleHint, children }: {
+  title: ReactNode
+  meta?: ReactNode
+  titleHint?: string
+  children: ReactNode
+}) {
+  return (
+    <section className="inspector-section">
+      <header className="inspector-section-header" title={titleHint}>
+        <span className="inspector-section-title">{title}</span>
+        {meta != null && <span className="inspector-section-meta">{meta}</span>}
+      </header>
+      {children}
+    </section>
+  )
+}
+
 function ToolDefinitionsView({ tools }: { tools: ToolDeclarationWithSource[] }) {
   const { t } = useI18n()
 
   return (
     <div className="tool-definitions-view">
-      {tools.map((tool, index) => {
+      {tools.map((tool) => {
         const apiTool = sanitizeToolForApi(tool)
         const toolJson = JSON.stringify(apiTool, null, 2)
         const toolChars = toolJson.length
@@ -63,29 +81,23 @@ function ToolDefinitionsView({ tools }: { tools: ToolDeclarationWithSource[] }) 
         const badgeLabel = getToolProvenanceLabel(provenance, t.inspector.toolProvenance)
 
         return (
-          <details className="prompt-block" key={tool.name}>
-            <summary>
-              <ChevronDown size={14} className="prompt-block-arrow" aria-hidden="true" />
-              <span className="prompt-block-title">
-                <span className="prompt-block-index">{index + 1}.</span>
+          <InspectorSection
+            key={tool.name}
+            titleHint={provenance.displayPath ?? undefined}
+            title={(
+              <>
                 <code>{tool.name}</code>
-                <span
-                  className={`tool-source-badge tool-source-badge--${provenance.kind}`}
-                  title={provenance.displayPath ?? undefined}
-                >
+                <span className={`tool-source-badge tool-source-badge--${provenance.kind}`}>
                   {badgeLabel}
                 </span>
-              </span>
-              <span className="prompt-block-meta">
-                {t.common.chars(toolChars)}
-              </span>
-            </summary>
-            <div className="tool-block-expanded">
-              <div className="content-body-wrap event--tool-definitions">
-                <pre>{toolJson}</pre>
-              </div>
+              </>
+            )}
+            meta={t.common.chars(toolChars)}
+          >
+            <div className="content-body-wrap event--tool-definitions">
+              <pre>{toolJson}</pre>
             </div>
-          </details>
+          </InspectorSection>
         )
       })}
     </div>
@@ -131,22 +143,17 @@ function PromptCompositionView({ event }: { event: TimelineEvent }) {
   ]
   return (
     <div className="prompt-composition">
-      {items.map((item, index) => (
-        <details className="prompt-block" key={item.id}>
-          <summary title={item.hint}>
-            <ChevronDown size={14} className="prompt-block-arrow" aria-hidden="true" />
-            <span className="prompt-block-title">
-              <span className="prompt-block-index">{index + 1}.</span>
-              {item.title}
-            </span>
-            <span className="prompt-block-meta">{t.common.chars(item.content.length)}</span>
-          </summary>
-          <div className="prompt-block-expanded">
-            <div className="content-body-wrap event--system-prompt">
-              <pre>{item.id === 'forced' && item.content === '' ? labels.emptyForcedPrompt : item.content}</pre>
-            </div>
+      {items.map((item) => (
+        <InspectorSection
+          key={item.id}
+          title={item.title}
+          titleHint={item.hint}
+          meta={t.common.chars(item.content.length)}
+        >
+          <div className="content-body-wrap event--system-prompt">
+            <pre>{item.id === 'forced' && item.content === '' ? labels.emptyForcedPrompt : item.content}</pre>
           </div>
-        </details>
+        </InspectorSection>
       ))}
     </div>
   )
@@ -186,7 +193,7 @@ function EventOverview({ event }: { event: TimelineEvent }) {
           ) : (
             <>
               <div><dt>{t.inspector.facts.contentLength}</dt><dd>{t.common.chars(totalChars)}</dd></div>
-              <div><dt>{t.inspector.facts.estimatedTokens}</dt><dd>{t.common.tokensWithRate(estimatedTokens)}</dd></div>
+              <div><dt>{t.inspector.facts.estimatedTokens}</dt><dd>{t.common.tokens(estimatedTokens)}</dd></div>
             </>
           )}
         </dl>
@@ -318,19 +325,12 @@ export function Inspector({ event, cwd, onJumpToEvent, onJumpToEntry }: Inspecto
       className="inspector"
       aria-label={t.inspector.heading}
     >
-      <div className="inspector-heading">
-        <div>
-          <h2>{t.inspector.heading}</h2>
-          <p>{event ? localizeTitle(event.title) : t.inspector.selectEvent}</p>
-        </div>
-        <div className="inspector-heading-actions">
-          {event && (
-            <button className="icon-button" type="button" onClick={onJumpToEvent} title={t.inspector.jumpToEvent} aria-label={t.inspector.jumpToEvent}>
-              <LocateFixed size={16} />
-            </button>
-          )}
-        </div>
-      </div>
+      <PanelHeader
+        className="inspector-heading"
+        title={t.inspector.heading}
+        subtitle={event ? localizeTitle(event.title) : t.inspector.selectEvent}
+        action={event ? <IconButton icon={LocateFixed} label={t.inspector.jumpToEvent} onClick={onJumpToEvent} /> : undefined}
+      />
 
       {!event ? (
         <div className="inspector-empty">

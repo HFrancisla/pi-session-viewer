@@ -16,7 +16,7 @@ function object(value: unknown): value is RawObject {
 }
 
 export function isViewerRecord(raw: RawObject): boolean {
-  return raw.type === 'custom' && (raw.customType === OBSERVATION_TYPE || raw.customType === 'pi-session-viewer.system-prompt')
+  return raw.type === 'custom' && raw.customType === OBSERVATION_TYPE
 }
 
 export function readObservation(raw: RawObject): SupplementalObservation | undefined {

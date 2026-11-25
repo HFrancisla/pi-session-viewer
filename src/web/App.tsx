@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowLeft, Bot, Clock3, FolderOpen, RefreshCw, Rows3, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Bot, FolderOpen, RefreshCw, Rows3, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { fetchSession, fetchSessions, resolveSession } from './api'
 import { Inspector } from './components/Inspector'
@@ -11,6 +11,7 @@ import { browserAccessToken, browserInitialCwd } from './session-auth'
 import { sessionCache } from './session-cache'
 import { createSessionViewController } from './session-view-controller'
 import { CopyButton } from './components/CopyButton'
+import { IconButton } from './components/IconButton'
 import type {
   EventKind,
   SessionListItem,
@@ -27,7 +28,7 @@ function ActionError({ message, onDismiss }: { message: string; onDismiss: () =>
     <div className="action-error-strip" role="alert">
       <AlertCircle size={14} aria-hidden="true" />
       <span>{message}</span>
-      <button type="button" onClick={onDismiss} title={t.common.dismiss} aria-label={t.common.dismiss}><X size={16} /></button>
+      <IconButton icon={X} label={t.common.dismiss} onClick={onDismiss} />
     </div>
   )
 }
@@ -85,7 +86,6 @@ function App() {
       'pi-session-viewer:build-session-view',
       () => buildSessionView(parsed, leafId, projection),
     ),
-    now: () => new Date().toISOString(),
     initialCwd: browserInitialCwd(),
     initialCatalogLoading: Boolean(accessToken),
   }))
@@ -107,7 +107,6 @@ function App() {
   const enabledKinds = sessionState.enabledKinds
   const sessionStack = sessionState.navigation
   const restorePosition = sessionState.restoreIntent
-  const loadedAt = sessionState.loadedAt
   const importedSource = activeSession?.source.kind === 'file' ? activeSession.source.imported : null
   const importedFile = importedSource?.file ?? null
   const view = sessionState.view
@@ -222,7 +221,6 @@ function App() {
           </div>
         )}
         <div className="header-actions">
-          {loadedAt && <span className="loaded-at"><Clock3 size={14} />{t.header.loadedAt(formatDateTime(loadedAt))}</span>}
           <button
             type="button"
             className="lang-toggle-button"
@@ -234,16 +232,14 @@ function App() {
             <span className="lang-separator">/</span>
             <span className={locale === 'zh-CN' ? 'active' : ''}>中</span>
           </button>
-          <button
-            className="icon-button"
-            type="button"
+          <IconButton
+            icon={RefreshCw}
+            iconSize={18}
+            iconClassName={sessionLoading || catalog.loading ? 'spin' : undefined}
+            label={t.header.reloadTitle}
             onClick={refreshCurrent}
             disabled={sessionLoading || catalog.loading || (!accessToken && !importedFile)}
-            title={t.header.reloadTitle}
-            aria-label={t.header.reloadTitle}
-          >
-            <RefreshCw className={sessionLoading || catalog.loading ? 'spin' : ''} size={18} />
-          </button>
+          />
         </div>
       </header>
 

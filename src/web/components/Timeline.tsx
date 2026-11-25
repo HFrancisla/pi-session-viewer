@@ -9,14 +9,14 @@ import { useI18n } from '../i18n'
 import { SubagentControl } from './SubagentControl'
 
 const kindMeta: Record<EventKind, { icon: ComponentType<{ size?: number; className?: string }>; color: string }> = {
-  'system-prompt': { icon: ScrollText, color: '#8a4f68' },
-  'tool-definitions': { icon: Boxes, color: '#2f6f8f' },
-  user: { icon: CircleUserRound, color: '#485c66' },
-  assistant: { icon: Bot, color: '#246b83' },
-  thinking: { icon: Brain, color: '#765a9a' },
-  'tool-call': { icon: Wrench, color: '#87540f' },
-  'tool-result': { icon: CheckCircle2, color: '#2f7d57' },
-  system: { icon: Cog, color: '#66716d' },
+  'system-prompt': { icon: ScrollText, color: 'var(--event-system-prompt)' },
+  'tool-definitions': { icon: Boxes, color: 'var(--event-tool-definitions)' },
+  user: { icon: CircleUserRound, color: 'var(--event-user)' },
+  assistant: { icon: Bot, color: 'var(--event-assistant)' },
+  thinking: { icon: Brain, color: 'var(--event-thinking)' },
+  'tool-call': { icon: Wrench, color: 'var(--event-tool-call)' },
+  'tool-result': { icon: CheckCircle2, color: 'var(--event-tool-result)' },
+  system: { icon: Cog, color: 'var(--event-system)' },
 }
 
 interface TimelineProps {
@@ -152,7 +152,7 @@ const EventRow = memo(function EventRow({ event, index, eventCount, turnId, sele
       }}
       data-llm-output-group={llmOutputBoundary?.id}
       data-tool-call-id={event.toolCallId}
-      style={{ '--event-color': event.isError ? '#b24b4b' : meta.color } as React.CSSProperties}
+      style={{ '--event-color': event.isError ? 'var(--event-error)' : meta.color } as React.CSSProperties}
     >
       <span className="event-time" role="gridcell">
         <span>{clockLabel}</span>

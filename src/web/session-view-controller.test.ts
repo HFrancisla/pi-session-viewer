@@ -88,7 +88,6 @@ function createController(
     refreshCatalog: options.refreshCatalog ?? (async () => catalog()),
     cache: options.cache ?? createSessionCache(),
     parseSession: options.parseSession ?? parseSessionJsonl,
-    now: () => '2026-01-01T00:00:02.000Z',
     initialCwd: options.initialCwd,
     initialCatalogLoading: options.initialCatalogLoading,
   })

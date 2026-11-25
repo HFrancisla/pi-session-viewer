@@ -1,6 +1,6 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
-import { loadVanillaBaseline } from './server/vanilla-baseline'
+import { loadVanillaBaseline } from './server/vanilla-baseline.ts'
 
 export default defineConfig(async () => ({
   plugins: [react()],

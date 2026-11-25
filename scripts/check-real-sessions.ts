@@ -14,7 +14,7 @@ async function main(): Promise<void> {
   const files = (await walkSessionFiles(catalog.root)).slice(0, limit)
   const listed = new Set(catalog.sessions.map(session => path.resolve(catalog.root, session.relativePath)))
   const api = await loadPiContextApi()
-  let sessions = 0, checked = 0, known = 0, unknown = 0, edits = 0, omitted = 0, ignored = 0
+  let sessions = 0, checked = 0, known = 0, unknown = 0, edits = 0, omitted = 0
   const failures: string[] = []
   for (const file of files) {
     const relative = path.relative(catalog.root, file)
@@ -36,7 +36,6 @@ async function main(): Promise<void> {
         const projection = parsed.currentLeafId && projections?.[parsed.currentLeafId]
         if (projection) omitted += Object.values(projection.excluded).filter(item => item.state === 'omitted').length
       }
-      ignored += parsed.entries.filter(entry => entry.raw.customType === 'pi-session-viewer.system-prompt').length
       const anchors = new Set([...parsed.branches.map(branch => branch.leafId),
         ...parsed.entries.filter(entry => entry.type === 'compaction' ||
           entry.type === 'message' && (entry.raw.message as {role?:string})?.role === 'system').map(entry => entry.id)])
@@ -56,7 +55,7 @@ async function main(): Promise<void> {
     }
   }
   console.log(`Scanned ${files.length} session files under ${catalog.root}; Parsed ${sessions} catalog sessions; ${edits} contain context edits; ${omitted} entries omitted by a context edit.`)
-  console.log(`Native replay: ${checked} positions compared; ${known} known, ${unknown} unknown. Ignored ${ignored} obsolete Viewer records.`)
+  console.log(`Native replay: ${checked} positions compared; ${known} known, ${unknown} unknown.`)
   if (!api || !known) console.log('No known native state samples verified.')
   if (failures.length) {
     for (const failure of failures) console.error(failure)

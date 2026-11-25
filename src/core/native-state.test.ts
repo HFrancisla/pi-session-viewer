@@ -32,7 +32,7 @@ it('按分支历史位置重放原生分区、工具及压缩检查点，不制�
   expect(buildSessionView(parsed,'sibling').events.at(-1)?.persistedState?.message.sections).toEqual({custom:'sibling'})
 })
 
-it('仅在关联的 Assistant 及其声明区间使用补充来源，拒绝旧格式、跨分支和失败关联', () => {
+it('仅在关联的 Assistant 及其声明区间使用补充来源，拒绝跨分支和失败关联', () => {
   const tool = { name: 'read', description: 'one', parameters: {} }
   const source = { path: '/extension/one.ts', source: 'local' }
   const message = (id:string, parentId:string|null, message:object) => ({type:'message',id,parentId,message})
@@ -45,9 +45,9 @@ it('仅在关联的 Assistant 及其声明区间使用补充来源，拒绝旧�
     {type:'session',id:'session'},
     message('s',null,{role:'system',timestamp:1,content:'',toolsAdded:[tool]}),
     assistant('a','s'),
-    {type:'custom',customType:'pi-session-viewer.system-prompt',id:'old',parentId:'a',data:{prompt:'not native'}},
-    assistant('b','old'),
-    obs('o','b','old','b',source),
+    message('u','a',{role:'user',content:'next'}),
+    assistant('b','u'),
+    obs('o','b','u','b',source),
     assistant('c','o'),
     message('d','c',{role:'system',timestamp:2,content:'',toolsAdded:[{...tool,description:'two'}]}),
     assistant('e','d'),
@@ -71,7 +71,7 @@ it('仅在关联的 Assistant 及其声明区间使用补充来源，拒绝旧�
   expect(call('f')?.toolDefinition?.sourceInfo).toBeUndefined()
   expect(call('g')?.toolDefinition?.sourceInfo).toBeUndefined()
   expect(call('g')?.persistedState?.message.sections).toEqual({checkpoint:'kept'})
-  expect(view.events.some(e=>['old','o','bad-o','cross'].includes(e.entryId))).toBe(false)
+  expect(view.events.some(e=>['o','bad-o','cross'].includes(e.entryId))).toBe(false)
   expect(buildSessionView(parsed,'sibling').events.find(e=>e.entryId==='sibling')?.toolDefinition?.sourceInfo).toBeUndefined()
 })
 

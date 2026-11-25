@@ -1,6 +1,7 @@
 import { Check, Copy, X } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useI18n } from '../i18n'
+import { IconButton } from './IconButton'
 
 type CopyStatus = 'success' | 'error'
 type Feedback = { owner: string; text: string; status: CopyStatus }
@@ -103,16 +104,14 @@ export function CopyButton({ text, label, disabled, detail, className = '' }: Co
   const name = label ?? t.common.copy
   const Icon = status === 'success' ? Check : status === 'error' ? X : Copy
   return (
-    <button
-      type="button"
-      className={`icon-button copy-button ${className}`.trim()}
+    <IconButton
+      icon={Icon}
+      label={name}
+      className={`copy-button ${className}`.trim()}
       data-copy-status={status}
       onClick={() => void copy(owner, text)}
       disabled={disabled}
       title={detail ? `${name}\n${detail}` : name}
-      aria-label={name}
-    >
-      <Icon size={16} aria-hidden="true" />
-    </button>
+    />
   )
 }

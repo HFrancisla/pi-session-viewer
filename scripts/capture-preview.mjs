@@ -112,14 +112,6 @@ try {
   if (await compositionTab.isVisible()) {
     await compositionTab.click()
     await page.waitForTimeout(400)
-
-    // Expand the first two sections
-    const summaries = page.locator('.prompt-composition summary')
-    const count = await summaries.count()
-    for (let i = 0; i < Math.min(count, 3); i++) {
-      await summaries.nth(i).click()
-    }
-    await page.waitForTimeout(400)
   }
 
   const pngPath = path.join(scratchDir, 'preview-temp.png')
