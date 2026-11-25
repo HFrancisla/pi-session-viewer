@@ -1,15 +1,6 @@
-import type { RawObject, ToolSourceInfo } from './types'
+import type { RawObject, SupplementalObservation } from './types'
 
 export const OBSERVATION_TYPE = 'pi-session-viewer.observation'
-
-export interface SupplementalObservation {
-  schemaVersion: 1
-  piVersion: string
-  anchorEntryId: string
-  assistantEntryId: string
-  forcedPrompt?: string
-  toolSources?: Array<{ name: string; sourceInfo: ToolSourceInfo | null }>
-}
 
 function object(value: unknown): value is RawObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

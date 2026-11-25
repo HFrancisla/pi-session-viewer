@@ -1,7 +1,7 @@
 import type { BuildSystemPromptOptions, ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { OBSERVATION_TYPE, type SupplementalObservation } from '../core/observation'
+import { OBSERVATION_TYPE } from '../core/observation'
 import { replayBranchState } from '../core/native-state'
-import type { ParsedEntry, ToolSourceInfo } from '../core/types'
+import type { ParsedEntry, SupplementalObservation, ToolSourceInfo } from '../core/types'
 import { resolvePiVersion } from '../server/pi-runtime'
 
 interface PendingRequest {

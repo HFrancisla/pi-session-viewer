@@ -1,5 +1,5 @@
-export const ACCESS_TOKEN_STORAGE_KEY = 'pi-session-viewer.access-token'
-export const INITIAL_CWD_STORAGE_KEY = 'pi-session-viewer.initial-cwd'
+const ACCESS_TOKEN_STORAGE_KEY = 'pi-session-viewer.access-token'
+const INITIAL_CWD_STORAGE_KEY = 'pi-session-viewer.initial-cwd'
 
 export interface TokenStorage {
   getItem(key: string): string | null

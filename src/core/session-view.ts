@@ -2,6 +2,7 @@ import type {
   ContextProjection,
   ParsedEntry,
   ParsedSession,
+  PersistedSystemState,
   RawObject,
   SessionStats,
   SessionView,
@@ -11,7 +12,7 @@ import type {
 import { truncate } from './format'
 import { extractSubagentReferences, normalizeSessionRelativePath, subagentReferencesAlias, workflowChildTranscriptPath } from './subagent-detector'
 import { getPath } from './session-parser'
-import { collectToolDefinitionSources, replayBranchState, type PersistedSystemState } from './native-state'
+import { collectToolDefinitionSources, replayBranchState } from './native-state'
 import { getSystemMessageText } from '@earendil-works/pi-ai/utils/text'
 import { isViewerRecord } from './observation'
 import { sanitizeToolForApi } from './tool-provenance'

@@ -21,7 +21,7 @@ describe('tool-provenance', () => {
     })
 
     it('preserves builtin pseudo paths', () => {
-      expect(formatDisplayPath('<builtin:read>')).toBe('<builtin:read>')
+      expect(formatDisplayPath('builtin:read')).toBe('builtin:read')
     })
   })
 
@@ -55,11 +55,11 @@ describe('tool-provenance', () => {
     it('resolves built-in tool with builtin sourceInfo', () => {
       const res = resolveToolProvenance({
         name: 'bash',
-        sourceInfo: { path: '<builtin:bash>', source: 'builtin' },
+        sourceInfo: { path: 'builtin:bash', source: 'builtin' },
       })
       expect(res.kind).toBe('builtin')
       expect(res.isBuiltin).toBe(true)
-      expect(res.displayPath).toBe('<builtin:bash>')
+      expect(res.displayPath).toBe('builtin:bash')
     })
 
     it('resolves extension tool from directory path', () => {

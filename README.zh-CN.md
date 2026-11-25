@@ -49,7 +49,7 @@ pi install npm:@hfrancisla/pi-session-viewer
 
 ## 本地开发
 
-需要 Node.js 22.19 或更新版本（开发推荐 Node.js 24 LTS）。完整验证前执行 `npx playwright install chromium`。
+需要 Node.js 26 LTS 或更新版本。完整验证前执行 `npx playwright install chromium`。
 
 ```bash
 npm install
@@ -58,6 +58,7 @@ npm test           # 单元与集成测试
 npm run build      # 构建 Web 静态资产与扩展产物
 npm run verify     # 完整验证套件
 npm run test:ui    # 浏览器端到端测试（需安装 Playwright Chromium）
+npm run capture:preview # 刷新 assets/gallery-preview.webp（需安装 cwebp）
 ```
 
 会话目录查找顺序：`PI_CODING_AGENT_SESSION_DIR` → `~/.pi/agent/settings.json` → `~/.pi/agent/sessions`。

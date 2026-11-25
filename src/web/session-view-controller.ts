@@ -16,26 +16,26 @@ import type {
 } from '../core/types'
 import { sessionCacheKey, type CachedSession, type SessionCache } from './session-cache'
 
-export interface ImportedSessionSource<FileHandle = unknown> {
+interface ImportedSessionSource<FileHandle = unknown> {
   name: string
   file: FileHandle
 }
 
-export interface SessionViewAnchor {
+interface SessionViewAnchor {
   eventId: string
   offset: number
 }
 
-export interface SessionViewViewport {
+interface SessionViewViewport {
   scrollTop: number
   anchor: SessionViewAnchor | null
 }
 
-export type SessionViewSource<FileHandle = unknown> =
+type SessionViewSource<FileHandle = unknown> =
   | { kind: 'server'; token: string; modifiedAt: string }
   | { kind: 'file'; imported: ImportedSessionSource<FileHandle> }
 
-export interface ActiveSessionView<FileHandle = unknown> {
+interface ActiveSessionView<FileHandle = unknown> {
   token: string | null
   metadata: SessionListItem | null
   source: SessionViewSource<FileHandle>
@@ -43,7 +43,7 @@ export interface ActiveSessionView<FileHandle = unknown> {
   contextProjections: Record<string, ContextProjection> | null
 }
 
-export interface SessionViewRestoreIntent {
+interface SessionViewRestoreIntent {
   eventId: string | null
   scrollTop?: number
   anchor?: SessionViewAnchor
@@ -51,13 +51,13 @@ export interface SessionViewRestoreIntent {
   key: number
 }
 
-export type SessionViewError =
+type SessionViewError =
   | { code: 'missing-token' }
   | { code: 'invalid-session' }
   | { code: 'subagent-transcript-only' }
   | { code: 'operation-failed' }
 
-export interface SessionNavigationFrame<FileHandle = unknown> {
+interface SessionNavigationFrame<FileHandle = unknown> {
   token: string | null
   metadata: SessionListItem | null
   source: SessionViewSource<FileHandle>
@@ -67,7 +67,7 @@ export interface SessionNavigationFrame<FileHandle = unknown> {
   timelineAnchor: SessionViewAnchor | null
 }
 
-export interface SessionCatalogState {
+interface SessionCatalogState {
   projects: ProjectSummary[]
   sessions: SessionListItem[]
   root: string
@@ -78,7 +78,7 @@ export interface SessionCatalogState {
   warnings: string[]
 }
 
-export interface SessionViewSnapshot<FileHandle = unknown> {
+interface SessionViewSnapshot<FileHandle = unknown> {
   active: ActiveSessionView<FileHandle> | null
   view: SessionView | null
   contextProjection: ContextProjection | undefined
@@ -97,7 +97,7 @@ export interface SessionViewSnapshot<FileHandle = unknown> {
   fullJsonlPath: string
 }
 
-export type SessionViewIntent<FileHandle = unknown> =
+type SessionViewIntent<FileHandle = unknown> =
   | { type: 'load-catalog'; autoOpen?: boolean }
   | { type: 'set-scope-mode'; mode: 'current' | 'all' }
   | { type: 'set-project-filter'; cwd: string | null }
@@ -117,7 +117,7 @@ export type SessionViewIntent<FileHandle = unknown> =
   | { type: 'dismiss-action-error' }
   | { type: 'dismiss-load-error' }
 
-export interface SessionViewControllerDependencies<FileHandle = unknown> {
+interface SessionViewControllerDependencies<FileHandle = unknown> {
   readServerSession(token: string): Promise<SessionFileResponse>
   resolveSubagent(targetFile: string, parentRelative?: string): Promise<SessionFileResponse>
   readImportedFile(source: ImportedSessionSource<FileHandle>): Promise<string>

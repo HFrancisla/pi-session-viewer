@@ -1,8 +1,8 @@
 import type { ExtensionAPI, ExtensionCommandContext } from '@earendil-works/pi-coding-agent'
 import type { ServerController } from './server-controller'
 
-export const SESSION_VIEWER_COMMAND = 'session-viewer'
-export const SESSION_VIEWER_USAGE = 'Usage: /session-viewer on | off'
+const SESSION_VIEWER_COMMAND = 'session-viewer'
+const SESSION_VIEWER_USAGE = 'Usage: /session-viewer on | off'
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)

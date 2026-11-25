@@ -49,7 +49,7 @@ Pi manages the JSONL session files; the viewer uses no separate database. Catalo
 
 ## Development
 
-Requires Node.js 22.19 or newer (Node.js 24 LTS recommended for development). Install Chromium before running the full verification suite: `npx playwright install chromium`.
+Requires Node.js 26 LTS or newer. Install Chromium before running the full verification suite: `npx playwright install chromium`.
 
 ```bash
 npm install
@@ -58,6 +58,7 @@ npm test           # Unit & integration tests
 npm run build      # Build web assets and extension bundle
 npm run verify     # Full verification suite
 npm run test:ui    # Browser end-to-end tests (requires Playwright Chromium)
+npm run capture:preview # Refresh assets/gallery-preview.webp (requires cwebp)
 ```
 
 Session directory resolution order: `PI_CODING_AGENT_SESSION_DIR` → `~/.pi/agent/settings.json` → `~/.pi/agent/sessions`.

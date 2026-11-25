@@ -35,7 +35,7 @@ function detectInitialLocale(): Locale {
   return 'en'
 }
 
-export function localizeEventTitle(title: string, locale: Locale): string {
+function localizeEventTitle(title: string, locale: Locale): string {
   if (locale === 'en') return title
 
   // Common direct mappings
@@ -106,7 +106,7 @@ export function localizeEventTitle(title: string, locale: Locale): string {
 }
 
 /** Translate only viewer-generated metadata, never the recorded transcript. */
-export function localizeEventSummary(event: Pick<TimelineEvent, 'kind' | 'title' | 'summary'>, locale: Locale): string {
+function localizeEventSummary(event: Pick<TimelineEvent, 'kind' | 'title' | 'summary'>, locale: Locale): string {
   const summary = event.summary
   if (locale !== 'zh-CN') return summary
   if (event.kind === 'tool-definitions') {

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { startSessionHttpServer, type SessionHttpServer, type SessionHttpServerOptions } from '../server/http-server'
 
-export type ServerControllerState = 'stopped' | 'starting' | 'running' | 'stopping'
+type ServerControllerState = 'stopped' | 'starting' | 'running' | 'stopping'
 
 export interface SessionViewerPanel {
   readonly host: string

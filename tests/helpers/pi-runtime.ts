@@ -45,10 +45,6 @@ export const PI_VERSION: string = JSON.parse(
   readFileSync(path.join(PI_PACKAGE_DIR, 'package.json'), 'utf8')
 ).version
 
-// Kept for callers that only want the loaded entry point.
-export const PI_ENTRY_PATH = path.join(PI_PACKAGE_DIR, 'dist/index.js')
-void require
-
 export async function importPiInternal<T>(relativePath: string): Promise<T> {
   const target = path.join(PI_PACKAGE_DIR, relativePath)
   try {
@@ -73,37 +69,4 @@ export interface PiSystemPromptModule {
 
 export function loadPiSystemPrompt(): Promise<PiSystemPromptModule> {
   return importPiInternal<PiSystemPromptModule>('dist/core/system-prompt.js')
-}
-
-export interface PiToolPromptContribution {
-  snippet: string
-  guidelines: string[]
-}
-
-/** Real `promptSnippet`/`promptGuidelines` of Pi's built-in tools. */
-export async function loadPiToolContributions(): Promise<Record<string, PiToolPromptContribution>> {
-  const contributions: Record<string, PiToolPromptContribution> = {}
-  for (const tool of ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'powershell']) {
-    let module: Record<string, unknown>
-    try {
-      module = await importPiInternal<Record<string, unknown>>(`dist/core/tools/${tool}.js`)
-    } catch {
-      continue
-    }
-    for (const value of Object.values(module)) {
-      const candidate = value as { name?: string; snippet?: unknown; guidelines?: unknown } | null
-      if (candidate && typeof candidate === 'object' && typeof candidate.snippet === 'string') {
-        contributions[candidate.name ?? tool] = {
-          snippet: candidate.snippet,
-          guidelines: Array.isArray(candidate.guidelines) ? (candidate.guidelines as string[]) : [],
-        }
-      }
-    }
-  }
-  return contributions
-}
-
-/** Normalizes a prompt exactly like the fixture generator does. */
-export function normalizePiPackagePaths(prompt: string): string {
-  return prompt.split(PI_PACKAGE_DIR).join('<pi-package>')
 }

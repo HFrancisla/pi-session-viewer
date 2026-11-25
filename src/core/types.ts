@@ -1,5 +1,4 @@
-import type { PersistedSystemState } from './native-state'
-import type { SupplementalObservation } from './observation'
+import type { SystemMessage } from '@earendil-works/pi-ai'
 // Shared domain types for the parser, server, and web application.
 export type RawObject = Record<string, unknown>
 
@@ -61,6 +60,21 @@ export interface ToolDeclarationWithSource {
   [key: string]: unknown
 }
 
+export interface SupplementalObservation {
+  schemaVersion: 1
+  piVersion: string
+  anchorEntryId: string
+  assistantEntryId: string
+  forcedPrompt?: string
+  toolSources?: Array<{ name: string; sourceInfo: ToolSourceInfo | null }>
+}
+
+export interface PersistedSystemState {
+  entryId: string
+  message: SystemMessage
+  previous?: { entryId: string; message: SystemMessage }
+}
+
 export interface SubagentReference {
   targetFile: string
   token: string
@@ -78,7 +92,7 @@ export interface SubagentReference {
  * - `not-in-context`: it produces no message for another reason, such as sitting
  *   before a compaction boundary.
  */
-export type ContextExclusionState = 'omitted' | 'not-in-context'
+type ContextExclusionState = 'omitted' | 'not-in-context'
 
 export interface ContextExclusion {
   state: ContextExclusionState
@@ -87,7 +101,7 @@ export interface ContextExclusion {
 }
 
 /** The link between a `context_edit` entry and the entries it keeps out of context. */
-export interface ContextEditLink {
+interface ContextEditLink {
   /** Entry this edit points at. */
   targetEntryId: string
   /** False when the target is not part of the shown branch. */

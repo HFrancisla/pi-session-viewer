@@ -33,7 +33,7 @@
     "@earendil-works/pi-coding-agent": "^1.6.0"
   },
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=26.0.0"
   },
   "pi": {
     "extensions": [
@@ -53,6 +53,7 @@
     "test:ui": "playwright test",
     "test:package": "node scripts/test-package.mjs",
     "check:sessions": "tsx scripts/check-real-sessions.ts",
+    "capture:preview": "node scripts/capture-preview.mjs",
     "verify": "npm run test && npm run build && npm run test:package && npm run test:ui",
     "clean": "node scripts/clean.mjs",
     "prepack": "npm run test && npm run build"

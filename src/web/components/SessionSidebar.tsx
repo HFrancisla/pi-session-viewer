@@ -8,8 +8,6 @@ import { useI18n } from '../i18n'
 import { PanelHeader } from './PanelHeader'
 import { TabList } from './TabList'
 
-export type { ProjectSummary }
-
 interface SessionListContext {
   label: string
 }

@@ -1,8 +1,8 @@
 import type { TimelineEvent } from './types'
 
-export type CausalPhase = 'start' | 'pass' | 'end'
+type CausalPhase = 'start' | 'pass' | 'end'
 
-export interface CausalSegment {
+interface CausalSegment {
   callId: string
   lane: number
   phase: CausalPhase

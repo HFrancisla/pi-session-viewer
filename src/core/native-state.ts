@@ -1,13 +1,8 @@
 import { getCurrentSystemMessage } from '@earendil-works/pi-ai/utils/transcript'
 import type { SystemMessage } from '@earendil-works/pi-ai'
-import type { ParsedEntry, RawObject, ToolSourceInfo } from './types'
-import { readObservation, type SupplementalObservation } from './observation'
+import type { ParsedEntry, PersistedSystemState, RawObject, SupplementalObservation, ToolSourceInfo } from './types'
+import { readObservation } from './observation'
 
-export interface PersistedSystemState {
-  entryId: string
-  message: SystemMessage
-  previous?: { entryId: string; message: SystemMessage }
-}
 export interface HistoricalPosition {
   state?: PersistedSystemState
   observation?: SupplementalObservation

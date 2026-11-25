@@ -196,7 +196,8 @@ export default function(pi) {
           if (record.type !== 'response' || record.id !== id) return
           clearTimeout(timeout)
           records.off('record', onRecord)
-          record.success ? resolve(record) : reject(new Error(JSON.stringify(record)))
+          if (record.success) resolve(record)
+          else reject(new Error(JSON.stringify(record)))
         }
         records.on('record', onRecord)
       })

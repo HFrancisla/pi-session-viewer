@@ -1,4 +1,4 @@
-import type { PersistedSystemState } from './native-state'
+import type { PersistedSystemState } from './types'
 import { getToolStateChanges } from '@earendil-works/pi-ai/utils/transcript'
 
 interface StateChange {
@@ -30,7 +30,7 @@ export function diffPersistedState(state: PersistedSystemState): StateChange[] |
   return changes
 }
 
-export type DiffLineType = 'added' | 'removed' | 'unchanged'
+type DiffLineType = 'added' | 'removed' | 'unchanged'
 
 export interface DiffLine {
   type: DiffLineType
@@ -86,7 +86,10 @@ export function computeLineDiff(oldText: string, newText: string): {
   // 3. Compute LCS for the middle slice
   const m = midOld.length
   const n = midNew.length
-  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
+  const dp: number[][] = Array.from(
+    { length: m + 1 },
+    () => Array.from({ length: n + 1 }, () => 0),
+  )
 
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {

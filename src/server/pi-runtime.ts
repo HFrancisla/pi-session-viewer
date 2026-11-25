@@ -26,7 +26,7 @@ function isPiPackage(packageDir: string): boolean {
  * that started the process (Pi itself, or the viewer's standalone server) is the
  * reliable anchor; standalone development resolves it from `node_modules`.
  */
-export function resolvePiPackageDir(): string | undefined {
+function resolvePiPackageDir(): string | undefined {
   const entry = process.argv[1]
   if (entry) {
     try {

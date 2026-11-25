@@ -48,16 +48,6 @@ export function syntheticPathSource(path: string | undefined): string | undefine
 }
 
 /**
- * Pi names built-in tools with `BUILTIN_PATH_PREFIX` (`"builtin:"`, no angle
- * brackets) and synthetic SDK tools as `<sdk:name>`. Older Pi versions and
- * hand-written fixtures also used `<builtin:name>`, so accept both spellings.
- */
-export function isBuiltinToolPath(path: string | undefined): boolean {
-  if (!path) return false
-  return path === 'builtin' || path.startsWith('builtin:') || path === '<builtin>' || path.startsWith('<builtin:')
-}
-
-/**
  * Normalizes user home directories in paths to '~' for clean, readable display.
  */
 export function formatDisplayPath(rawPath: string | undefined): string | undefined {
@@ -137,7 +127,7 @@ export function resolveToolProvenance(
   const synthetic = syntheticPathSource(rawPath)
 
   // 1. Explicit Built-in tools: runtime says builtin or the path is synthetic builtin
-  if (source === 'builtin' || synthetic === 'builtin' || isBuiltinToolPath(rawPath)) {
+  if (source === 'builtin' || synthetic === 'builtin') {
     const path = rawPath ?? `builtin:${name}`
     return {
       kind: 'builtin',
