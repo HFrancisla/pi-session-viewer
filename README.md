@@ -40,7 +40,7 @@ The three-column workspace is designed for desktop browsers at 1024px and wider.
 
 - **Local Only**: Listens strictly on `127.0.0.1` with a per-instance random bearer token. No cloud sync, telemetry, or remote access.
 - **Read-Only**: The web interface cannot mutate sessions or execute commands.
-- **Supplemental Observations**: Records explicit Harness forced prompts and tool registration provenance associated with completed Assistant rounds. Does not read request headers, credentials or complete Provider payloads.
+- **Supplemental Observations**: Writes a lightweight coverage record for each reliably associated completed Assistant request, attaching explicit Harness forced prompts and changed tool registration provenance when present. Failed/aborted requests are not recorded as completed facts. Does not read request headers, credentials or complete Provider payloads.
 - **Analysis Boundary**: Persisted state and intermediate observations are not the final Provider request. Unknown history remains unknown. Offline import does not upload files; full context projection is server-side only.
 
 Pi manages the JSONL session files; the viewer uses no separate database. Catalog and response caches are in memory only. Development and standalone servers print a startup URL containing the access token.

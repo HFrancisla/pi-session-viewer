@@ -40,7 +40,7 @@ pi install npm:@hfrancisla/pi-session-viewer
 
 - **仅限本地访问**：严格监听 `127.0.0.1`，并为每次启动生成独立的 Bearer Token。无云端同步、无遥测上报、无远程访问。
 - **只读设计**：Web 界面无法修改会话或执行任何终端命令。
-- **补充观测**：仅记录明确的 Harness 强制提示词及工具注册来源，关联已完成的 Assistant 回合。不读取请求标头、凭证或完整 Provider payload。
+- **补充观测**：为可确认关联的已完成 Assistant 请求写入轻量覆盖记录，并仅附带明确的 Harness 强制提示词及发生变化的工具注册来源。不读取请求标头、凭证或完整 Provider payload；失败/中止请求不会被当成已完成事实。
 - **分析边界**：原生持久化状态和中间观测均不代表最终 Provider 请求；未知历史保持未知。离线不上传文件，完整上下文投影仅在服务端可用。
 
 会话文件由 Pi 管理，Viewer 不使用独立数据库；会话目录和响应缓存仅驻留内存。开发服务和独立服务会在终端输出带访问令牌的启动链接。
@@ -61,6 +61,6 @@ npm run test:ui    # 浏览器端到端测试（需安装 Playwright Chromium）
 npm run capture:preview # 刷新 assets/gallery-preview.webp（需安装 cwebp）
 ```
 
-会话目录查找顺序：`PI_CODING_AGENT_SESSION_DIR` → `~/.pi/agent/settings.json` → `~/.pi/agent/sessions`。
+扩展模式直接使用 Pi 当前 `SessionManager.getSessionDir()`，因此遵循实际 CLI/运行时选择。独立服务的回退查找顺序为：`PI_CODING_AGENT_SESSION_DIR` → `PI_CODING_AGENT_DIR/settings.json` → `PI_CODING_AGENT_DIR/sessions`（未设置 `PI_CODING_AGENT_DIR` 时使用 `~/.pi/agent`）。
 
 单元测试中还会启动真实 Pi CLI，连接本地模拟的 OpenAI 兼容提供商，验证多轮提示词、工具执行、会话新建与恢复，不调用收费模型服务。

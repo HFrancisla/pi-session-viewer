@@ -12,7 +12,7 @@
 
 ## 补充观测
 
-`pi-session-viewer.observation` 自定义条目由 Pi appendEntry 追加，字段为 `schemaVersion: 1`、`piVersion`、`anchorEntryId`、`assistantEntryId`，以及可选 `forcedPrompt` 和 `toolSources`（名称与注册来源，null 表示来源未知）。请求钩子读取强制提示词配置与活动工具注册来源；完成回合验证分支锚点、Assistant ID 后记录。多次请求钩子导致关联不明确时放弃该回合；切换会话、分支及回合时清理待关联数据。来源仅首次或变化时记录，重声明及压缩清除旧来源。工具定义行可使用同一分支中其后首个 Assistant 的可靠关联请求来源；反向关联遇到任何更早的 Assistant、对应工具的删除或重声明、压缩边界即停止，不回填历史工具调用。重复或冲突观测不作为来源依据。不存在可靠观测时保持未知。明确空字符串为有效观测。
+`pi-session-viewer.observation` 自定义条目由 Pi appendEntry 追加，字段为 `schemaVersion: 1`、`piVersion`、`anchorEntryId`、`assistantEntryId`，以及可选 `forcedPrompt` 和 `toolSources`（名称与注册来源，null 表示来源未知）。请求钩子读取强制提示词配置与活动工具注册来源；完成回合验证分支锚点、Assistant ID 后记录。自动重试会更新为最后一次实际请求候选，失败或中止的 Turn 不落观测；运行参数一直保留到 Pi 的 `agent_settled`，因为 `agent_end` 后仍可能发生自动重试而不会再次触发 `before_agent_start`。每个成功完成且可关联的请求都追加一条覆盖记录，`toolSources` 仅在来源变化时携带；重声明及压缩清除旧来源。工具定义行可使用同一分支中其后首个 Assistant 的可靠关联请求来源；反向关联遇到任何更早的 Assistant、对应工具的删除或重声明、压缩边界即停止，不回填历史工具调用。重复或冲突观测不作为来源依据。具体工具调用只有在对应 Assistant 存在覆盖观测时才使用来源，避免把更早的最后已知来源误当成未观测请求的事实。不存在可靠观测时保持未知。明确空字符串为有效观测。
 
 不保存请求 payload、请求头、普通提示词或重复工具 schema；观测是中间 Harness 信息，不代表最终 Provider 请求。已存在的其他 Viewer 自定义记录不参与分析，原始树关系不变。
 
