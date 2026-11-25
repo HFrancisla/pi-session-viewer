@@ -18,7 +18,7 @@ export function registerSessionViewerCommand(
       const command = (args ?? '').trim().toLowerCase()
       if (command === 'on' || command === '') {
         try {
-          const panel = await controller.start(ctx.cwd)
+          const panel = await controller.start(ctx.cwd, ctx.sessionManager.getSessionDir())
           ctx.ui.notify(`Viewer started at: ${panel.url}`, 'info')
         } catch (error) {
           ctx.ui.notify(`Failed to start viewer: ${errorMessage(error)}`, 'error')

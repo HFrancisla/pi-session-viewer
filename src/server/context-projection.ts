@@ -18,9 +18,6 @@ interface PiContextApi {
 /** Entry types whose projection can be empty purely because a context edit removed them. */
 const CONTEXT_PRODUCING_TYPES = new Set(['message', 'custom_message'])
 
-/** Bounds how many branches are projected per request. */
-const MAX_PROJECTED_LEAVES = 8
-
 let cachedApi: Promise<PiContextApi | undefined> | undefined
 
 /**
@@ -111,15 +108,15 @@ export async function computeContextProjections(
   // context decision), so the projection stays Pi's job.
   const parsed = parseSessionJsonl(content, sourceName)
   const leafIds = parsed.branches.map((branch) => branch.leafId)
-  const cappedLeaves = leafIds.slice(0, MAX_PROJECTED_LEAVES)
-  if (parsed.currentLeafId && !cappedLeaves.includes(parsed.currentLeafId)) {
-    cappedLeaves.unshift(parsed.currentLeafId)
-  }
+  // Projection is branch-relative. Every branch exposed by the Viewer must have
+  // a Pi-native projection; silently capping the list makes later branches look
+  // as if context information were known-empty.
+  const projectedLeaves = leafIds
 
   const piVersion = resolvePiVersion()
   const projections: Record<string, ContextProjection> = Object.create(null)
 
-  for (const leafId of cappedLeaves) {
+  for (const leafId of projectedLeaves) {
     let projection
     try {
       projection = api.buildSessionProjection(entries, leafId)

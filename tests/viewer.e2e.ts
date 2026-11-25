@@ -325,7 +325,7 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   await expect(markedRows.filter({ hasText: '当前分支回复' })).toHaveCount(0)
   // Turn header and branch bar report the native persisted context projection.
   await expect(page.locator('.turn-context-note')).toHaveCount(1)
-  await expect(page.locator('.branch-bar .context-summary')).toContainText('5 projected messages')
+  await expect(page.locator('.branch-bar .context-summary')).toContainText('5 messages, 1 excluded')
 
   // Switching to the branch that still reaches that entry drops the marks.
   await page.locator('#branch-select').selectOption({ label: '旧尝试' })

@@ -133,7 +133,7 @@ describe('production session HTTP server security', () => {
     expect(response.headers.get('access-control-allow-origin')).toBeNull()
   })
 
-  it('lists only valid Pi sessions and excludes event and subagent sidecars', async () => {
+  it('lists valid Pi sessions regardless of filename and excludes explicit sidecars', async () => {
     const session = '{"type":"session","version":3,"id":"session-1","timestamp":"2026-01-01T10:00:00.000Z","cwd":"/work/demo"}\n'
     const server = await createServerWithSessions({
       'nested/session.jsonl': session,
@@ -149,7 +149,7 @@ describe('production session HTTP server security', () => {
     const payload = await response.json() as { sessions: Array<{ relativePath: string }> }
 
     expect(response.status).toBe(200)
-    expect(payload.sessions.map((item) => item.relativePath)).toEqual(['nested/session.jsonl'])
+    expect(payload.sessions.map((item) => item.relativePath).sort()).toEqual(['nested/run_transcript.jsonl', 'nested/session.jsonl'])
   })
 
   it('lists the same standalone Sessions as browser aggregation', async () => {
@@ -186,6 +186,8 @@ describe('production session HTTP server security', () => {
     const payload = await response.json() as SessionListResponse
     const expected = [
       'plain.jsonl',
+      'child-id.jsonl',
+      'parent/child.jsonl',
       'project/run-notes/session.jsonl',
       'run-0/session.jsonl',
       'project/run-0/session.jsonl',

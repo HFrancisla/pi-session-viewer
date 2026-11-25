@@ -23,7 +23,7 @@ export interface ServerControllerOptions {
 }
 
 export interface ServerController {
-  start(cwd?: string): Promise<SessionViewerPanel>
+  start(cwd?: string, sessionRoot?: string): Promise<SessionViewerPanel>
   stop(): Promise<void>
   getState(): ServerControllerState
 }
@@ -50,6 +50,7 @@ export function createServerController(options: ServerControllerOptions): Server
   let server: SessionHttpServer | undefined
   let panel: SessionViewerPanel | undefined
   let serverCwd: string | undefined
+  let serverRoot: string | undefined
   let activeCwd = options.currentCwd
   let startPromise: Promise<SessionViewerPanel> | undefined
   let stopPromise: Promise<void> | undefined
@@ -59,14 +60,25 @@ export function createServerController(options: ServerControllerOptions): Server
     server = undefined
     panel = undefined
     serverCwd = undefined
+    serverRoot = undefined
     if (!activeServer) return
     await activeServer.close()
   }
 
-  const start = async (cwd?: string): Promise<SessionViewerPanel> => {
+  const start = async (cwd?: string, sessionRoot?: string): Promise<SessionViewerPanel> => {
     if (cwd) activeCwd = cwd
-    if (panel && state === 'running' && server) return panelFromServer(server, activeCwd, serverCwd)
-    if (startPromise) return startPromise
+    const requestedRoot = sessionRoot ?? options.sessionRoot
+    if (panel && state === 'running' && server) {
+      if (serverRoot === requestedRoot) return panelFromServer(server, activeCwd, serverCwd)
+      await stopRunningServer()
+      state = 'stopped'
+    }
+    if (startPromise) {
+      const started = await startPromise
+      if (serverRoot === requestedRoot) return started
+      await stopRunningServer()
+      state = 'stopped'
+    }
     if (stopPromise) await stopPromise
 
     state = 'starting'
@@ -74,7 +86,7 @@ export function createServerController(options: ServerControllerOptions): Server
       try {
         const serverCwdAtStart = activeCwd
         const started = await startServer({
-          sessionRoot: options.sessionRoot,
+          sessionRoot: requestedRoot,
           webRoot: options.webRoot,
           token: createToken(),
           host: options.host,
@@ -84,6 +96,7 @@ export function createServerController(options: ServerControllerOptions): Server
         })
         server = started
         serverCwd = serverCwdAtStart
+        serverRoot = requestedRoot
         panel = panelFromServer(started, activeCwd, serverCwd)
         state = 'running'
         if (options.openBrowser) {

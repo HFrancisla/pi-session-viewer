@@ -7,9 +7,10 @@ interface RegisteredCommand {
   handler: (args: string, context: unknown) => Promise<void>
 }
 
-function commandContext(notifications: string[], cwd?: string): unknown {
+function commandContext(notifications: string[], cwd?: string, sessionDir = '/runtime/pi-sessions'): unknown {
   return {
     cwd,
+    sessionManager: { getSessionDir: () => sessionDir },
     ui: {
       notify: (message: string) => notifications.push(message),
     },
@@ -23,12 +24,14 @@ describe('/session-viewer command', () => {
     const cwd = '/home/hzf/workspace/projects-dev/pi-extensions-mine/pi-session-viewer'
     const token = 'a'.repeat(43)
     let serverCwd: string | undefined
+    let serverRoot: string | undefined
     const controller = createServerController({
       sessionRoot: '/tmp/pi-sessions',
       webRoot: '/tmp/pi-web',
       createToken: () => token,
       startServer: async (options) => {
         serverCwd = options.currentCwd
+        serverRoot = options.sessionRoot
         return {
           host: '127.0.0.1',
           port: 43210,
@@ -45,6 +48,7 @@ describe('/session-viewer command', () => {
     await registrations.get('session-viewer')?.handler('on', commandContext(notifications, cwd))
 
     expect(serverCwd).toBe(cwd)
+    expect(serverRoot).toBe('/runtime/pi-sessions')
     expect(notifications).toEqual([`Viewer started at: http://127.0.0.1:43210/#token=${token}`])
     expect(notifications[0].length).toBeLessThanOrEqual(100)
   })

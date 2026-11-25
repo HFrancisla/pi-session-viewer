@@ -6,6 +6,7 @@ import { normalizePath } from '../src/core/path'
 import {
   buildProjectSummaries,
   disambiguateProjectNames,
+  configuredSessionRoot,
   discoverSessionCatalog,
 } from '../src/server/session-discovery'
 import type { SessionListItem } from '../src/core/types'
@@ -58,6 +59,14 @@ describe('SessionCatalogDiscovery at Filesystem Seam', () => {
     })
   })
 
+
+  describe('configuredSessionRoot', () => {
+    it('follows Pi agent-dir and explicit session-dir environment precedence', () => {
+      expect(configuredSessionRoot({ PI_CODING_AGENT_SESSION_DIR: '/tmp/pi-sessions' })).toBe('/tmp/pi-sessions')
+      expect(configuredSessionRoot({ PI_CODING_AGENT_DIR: '/tmp/pi-agent' })).toBe('/tmp/pi-agent/sessions')
+    })
+  })
+
   describe('buildProjectSummaries', () => {
     const mockSessions: SessionListItem[] = [
       {
@@ -104,6 +113,20 @@ describe('SessionCatalogDiscovery at Filesystem Seam', () => {
   })
 
   describe('discoverSessionCatalog filesystem traversal', () => {
+    it('reads a late session_info title beyond the catalog prefix', async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), 'pi-session-title-test-'))
+      directories.push(root)
+      const file = path.join(root, 'large.jsonl')
+      const headerLine = piSessionHeader('large', '2026-01-01T10:00:00.000Z', '/work/demo')
+      const user = JSON.stringify({ type: 'message', id: 'u1', parentId: null, timestamp: '2026-01-01T10:00:01.000Z', message: { role: 'user', content: 'Fallback title' } })
+      const filler = JSON.stringify({ type: 'custom', id: 'fill', parentId: 'u1', timestamp: '2026-01-01T10:00:02.000Z', customType: 'filler', data: 'x'.repeat(300_000) })
+      const info = JSON.stringify({ type: 'session_info', id: 'info', parentId: 'fill', timestamp: '2026-01-01T10:00:03.000Z', name: 'Late title' })
+      await writeFile(file, [headerLine, user, filler, info].join('\n') + '\n')
+
+      const result = await discoverSessionCatalog(root)
+      expect(result.sessions[0]?.title).toBe('Late title')
+    })
+
     it('discovers top-level sessions, excludes subagents/mirrors, and pre-groups catalog', async () => {
       const root = await mkdtemp(path.join(os.tmpdir(), 'pi-session-catalog-test-'))
       directories.push(root)
@@ -120,6 +143,7 @@ describe('SessionCatalogDiscovery at Filesystem Seam', () => {
       await writeSession('repo-a/session-2.jsonl', 's2', '/work/repo-a/server')
       await writeSession('repo-b/session-3.jsonl', 's3', '/work/repo-b/server')
       await writeSession('repo-c/session-4.jsonl', 's4', '/work/client')
+      await writeSession('repo-a/forked.jsonl', 'forked', '/work/repo-a/server', { parentSession: '/tmp/source.jsonl' })
 
       // Subagent / excluded sessions
       await writeSession('subagent-artifacts/child.jsonl', 'sub-1', '/work/repo-a/server', { parentSession: 's1' })
@@ -130,14 +154,14 @@ describe('SessionCatalogDiscovery at Filesystem Seam', () => {
 
       const result = await discoverSessionCatalog(root, '/work/repo-b/server')
 
-      expect(result.sessions.map((s) => s.id).sort()).toEqual(['s1', 's2', 's3', 's4'])
+      expect(result.sessions.map((s) => s.id).sort()).toEqual(['forked', 'mirror', 's1', 's2', 's3', 's4'])
       expect(result.projects).toHaveLength(3)
 
       const repoA = result.projects.find((p) => p.cwd === '/work/repo-a/server')
       const repoB = result.projects.find((p) => p.cwd === '/work/repo-b/server')
       const client = result.projects.find((p) => p.cwd === '/work/client')
 
-      expect(repoA?.count).toBe(2)
+      expect(repoA?.count).toBe(4)
       expect(repoA?.name).toBe('repo-a/server')
       expect(repoB?.count).toBe(1)
       expect(repoB?.name).toBe('repo-b/server')
@@ -152,7 +176,7 @@ describe('SessionCatalogDiscovery at Filesystem Seam', () => {
       expect(result.initialSessionToken).toBe(result.sessions.find((s) => s.id === 's3')?.token)
 
       const nested = await discoverSessionCatalog(path.join(root, 'repo-a'))
-      expect(nested.sessions.map((s) => s.relativePath).sort()).toEqual(['session-1.jsonl', 'session-2.jsonl'])
+      expect(nested.sessions.map((s) => s.relativePath).sort()).toEqual(['forked.jsonl', 'run_transcript.jsonl', 'session-1.jsonl', 'session-2.jsonl'])
       expect(nested.sessions.every((s) => s.projectName === 'server')).toBe(true)
       expect(result.sessions.find((s) => s.id === 's1')?.projectName).toBe('repo-a/server')
       const refreshed = await discoverSessionCatalog(root)

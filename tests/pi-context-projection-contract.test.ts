@@ -131,6 +131,22 @@ describe('context projection: fixture sessions', () => {
     expect(referenceExcluded).toEqual([])
   })
 
+  it('projects every exposed branch instead of dropping branches after an arbitrary cap', async () => {
+    const lines: unknown[] = [
+      { type: 'session', version: 3, id: 'many-branches', timestamp: '2026-01-01T10:00:00.000Z', cwd: '/work/demo' },
+      { type: 'message', id: 'root', parentId: null, timestamp: '2026-01-01T10:00:01.000Z', message: { role: 'user', timestamp: 1767261601000, content: 'root' } },
+    ]
+    for (let i = 0; i < 12; i += 1) {
+      lines.push({ type: 'message', id: `leaf-${i}`, parentId: 'root', timestamp: `2026-01-01T10:00:${String(i + 2).padStart(2, '0')}.000Z`, message: { role: 'assistant', timestamp: 1767261602000 + i, stopReason: 'stop', provider: 'demo', model: 'm', content: [{ type: 'text', text: String(i) }] } })
+    }
+    const content = lines.map(line => JSON.stringify(line)).join('\n')
+    const parsed = parseSessionJsonl(content, 'many')
+    const projections = await computeContextProjections(content, 'many')
+
+    expect(parsed.branches.length).toBeGreaterThan(8)
+    expect(Object.keys(projections ?? {}).sort()).toEqual(parsed.branches.map(branch => branch.leafId).sort())
+  })
+
   it('is branch relative: the same entry is omitted on one branch only', async () => {
     // demo/demo.jsonl omits `assistant` on its current branch; the older branch
     // still reaches that entry, so it must not be marked there.

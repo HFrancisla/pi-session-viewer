@@ -89,6 +89,29 @@ describe('session viewer server controller', () => {
     expect(second).toBe(first)
   })
 
+
+  it('restarts on the exact runtime session directory when Pi changes storage root', async () => {
+    const roots: string[] = []
+    let closeCount = 0
+    const controller = createServerController({
+      sessionRoot: '/fallback',
+      webRoot: '/tmp/pi-web',
+      startServer: async (options) => {
+        roots.push(options.sessionRoot)
+        return {
+          host: '127.0.0.1', port: 43129, token: options.token,
+          url: 'http://127.0.0.1:43129', close: async () => { closeCount += 1 },
+        }
+      },
+    })
+
+    await controller.start('/workspace/demo', '/runtime/one')
+    await controller.start('/workspace/demo', '/runtime/two')
+
+    expect(roots).toEqual(['/runtime/one', '/runtime/two'])
+    expect(closeCount).toBe(1)
+  })
+
   it('closes the running listener once and makes repeated stops harmless', async () => {
     let closeCount = 0
     const fakeServer: SessionHttpServer = {

@@ -194,13 +194,7 @@ export function parseSessionJsonl(content: string, sourceName = 'Local file'): P
   }
 }
 
-export function getSessionTitle(session: ParsedSession): string {
-  let name: string | undefined
-  for (let index = session.entries.length - 1; index >= 0 && !name; index -= 1) {
-    const entry = session.entries[index]
-    if (entry.type === 'session_info') name = stringValue(entry.raw.name)
-  }
-  if (name) return name
+export function getSessionFallbackTitle(session: ParsedSession): string {
   // The first user message on the current branch, read from the entry list. A
   // title is shown on every render, so it must not build the whole view: that
   // turned each render into O(session) work on multi-megabyte sessions.
@@ -212,4 +206,17 @@ export function getSessionTitle(session: ParsedSession): string {
     return truncate(contentText(message.content))
   }
   return session.sourceName
+}
+
+export function getSessionTitle(session: ParsedSession): string {
+  // Pi's getSessionName() uses the latest session_info entry only. An empty name
+  // explicitly clears an older title, so we must stop at the first entry rather
+  // than keep searching for an earlier non-empty name.
+  for (let index = session.entries.length - 1; index >= 0; index -= 1) {
+    const entry = session.entries[index]
+    if (entry.type !== 'session_info') continue
+    const name = typeof entry.raw.name === 'string' ? entry.raw.name.trim() : ''
+    return name || getSessionFallbackTitle(session)
+  }
+  return getSessionFallbackTitle(session)
 }

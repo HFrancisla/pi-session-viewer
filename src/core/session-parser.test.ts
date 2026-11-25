@@ -149,6 +149,16 @@ describe('getSessionTitle', () => {
     expect(getSessionTitle(parseSessionJsonl(source))).toBe('构建诊断')
   })
 
+  it('treats the latest empty session_info as an explicit title clear', () => {
+    const source = jsonl(
+      header,
+      { type: 'session_info', id: 'old-info', parentId: null, timestamp: '2026-01-01T10:00:00.500Z', name: 'Old title' },
+      entry('u1', 'old-info', '2026-01-01T10:00:01.000Z', { role: 'user', content: 'Fallback prompt' }),
+      { type: 'session_info', id: 'clear-info', parentId: 'u1', timestamp: '2026-01-01T10:00:02.000Z', name: '' },
+    )
+    expect(getSessionTitle(parseSessionJsonl(source))).toBe('Fallback prompt')
+  })
+
   it('uses first user message on current branch when session_info is absent', () => {
     const source = jsonl(
       header,

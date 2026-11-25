@@ -1,7 +1,8 @@
-import { promises as fs, readFileSync } from 'node:fs'
+import { createReadStream, promises as fs, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { getSessionTitle, parseSessionJsonl } from '../core/session-parser'
+import { createInterface } from 'node:readline'
+import { getSessionFallbackTitle, getSessionTitle, parseSessionJsonl } from '../core/session-parser'
 import { subagentTargetCandidates } from '../core/subagent-detector'
 import type {
   ProjectSummary,
@@ -43,13 +44,13 @@ function isRunnableSubagentSession(segments: string[]): boolean {
 function isSessionCatalogPathMember(relativePath: string): boolean {
   const segments = sessionPathSegments(relativePath)
   if (hasSubagentPathSegment(segments)) return false
-  if (segments.at(-1)?.endsWith('_transcript.jsonl')) return false
   return !isRunnableSubagentSession(segments)
 }
 
 function isSessionCatalogMember(session: SessionListItem): boolean {
-  if (session.parentSession?.trim()) return false
-  if (session.id.toLowerCase().startsWith('subagent-')) return false
+  // Pi permits arbitrary Session ids and uses parentSession for ordinary
+  // fork/clone sessions. Neither is a valid subagent discriminator; only path
+  // structures owned by the subagent workflow are excluded from the catalog.
   return isSessionCatalogPathMember(session.relativePath)
 }
 
@@ -146,8 +147,11 @@ export function configuredSessionRoot(env: NodeJS.ProcessEnv = process.env): str
   if (env.PI_CODING_AGENT_SESSION_DIR) {
     return path.resolve(expandHome(env.PI_CODING_AGENT_SESSION_DIR))
   }
+  const agentDir = env.PI_CODING_AGENT_DIR
+    ? path.resolve(expandHome(env.PI_CODING_AGENT_DIR))
+    : path.join(os.homedir(), '.pi', 'agent')
   try {
-    const settingsPath = path.join(os.homedir(), '.pi', 'agent', 'settings.json')
+    const settingsPath = path.join(agentDir, 'settings.json')
     const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as { sessionDir?: unknown }
     if (typeof settings.sessionDir === 'string' && settings.sessionDir.trim()) {
       return path.resolve(expandHome(settings.sessionDir))
@@ -155,7 +159,7 @@ export function configuredSessionRoot(env: NodeJS.ProcessEnv = process.env): str
   } catch {
     // Missing or malformed settings fall back to Pi's default location.
   }
-  return path.join(os.homedir(), '.pi', 'agent', 'sessions')
+  return path.join(agentDir, 'sessions')
 }
 
 function isSessionCandidate(entry: import('node:fs').Dirent, name: string): boolean {
@@ -202,6 +206,31 @@ async function readPrefix(filePath: string, limit = SESSION_PREFIX_LIMIT): Promi
   }
 }
 
+
+async function readLatestSessionName(filePath: string, size: number): Promise<{ seen: boolean; name?: string }> {
+  if (size <= SESSION_PREFIX_LIMIT) return { seen: false }
+  let seen = false
+  let name: string | undefined
+  const stream = createReadStream(filePath, { encoding: 'utf8' })
+  try {
+    const lines = createInterface({ input: stream, crlfDelay: Infinity })
+    for await (const line of lines) {
+      if (!line.includes('session_info')) continue
+      try {
+        const entry = JSON.parse(line) as Record<string, unknown>
+        if (entry.type !== 'session_info') continue
+        seen = true
+        name = typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : undefined
+      } catch {
+        // A malformed unrelated line cannot define Pi session metadata.
+      }
+    }
+  } finally {
+    stream.destroy()
+  }
+  return { seen, name }
+}
+
 async function sessionMetadata(root: string, filePath: string): Promise<SessionListItem | null> {
   // Stat first: the cache key is the file's identity, so an unchanged file costs
   // one syscall instead of a 256 KB read and parse.
@@ -238,7 +267,11 @@ async function readSessionMetadata(
     if (!isSessionCatalogMember(item)) return null
 
     const parsed = parseSessionJsonl(prefix, path.basename(filePath))
-    return { ...item, title: getSessionTitle(parsed) }
+    const latestName = await readLatestSessionName(filePath, stat.size)
+    const title = latestName.seen
+      ? latestName.name ?? getSessionFallbackTitle(parsed)
+      : getSessionTitle(parsed)
+    return { ...item, title }
   } catch {
     return null
   }
