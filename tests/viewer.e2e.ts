@@ -374,9 +374,9 @@ test('browses a Pi session end to end on desktop', async ({ page }) => {
   await expect(definitionsRow).toHaveCount(1)
   await definitionsRow.click()
   await expect(inspector.locator('[role="tab"]')).toHaveText(['Overview', 'Content', 'Raw'])
-  await expect(inspector.locator('.tool-definitions-view .inspector-section')).toHaveCount(1)
-  await expect(inspector.locator('.tool-definitions-view pre')).toContainText('"command"')
-  await expect(inspector.locator('.tool-source-badge--unknown')).toHaveCount(1)
+  await expect(inspector.locator('.tool-definitions-view .inspector-section')).toHaveCount(2)
+  await expect(inspector.locator('.tool-definitions-view pre').first()).toContainText('"command"')
+  await expect(inspector.locator('.tool-source-badge--unknown')).toHaveCount(2)
 
   const testCall = page.locator('.event--tool-call').filter({ hasText: 'npm test' })
   await testCall.click()

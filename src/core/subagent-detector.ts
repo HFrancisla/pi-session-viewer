@@ -119,6 +119,10 @@ function createReferenceFromItem(
   fallbackRunId?: string,
 ): SubagentReference | undefined {
   const isSubagentTool = Boolean(toolName && SUBAGENT_TOOL_REGEX.test(toolName))
+  // Generic tools can legitimately return objects containing `sessionPath`,
+  // `sessionFile`, or `targetFile`. Those fields are not evidence of delegation;
+  // only a known subagent-like tool invocation may create a child-session link.
+  if (!isSubagentTool) return undefined
 
   let rawFile = stringValue(item.sessionFile)
     ?? stringValue(item.sessionPath)

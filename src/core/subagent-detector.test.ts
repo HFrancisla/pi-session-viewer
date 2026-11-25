@@ -55,6 +55,16 @@ describe('subagent-detector', () => {
     expect(ref).toBeUndefined()
   })
 
+  it('does not treat generic session-looking fields from an unrelated tool as a subagent', () => {
+    const ref = extractSubagentReference(
+      'read_file',
+      { path: 'metadata.json' },
+      JSON.stringify({ sessionPath: 'subagent-artifacts/not-a-child.jsonl', agent: 'incidental' }),
+      { sessionFile: 'subagent-artifacts/also-not-a-child.jsonl' },
+    )
+    expect(ref).toBeUndefined()
+  })
+
   it('detects subagent from message.details results with absolute sessionFile', () => {
     const ref = extractSubagentReference(
       'subagent',
