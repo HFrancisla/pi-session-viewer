@@ -1,6 +1,34 @@
+# Dependencies and build output
 node_modules/
 dist/
+*.tsbuildinfo
+
+# Test output and caches
 test-results/
 playwright-report/
-.DS_Store
+playwright/.cache/
+coverage/
 .vitest/
+.vite/
+.cache/
+.npm/
+.eslintcache
+
+# Local environment and secrets (keep shareable examples)
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local
+
+# Temporary files and logs
+tmp/
+temp/
+.tmp/
+logs/
+*.log
+*.tmp
+*.swp
+*.swo
+*.tgz
+.DS_Store
