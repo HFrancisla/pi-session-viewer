@@ -14,6 +14,7 @@ import { extractSubagentReferences, normalizeSessionRelativePath, subagentRefere
 import { getPath } from './session-parser'
 import { collectToolDefinitionSources, replayBranchState } from './native-state'
 import { getSystemMessageText } from '@earendil-works/pi-ai/utils/text'
+import type { Usage } from '@earendil-works/pi-ai'
 import { isViewerRecord } from './observation'
 import { sanitizeToolForApi } from './tool-provenance'
 
@@ -50,6 +51,39 @@ function contentText(content: unknown): string {
 
 function durationValue(value: RawObject): number | undefined {
   return typeof value.durationMs === 'number' && Number.isFinite(value.durationMs) ? value.durationMs : undefined
+}
+
+function usageValue(value: unknown): Usage | undefined {
+  if (!isObject(value)) return undefined
+  const number = (candidate: unknown): number | undefined =>
+    typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : undefined
+  const input = number(value.input)
+  const output = number(value.output)
+  const cacheRead = number(value.cacheRead)
+  const cacheWrite = number(value.cacheWrite)
+  if (input === undefined || output === undefined || cacheRead === undefined || cacheWrite === undefined) return undefined
+  const cost = isObject(value.cost) ? value.cost : undefined
+  if (!cost) return undefined
+  const costInput = number(cost.input) ?? 0
+  const costOutput = number(cost.output) ?? 0
+  const costCacheRead = number(cost.cacheRead) ?? 0
+  const costCacheWrite = number(cost.cacheWrite) ?? 0
+  const componentTokens = input + output + cacheRead + cacheWrite
+  const componentCost = costInput + costOutput + costCacheRead + costCacheWrite
+  return {
+    input, output, cacheRead, cacheWrite,
+    ...(number(value.cacheWrite1h) !== undefined ? { cacheWrite1h: number(value.cacheWrite1h) } : {}),
+    ...(number(value.reasoning) !== undefined ? { reasoning: number(value.reasoning) } : {}),
+    totalTokens: number(value.totalTokens) ?? componentTokens,
+    cost: {
+      input: costInput,
+      output: costOutput,
+      cacheRead: costCacheRead,
+      cacheWrite: costCacheWrite,
+      total: number(cost.total) ?? componentCost,
+      ...(cost.totalFromProvider === true ? { totalFromProvider: true } : {}),
+    },
+  }
 }
 
 function piSystemContextEvent(
@@ -108,7 +142,7 @@ function messageEvents(entry: ParsedEntry, sourceName?: string, isInitialSystemM
     return [{
       id: `${entry.id}:result`, entryId: entry.id, kind: 'tool-result',
       title: `${toolName} ${isError ? 'failed' : 'result'}`, summary: truncate(content), content,
-      timestamp, durationMs: durationValue(message), toolCallId: stringValue(message.toolCallId), toolName,
+      timestamp, durationMs: durationValue(message), usage: usageValue(message.usage), toolCallId: stringValue(message.toolCallId), toolName,
       isError, subagent, subagents: subagents.length > 1 ? subagents : undefined, raw: entry.raw,
     }]
   }
@@ -184,6 +218,8 @@ function messageEvents(entry: ParsedEntry, sourceName?: string, isInitialSystemM
       content: '', timestamp, durationMs: durationValue(message), model, raw: entry.raw,
     })
   }
+  const usage = usageValue(message.usage)
+  if (usage) for (const event of events) event.usage = usage
   return events
 }
 
@@ -258,7 +294,7 @@ function systemEvents(entry: ParsedEntry): TimelineEvent[] {
 
   return [{
     id: `${entry.id}:system`, entryId: entry.id, kind: entry.type === 'compaction' ? 'system-prompt' : 'system', title: labels[entry.type] ?? `Unknown event: ${entry.type}`,
-    summary: truncate(content), content, timestamp: entry.timestamp, durationMs: durationValue(raw), model, raw,
+    summary: truncate(content), content, timestamp: entry.timestamp, durationMs: durationValue(raw), usage: usageValue(raw.usage), model, raw,
   }]
 }
 
@@ -595,11 +631,14 @@ export function buildSessionView(
     for (const row of rows) {
       row.persistedState = state
       row.observation = position?.observation
-      row.toolSources = position?.sources
+      // Provenance on a concrete request is only shown when this Assistant has
+      // a Viewer coverage observation. The source map may contain an older
+      // last-known value across periods where the extension was not running.
+      row.toolSources = position?.observation ? position.sources : undefined
       row.toolDefinitionsEntryId = toolDefinitionsEntryId
       if (row.kind === 'tool-call' && row.toolName) {
         const tool = state?.message.toolsAdded?.find(tool => tool.name === row.toolName)
-        const sourceInfo = position?.sources?.get(row.toolName)
+        const sourceInfo = position?.observation ? position.sources?.get(row.toolName) : undefined
         if (tool) row.toolDefinition = { ...tool, ...(sourceInfo ? { sourceInfo } : {}) }
       }
     }
@@ -634,7 +673,10 @@ export function buildSessionView(
     : undefined
 
   const stats: SessionStats = {
-    entryCount: session.entries.length,
+    // The summary describes the selected branch, not the whole JSONL tree.
+    // Viewer coverage records are hidden implementation metadata and are not
+    // counted as user-visible Pi session entries.
+    entryCount: branchEntries.filter((entry) => !isViewerRecord(entry.raw)).length,
     turnCount: turns.filter((turn) => turn.index > 0).length,
     startedAt,
     endedAt,

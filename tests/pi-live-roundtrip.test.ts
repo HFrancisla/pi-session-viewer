@@ -221,12 +221,14 @@ export default function(pi) {
     const content = await readFile(path.join(sessionDirectory, sessionFiles[0]), 'utf8')
     const entries = content.trim().split('\n').map((line) => JSON.parse(line) as Record<string, any>)
     const captures = entries.filter(entry => entry.customType === 'pi-session-viewer.observation')
-    expect(captures).toHaveLength(withViewer ? 1 : 0)
     if (withViewer) {
-    expect(captures[0].data).toMatchObject({ schemaVersion: 1, piVersion: PI_VERSION })
-    expect(captures[0].data.toolSources.some((tool: { name: string }) => tool.name === 'bash')).toBe(true)
-    expect(Object.keys(captures[0].data).sort()).toEqual(['anchorEntryId','assistantEntryId','piVersion','schemaVersion','toolSources'])
-    expect(entries.find(entry => entry.id === captures[0].data.assistantEntryId)?.message.role).toBe('assistant')
+      expect(captures.length).toBeGreaterThanOrEqual(3)
+      const sourceCapture = captures.find(entry => entry.data.toolSources?.some((tool: { name: string }) => tool.name === 'bash'))
+      expect(sourceCapture?.data).toMatchObject({ schemaVersion: 1, piVersion: PI_VERSION })
+      expect(entries.find(entry => entry.id === sourceCapture?.data.assistantEntryId)?.message.role).toBe('assistant')
+      expect(captures.every(entry => entries.find(candidate => candidate.id === entry.data.assistantEntryId)?.message.role === 'assistant')).toBe(true)
+    } else {
+      expect(captures).toHaveLength(0)
     }
     expect(entries.some((entry) => entry.message?.role === 'toolResult'
       && JSON.stringify(entry.message.content).includes('viewer_tool_ok'))).toBe(true)
@@ -245,7 +247,7 @@ export default function(pi) {
     const declaredBash = definitions?.toolDefinitions?.find(tool => tool.name === 'bash')
     expect(declaredBash).toBeDefined()
     if (withViewer) {
-      const observed = captures[0].data.toolSources.find((tool: { name: string }) => tool.name === 'bash').sourceInfo
+      const observed = captures.find(entry => entry.data.toolSources?.some((tool: { name: string }) => tool.name === 'bash'))!.data.toolSources.find((tool: { name: string }) => tool.name === 'bash').sourceInfo
       expect(declaredBash?.sourceInfo).toEqual(observed)
       expect(view.events.find(event => event.id === toolCall?.pairedEventId)?.toolDefinition?.sourceInfo).toEqual(observed)
     } else {
@@ -281,7 +283,7 @@ export default function(pi) {
     const resumedEntries = (await readFile(path.join(sessionDirectory, sessionFiles[0]), 'utf8'))
       .trim().split('\n').map((line) => JSON.parse(line) as Record<string, any>)
     const resumedCaptures = resumedEntries.filter(entry => entry.customType === 'pi-session-viewer.observation')
-    expect(resumedCaptures).toHaveLength(1)
+    expect(resumedCaptures.length).toBeGreaterThan(captures.length)
     expect(requests).toHaveLength(5)
     expect(requests[4].messages?.some((message) =>
       message.role === 'user' && JSON.stringify(message.content).includes('Fourth user message'))).toBe(true)
@@ -320,9 +322,9 @@ export default function(pi) {
     await submitTurn('after-retry', 'Normal after retry')
     const afterRetry = buildSessionView(parseSessionJsonl(await readFile(path.join(sessionDirectory, sessionFiles[0]), 'utf8')))
     expect(afterRetry.events.at(-1)?.observation?.forcedPrompt).toBeUndefined()
-    for (const event of afterRetry.events.filter(event => event.observation?.forcedPrompt === 'Retry request override')) {
-      expect(event.observation?.assistantEntryId).toBe(event.entryId)
-    }
+    const retryOverrides = afterRetry.events.filter(event => event.observation?.forcedPrompt === 'Retry request override')
+    expect(retryOverrides).toHaveLength(1)
+    expect(retryOverrides[0].observation?.assistantEntryId).toBe(retryOverrides[0].entryId)
 
     // 从首次用户消息分叉，旧分支的强制覆盖与工具来源观测不能进入新分支。
     const firstUser = entries.find(entry => entry.message?.role === 'user')

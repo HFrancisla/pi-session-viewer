@@ -76,6 +76,41 @@ describe('buildSessionView', () => {
 
   })
 
+  it('counts only native entries on the selected branch and excludes Viewer coverage records', () => {
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', content: 'root' }),
+      entry('a1', 'u1', '2026-01-01T10:00:02.000Z', { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'root answer' }] }),
+      { type: 'custom', id: 'obs', parentId: 'a1', timestamp: '2026-01-01T10:00:02.100Z', customType: 'pi-session-viewer.observation', data: { schemaVersion: 1, piVersion: '1.6.0', anchorEntryId: 'u1', assistantEntryId: 'a1' } },
+      entry('u2', 'obs', '2026-01-01T10:00:03.000Z', { role: 'user', content: 'main' }),
+      entry('a2', 'u2', '2026-01-01T10:00:04.000Z', { role: 'assistant', content: [{ type: 'text', text: 'main answer' }] }),
+      entry('branch', 'a1', '2026-01-01T10:00:03.500Z', { role: 'user', content: 'branch' }),
+    )
+
+    const session = parseSessionJsonl(source, 'fixture.jsonl')
+    expect(buildSessionView(session, 'a2').stats.entryCount).toBe(4)
+    expect(buildSessionView(session, 'branch').stats.entryCount).toBe(3)
+  })
+
+  it('exposes Pi-native usage instead of inventing per-message token counts', () => {
+    const usage = {
+      input: 120, output: 30, cacheRead: 400, cacheWrite: 20, totalTokens: 570,
+      cost: { input: 0.001, output: 0.002, cacheRead: 0.003, cacheWrite: 0.004, total: 0.01 },
+    }
+    const source = jsonl(
+      header,
+      entry('u1', null, '2026-01-01T10:00:01.000Z', { role: 'user', content: 'go' }),
+      entry('a1', 'u1', '2026-01-01T10:00:02.000Z', {
+        role: 'assistant', stopReason: 'stop', usage,
+        content: [{ type: 'thinking', thinking: 'plan' }, { type: 'text', text: 'done' }],
+      }),
+      { type: 'usage', id: 'warm', parentId: 'a1', timestamp: '2026-01-01T10:00:03.000Z', kind: 'cache_warm', provider: 'demo', model: 'm', usage },
+    )
+    const view = buildSessionView(parseSessionJsonl(source, 'fixture.jsonl'), 'warm')
+    expect(view.events.filter(event => event.entryId === 'a1').every(event => event.usage?.totalTokens === 570)).toBe(true)
+    expect(view.events.find(event => event.entryId === 'warm')?.usage?.cost.total).toBe(0.01)
+  })
+
   it('renders native Pi system snapshots and append-only prompt/tool patches', () => {
     const source = jsonl(
       header,

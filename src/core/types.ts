@@ -1,4 +1,4 @@
-import type { SystemMessage } from '@earendil-works/pi-ai'
+import type { SystemMessage, Usage } from '@earendil-works/pi-ai'
 // Shared domain types for the parser, server, and web application.
 export type RawObject = Record<string, unknown>
 
@@ -136,6 +136,8 @@ export interface TimelineEvent {
   content: string
   timestamp?: string
   durationMs?: number
+  /** Native Pi/provider usage attached to the whole persisted message/entry. */
+  usage?: Usage
   gapMs?: number
   toolCallId?: string
   toolName?: string

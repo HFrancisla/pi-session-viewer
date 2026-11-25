@@ -65,7 +65,7 @@ it('仅在关联的 Assistant 及其声明区间使用补充来源，拒绝跨�
   expect(call('a')?.toolDefinition?.sourceInfo).toBeUndefined()
   expect(view.events.find(e=>e.entryId==='s' && e.kind==='tool-definitions')?.toolDefinitions?.[0].sourceInfo).toBeUndefined()
   expect(call('b')?.toolDefinition?.sourceInfo).toEqual(source)
-  expect(call('c')?.toolDefinition?.sourceInfo).toEqual(source)
+  expect(call('c')?.toolDefinition?.sourceInfo).toBeUndefined()
   expect(call('e')?.toolDefinition).toEqual({...tool,description:'two'})
   expect(call('bad')?.toolDefinition?.sourceInfo).toBeUndefined()
   expect(call('f')?.toolDefinition?.sourceInfo).toBeUndefined()

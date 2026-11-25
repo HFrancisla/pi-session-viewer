@@ -164,6 +164,7 @@ function EventOverview({ event }: { event: TimelineEvent }) {
   const totalChars = event.content?.length ?? 0
   const estimatedTokens = Math.ceil(totalChars / 4)
   const isToolDef = event.kind === 'tool-definitions'
+  const usage = event.usage
   const model = event.model
   const callProvenance = event.toolName ? resolveToolProvenance(event.toolDefinition, event.toolName) : undefined
   const callBadgeLabel = callProvenance ? getToolProvenanceLabel(callProvenance, t.inspector.toolProvenance) : ''
@@ -193,7 +194,14 @@ function EventOverview({ event }: { event: TimelineEvent }) {
           ) : (
             <>
               <div><dt>{t.inspector.facts.contentLength}</dt><dd>{t.common.chars(totalChars)}</dd></div>
-              <div><dt>{t.inspector.facts.estimatedTokens}</dt><dd>{t.common.tokens(estimatedTokens)}</dd></div>
+              {usage ? (
+                <>
+                  <div><dt>{t.inspector.facts.recordedUsageTokens}</dt><dd>{t.common.tokens(usage.totalTokens)}</dd></div>
+                  <div><dt>{t.inspector.facts.recordedCost}</dt><dd>${usage.cost.total.toFixed(6)}</dd></div>
+                </>
+              ) : (
+                <div><dt>{t.inspector.facts.estimatedTokens}</dt><dd>{t.common.tokens(estimatedTokens)}</dd></div>
+              )}
             </>
           )}
         </dl>

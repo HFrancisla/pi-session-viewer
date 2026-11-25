@@ -15,19 +15,23 @@ interface PendingRequest {
 export default function registerObservation(pi: ExtensionAPI): void {
   let options: BuildSystemPromptOptions | undefined
   let request: PendingRequest | undefined
-  let requestCount = 0
-  const resetRound = () => { request = undefined; requestCount = 0 }
+  const resetRound = () => { request = undefined }
   const resetSession = () => { resetRound(); options = undefined }
 
   pi.on('session_start', resetSession)
   pi.on('session_tree', resetSession)
   pi.on('before_agent_start', event => { resetRound(); options = event.systemPromptOptions })
   pi.on('turn_start', resetRound)
-  pi.on('agent_end', resetSession)
+  // `agent_end` is not a settlement boundary: Pi may auto-retry immediately
+  // afterwards without another `before_agent_start`. Keep the run options until
+  // `agent_settled`, which Pi emits only after retries/compaction/continuations end.
+  pi.on('agent_settled', resetSession)
   pi.on('before_provider_request', (_event, ctx) => {
-    requestCount++
+    // Retries issue another provider request in the same turn. Keep the latest
+    // request candidate: it is the one a subsequently completed Assistant can
+    // actually correspond to. Failed/aborted turns are discarded at turn_end.
     request = undefined
-    if (requestCount !== 1 || !options) return
+    if (!options) return
     const anchorEntryId = ctx.sessionManager.getLeafId()
     if (!anchorEntryId) return
     const active = new Set(pi.getActiveTools())
@@ -73,7 +77,10 @@ export default function registerObservation(pi: ExtensionAPI): void {
         toolSources.push({ name: tool.name, sourceInfo: current ?? null })
       }
     }
-    if (pending.forcedPrompt === undefined && !toolSources.length) return
+    // Append a lightweight coverage record for every completed observed request,
+    // even when neither forcedPrompt nor tool provenance changed. Without this
+    // marker an old source observation could be mistaken for current evidence
+    // after the Viewer had been unloaded for part of the session.
     const observation: SupplementalObservation = {
       schemaVersion: 1, piVersion, anchorEntryId: pending.anchorEntryId,
       assistantEntryId: event.messageEntryId,

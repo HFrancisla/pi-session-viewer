@@ -16,7 +16,7 @@ describe('Pi package extension entrypoint', () => {
       'session_start',
       'before_agent_start',
       'before_provider_request',
-      'agent_end',
+      'agent_settled',
       'session_shutdown',
     ]))
     expect(commands).toEqual(['session-viewer'])
