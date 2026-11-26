@@ -1,4 +1,5 @@
 import {
+  ChevronDown,
   CornerDownRight,
   Info,
   LocateFixed,
@@ -58,13 +59,14 @@ function InspectorSection({ title, meta, titleHint, children }: {
   children: ReactNode
 }) {
   return (
-    <section className="inspector-section">
-      <header className="inspector-section-header" title={titleHint}>
+    <details className="inspector-section">
+      <summary className="inspector-section-header" title={titleHint}>
+        <ChevronDown size={14} className="inspector-section-arrow" aria-hidden="true" />
         <span className="inspector-section-title">{title}</span>
         {meta != null && <span className="inspector-section-meta">{meta}</span>}
-      </header>
+      </summary>
       {children}
-    </section>
+    </details>
   )
 }
 

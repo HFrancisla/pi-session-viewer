@@ -18,11 +18,13 @@ pi install npm:@hfrancisla/pi-session-viewer
 
 ```text
 /session-viewer       # 启动面板（等同于 on）
-/session-viewer on    # 启动面板并在浏览器中打开
-/session-viewer off   # 关闭面板（补充观测仍继续工作）
+/session-viewer on    # 启动面板，并在编辑器上方固定显示访问地址
+/session-viewer hide  # 仅隐藏地址，不停止面板
+/session-viewer show  # 重新显示地址
+/session-viewer off   # 关闭面板并移除地址（补充观测仍继续工作）
 ```
 
-- 启动面板后会在浏览器中打开带有独立访问令牌的本地仪表盘。
+- 启动面板后会尝试用默认浏览器打开本地面板，并始终在 Pi 编辑器上方固定显示带独立访问令牌的地址作为可靠兜底。
 - 切换会话时（`/new`、`/resume`、`/fork`），需重新执行 `/session-viewer on`。
 - 直接从 Pi 本地存储发现会话，或通过浏览器导入任意 `.jsonl` 会话文件。
 

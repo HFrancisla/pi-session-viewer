@@ -5,6 +5,7 @@ import type { SessionHttpServer } from '../src/server/http-server'
 describe('session viewer server controller', () => {
   it('shares one in-flight start and reuses the same running panel', async () => {
     let startCount = 0
+    const opened: string[] = []
     const fakeServer: SessionHttpServer = {
       host: '127.0.0.1',
       port: 43123,
@@ -17,6 +18,7 @@ describe('session viewer server controller', () => {
       webRoot: '/tmp/pi-web',
       version: '0.1.0',
       createToken: () => 'f'.repeat(64),
+      openBrowser: async (url) => { opened.push(url) },
       startServer: async () => {
         startCount += 1
         await new Promise((resolve) => setTimeout(resolve, 5))
@@ -29,6 +31,7 @@ describe('session viewer server controller', () => {
     expect(startCount).toBe(1)
     expect(first).toBe(second)
     expect(first.url).toBe('http://127.0.0.1:43123/#token=' + 'f'.repeat(64))
+    expect(opened).toEqual([first.url])
   })
 
   it('omits the server current cwd from the link but keeps later cwd overrides', async () => {
@@ -56,6 +59,9 @@ describe('session viewer server controller', () => {
     expect(serverCwd).toBe('/workspace/first')
     expect(first.url).toBe(`http://127.0.0.1:43127/#token=${token}`)
     expect(second.url).toBe(`http://127.0.0.1:43127/#token=${token}&cwd=%2Fworkspace%2Fsecond`)
+    expect(controller.getPanel('/workspace/third')?.url).toBe(
+      `http://127.0.0.1:43127/#token=${token}&cwd=%2Fworkspace%2Fthird`,
+    )
   })
 
   it('keeps a cwd override when a concurrent start changes project during startup', async () => {
@@ -132,6 +138,7 @@ describe('session viewer server controller', () => {
 
     expect(closeCount).toBe(1)
     expect(controller.getState()).toBe('stopped')
+    expect(controller.getPanel()).toBeUndefined()
     await expect(controller.stop()).resolves.toBeUndefined()
   })
 

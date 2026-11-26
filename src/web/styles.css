@@ -59,7 +59,7 @@
   --overlay-shadow: 0 4px 16px rgba(29, 37, 37, .12);
   --header-height: 48px;
   --panel-heading-height: 44px;
-  --sidebar-width: 240px;
+  --sidebar-width: 220px;
   --inspector-width: 384px;
   --event-system-prompt: #8a4f68;
   --event-tool-definitions: #2f6f8f;
@@ -743,7 +743,10 @@ select:hover { border-color: var(--control-border-hover); }
 
 .prompt-composition { padding-bottom: 28px; }
 .inspector-section { border-bottom: 1px solid var(--line); background: var(--paper); }
-.inspector-section-header { min-height: 32px; padding: 8px 16px; display: flex; align-items: center; gap: 8px; color: var(--ink); background: var(--surface-subtle); font-size: var(--text-sm); font-weight: 500; }
+.inspector-section-header { min-height: 32px; padding: 8px 16px; display: flex; align-items: center; gap: 8px; color: var(--ink); background: var(--surface-subtle); font-size: var(--text-sm); font-weight: 500; cursor: pointer; list-style: none; user-select: none; }
+.inspector-section-header::-webkit-details-marker { display: none; }
+.inspector-section-arrow { flex: 0 0 auto; color: var(--muted); transition: transform 160ms ease; }
+.inspector-section[open] > .inspector-section-header .inspector-section-arrow { transform: rotate(180deg); }
 .inspector-section-title { min-width: 0; display: inline-flex; align-items: center; gap: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inspector-section-meta { margin-left: auto; flex: 0 0 auto; color: var(--muted); font-size: var(--text-sm); font-weight: 400; }
 .inspector-section .content-body-wrap pre { padding: 8px 16px 14px 13px; }

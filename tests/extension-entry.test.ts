@@ -35,6 +35,7 @@ describe('Pi package extension entrypoint', () => {
         start: async () => ({ host: '127.0.0.1', port: 1, token: 'x', url: 'http://127.0.0.1:1/#token=x' }),
         stop: async () => { stopCount += 1 },
         getState: () => 'running',
+        getPanel: () => ({ host: '127.0.0.1', port: 1, token: 'x', url: 'http://127.0.0.1:1/#token=x' }),
       },
     })
     await handlers.get('session_shutdown')?.({}, {})

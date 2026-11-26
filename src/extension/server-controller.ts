@@ -26,6 +26,7 @@ export interface ServerController {
   start(cwd?: string, sessionRoot?: string): Promise<SessionViewerPanel>
   stop(): Promise<void>
   getState(): ServerControllerState
+  getPanel(cwd?: string): SessionViewerPanel | undefined
 }
 
 function defaultToken(): string {
@@ -103,7 +104,7 @@ export function createServerController(options: ServerControllerOptions): Server
           try {
             await options.openBrowser(panel.url)
           } catch {
-            // Opening a browser is best effort; the URL remains available to copy.
+            // Browser launch is best effort. The fixed Pi widget always exposes the URL.
           }
         }
         return panel
@@ -142,5 +143,8 @@ export function createServerController(options: ServerControllerOptions): Server
     start,
     stop,
     getState: () => state,
+    getPanel: (cwd?: string) => state === 'running' && server
+      ? panelFromServer(server, cwd ?? activeCwd, serverCwd)
+      : undefined,
   }
 }

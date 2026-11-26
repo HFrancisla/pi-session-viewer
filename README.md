@@ -18,11 +18,13 @@ Restart Pi or run `/reload`. The extension loads automatically and begins record
 
 ```text
 /session-viewer       # Start viewer (alias for on)
-/session-viewer on    # Start viewer and open in browser
-/session-viewer off   # Stop viewer (supplemental observation continues)
+/session-viewer on    # Start viewer and show its fixed address above the editor
+/session-viewer hide  # Hide the address without stopping the viewer
+/session-viewer show  # Show the address again
+/session-viewer off   # Stop viewer and remove the address (supplemental observation continues)
 ```
 
-- Starting the viewer opens a local tokenized dashboard in your browser.
+- Starting the viewer tries to open the local dashboard in your default browser and always keeps the tokenized URL fixed above Pi's editor as a reliable fallback.
 - Session switches (`/new`, `/resume`, `/fork`) require running `/session-viewer on` again.
 - Discover sessions directly from Pi's storage or import any `.jsonl` session file via the browser.
 
